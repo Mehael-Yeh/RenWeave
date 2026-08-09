@@ -11,6 +11,7 @@ from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID, get_provider_preset
 from .runtime import CancellationToken
+from .usage import TokenBudget, estimate_project_tokens
 
 
 @dataclass(slots=True)
@@ -144,6 +145,51 @@ COPY["en"].update({
     "progress.phase.done": "Done",
     "review.resume_found": "Recoverable work found",
     "review.resume_body": "{completed} of {total} scene checkpoints are available. RenWeave will verify them before continuing.",
+    "budget.title": "Estimated Token budget",
+    "budget.range": "{low} – {high} total tokens",
+    "budget.breakdown": "Estimated input {input_low}–{input_high} · output {output_low}–{output_high}",
+    "budget.note": "Planning range based on {scripts} script sources ({confidence} confidence). Provider retries and currency pricing are not included; the estimate is refined after indexing.",
+    "budget.unavailable": "Select a valid game to calculate a Token budget before starting.",
+    "budget.confidence.medium": "medium",
+    "budget.confidence.low": "low",
+    "budget.actual": "Provider-reported {total} · input {input} · output {output}",
+    "budget.projected": "Estimated project total {low}–{high}",
+    "budget.reporting.reported": "Usage reported by provider",
+    "budget.reporting.unavailable": "Provider did not report Token counts; actual usage may be higher",
+    "budget.reporting.pending": "Waiting for provider usage data",
+    "budget.ledger": "Detailed ledger: {path}",
+    "model.sequence": "1  Choose provider     2  Load or enter model ID     3  Verify with one minimal request",
+    "model.load_effect": "Loads the catalog; normally no model Tokens are used.",
+    "model.verify_effect": "Sends a minimal request that may bill a few Tokens.",
+    "game.safety_note": "The selected game is read-only during analysis. All caches, checkpoints, logs, and packages go to the workspace.",
+    "languages.source_hint": "Leave Auto detect unless the game intentionally mixes languages or detection is unreliable.",
+    "languages.target_hint": "Enter any language name or locale supported by the selected model. This determines the Ren'Py language directory.",
+    "dialog.copy_details": "Copy details",
+    "dialog.error_log_hint": "Translation errors also include a full traceback in the workspace diagnostic log.",
+    "tip.import_profile": "Load a saved provider JSON. The profile should not contain an API key.",
+    "tip.provider": "Switch provider presets. The previous in-memory API key is cleared for safety.",
+    "tip.endpoint": "Editable API base URL. Keep the preset unless your provider documents a different endpoint.",
+    "tip.api_key": "Used only for this session. RenWeave does not write this value to the provider profile.",
+    "tip.load_models": "Contact the /models endpoint and populate the model picker; normally no model Tokens are used.",
+    "tip.model_id": "Enter the exact API model identifier, including any provider prefix required by an aggregator.",
+    "tip.browse_models": "Open a searchable list of models returned by the provider.",
+    "tip.verify_model": "Send one minimal chat request to confirm the selected model works before continuing.",
+    "tip.game": "Choose the game root, game folder, or launcher executable. RenWeave will discover the actual game directory.",
+    "tip.workspace": "Choose an isolated writable folder for analysis, checkpoints, logs, and output. Reuse it to resume.",
+    "tip.sdk": "Optional official Ren'Py SDK used to compile-check generated scripts in isolation.",
+    "tip.back": "Return to the previous screen without discarding entered settings.",
+    "tip.continue": "Validate this screen and move to the next setup step. Translation does not start yet.",
+    "tip.start": "Save the secret-free profile and run the complete automated translation pipeline.",
+    "tip.pause": "Finish the current network request or atomic unit, save a checkpoint, then stop before the next unit.",
+    "tip.resume": "Revalidate existing checkpoints and continue only the unfinished or damaged work.",
+    "tip.copy_log": "Copy the persistent diagnostic log path to the clipboard.",
+    "tip.show_key": "Reveal the API key only while this switch is on. The key still remains memory-only.",
+    "tip.model_picker": "Choose the highlighted model ID and return it to the connection form.",
+    "footer.effect.model": "Next: choose the game. No translation request is sent yet.",
+    "footer.effect.game": "Next: choose languages. The game remains unchanged.",
+    "footer.effect.languages": "Next: review scope and the estimated Token budget.",
+    "footer.effect.review": "Starts billed model work and writes checkpoints to the workspace.",
+    "footer.effect.progress": "Pause is checkpoint-safe; closing after completion does not remove outputs.",
 })
 
 COPY["zh"].update({
@@ -189,6 +235,51 @@ COPY["zh"].update({
     "progress.phase.done": "完成",
     "review.resume_found": "发现可恢复任务",
     "review.resume_body": "已有 {completed}/{total} 个场景检查点；继续前会自动核验其完整性。",
+    "budget.title": "预计 Token 预算",
+    "budget.range": "预计总计 {low} – {high} Token",
+    "budget.breakdown": "预计输入 {input_low}–{input_high} · 输出 {output_low}–{output_high}",
+    "budget.note": "依据 {scripts} 个脚本来源估算（{confidence}置信度）。不含提供商重试和货币价格；建立索引后会更新估算。",
+    "budget.unavailable": "请选择有效游戏，以便在开始前计算 Token 预算。",
+    "budget.confidence.medium": "中等",
+    "budget.confidence.low": "较低",
+    "budget.actual": "提供商已报告 {total} · 输入 {input} · 输出 {output}",
+    "budget.projected": "预计项目总量 {low}–{high}",
+    "budget.reporting.reported": "提供商已返回 Token 用量",
+    "budget.reporting.unavailable": "提供商未返回 Token 数；实际用量可能更高",
+    "budget.reporting.pending": "正在等待提供商用量数据",
+    "budget.ledger": "详细账本：{path}",
+    "model.sequence": "1  选择提供商     2  获取或填写模型 ID     3  发送一次最小请求验证",
+    "model.load_effect": "获取模型目录，通常不会消耗模型 Token。",
+    "model.verify_effect": "发送最小请求，提供商可能计费少量 Token。",
+    "game.safety_note": "分析时游戏目录保持只读；缓存、检查点、日志和语言包全部写入工作区。",
+    "languages.source_hint": "除非游戏混合多种语言或自动识别不可靠，否则建议保留“自动检测”。",
+    "languages.target_hint": "可填写模型支持的任意语言名称或区域代码；它会决定 Ren'Py 语言目录名称。",
+    "dialog.copy_details": "复制详情",
+    "dialog.error_log_hint": "翻译流程错误还会在工作区诊断日志中保存完整堆栈。",
+    "tip.import_profile": "载入已保存的提供商 JSON；配置文件不应包含 API 密钥。",
+    "tip.provider": "切换提供商预设。为安全起见，上一提供商的内存密钥会被清空。",
+    "tip.endpoint": "可编辑的 API 基础地址；除非提供商另有说明，建议保留预设值。",
+    "tip.api_key": "仅用于当前会话；织译不会把该值写入提供商配置。",
+    "tip.load_models": "访问 /models 接口并填充模型选择器；通常不会消耗模型 Token。",
+    "tip.model_id": "填写准确的 API 模型标识；聚合平台可能要求包含提供商前缀。",
+    "tip.browse_models": "打开提供商返回模型的可搜索列表。",
+    "tip.verify_model": "发送一次最小聊天请求，确认所选模型可用后才能继续。",
+    "tip.game": "选择游戏根目录、game 文件夹或启动程序；织译会自动识别实际游戏目录。",
+    "tip.workspace": "选择独立可写目录保存分析、检查点、日志与输出；以后复用它即可继续任务。",
+    "tip.sdk": "可选的官方 Ren'Py SDK，用于在隔离环境编译检查生成脚本。",
+    "tip.back": "返回上一页，不会丢弃已经填写的设置。",
+    "tip.continue": "校验当前页面并进入下一设置步骤，此时不会开始翻译。",
+    "tip.start": "保存不含密钥的配置并运行完整自动翻译流程。",
+    "tip.pause": "完成当前网络请求或原子操作，保存检查点，并在下一单元前停止。",
+    "tip.resume": "重新核验现有检查点，只继续尚未完成或已经损坏的部分。",
+    "tip.copy_log": "把持久诊断日志路径复制到剪贴板。",
+    "tip.show_key": "仅在开关启用时显示 API 密钥；密钥仍只保留在内存中。",
+    "tip.model_picker": "采用当前高亮的模型 ID，并返回连接页面。",
+    "footer.effect.model": "下一步选择游戏；此时不会发送翻译请求。",
+    "footer.effect.game": "下一步选择语言；游戏文件不会被修改。",
+    "footer.effect.languages": "下一步确认范围并查看预计 Token 预算。",
+    "footer.effect.review": "开始可能计费的模型调用，并把检查点写入工作区。",
+    "footer.effect.progress": "暂停会安全保存检查点；完成后关闭不会删除输出。",
 })
 
 STAGE_LABELS_ZH = {
@@ -435,6 +526,74 @@ class Colors:
     WARNING_CONTAINER = "#FFF7ED"
 
 
+class GuidedTooltip:
+    """Consistent delayed help for controls whose consequences need explanation."""
+
+    def __init__(self, app: "RenWeaveDesktopApp", widget, text: str) -> None:
+        self.app = app
+        self.widget = widget
+        self.text = text
+        self.after_id = None
+        self.window = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+        widget.bind("<Destroy>", self._hide, add="+")
+
+    def _schedule(self, _event=None) -> None:
+        self._hide()
+        try:
+            self.after_id = self.widget.after(450, self._show)
+        except self.app.tk.TclError:
+            pass
+
+    def _show(self) -> None:
+        self.after_id = None
+        try:
+            if not self.widget.winfo_exists():
+                return
+            x = self.widget.winfo_rootx() + 8
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 7
+        except self.app.tk.TclError:
+            return
+        self.window = self.app.tk.Toplevel(self.widget)
+        self.window.overrideredirect(True)
+        self.window.attributes("-topmost", True)
+        shell = self.app.tk.Frame(
+            self.window,
+            background=Colors.NAV,
+            highlightbackground=Colors.NAV_ACTIVE,
+            highlightthickness=1,
+            padx=12,
+            pady=9,
+        )
+        shell.pack()
+        self.app.tk.Label(
+            shell,
+            text=self.text,
+            background=Colors.NAV,
+            foreground=Colors.NAV_TEXT,
+            font=("Segoe UI", 9),
+            justify="left",
+            wraplength=330,
+        ).pack()
+        self.window.geometry(f"+{x}+{y}")
+
+    def _hide(self, _event=None) -> None:
+        if self.after_id is not None:
+            try:
+                self.widget.after_cancel(self.after_id)
+            except self.app.tk.TclError:
+                pass
+            self.after_id = None
+        if self.window is not None:
+            try:
+                self.window.destroy()
+            except self.app.tk.TclError:
+                pass
+            self.window = None
+
+
 class MaterialDialog:
     """A consistent workspace modal used instead of platform-mixed message boxes."""
 
@@ -448,16 +607,39 @@ class MaterialDialog:
         self.window.grab_set()
         card = ttk.Frame(self.window, style="Dialog.TFrame", padding=24)
         card.grid(sticky="nsew")
-        ttk.Label(card, text=title, style="DialogTitle.TLabel").grid(row=0, column=0, sticky="w")
+        card.columnconfigure(1, weight=1)
+        tk.Label(
+            card,
+            text="!" if error else "✓",
+            background=Colors.ERROR_CONTAINER if error else Colors.SUCCESS_CONTAINER,
+            foreground=Colors.ERROR if error else Colors.SUCCESS,
+            font=("Segoe UI", 13, "bold"),
+            width=2,
+            height=1,
+        ).grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 14))
+        ttk.Label(card, text=title, style="DialogTitle.TLabel").grid(row=0, column=1, sticky="w")
         ttk.Label(
             card,
             text=body,
             style="ErrorBody.TLabel" if error else "Body.TLabel",
             wraplength=440,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(12, 24))
-        close = ttk.Button(card, text=app.t("close"), style="Primary.TButton", command=self.window.destroy)
-        close.grid(row=2, column=0, sticky="e")
+        ).grid(row=1, column=1, sticky="w", pady=(10, 8))
+        if error:
+            ttk.Label(
+                card,
+                text=app.t("dialog.error_log_hint"),
+                style="DialogHint.TLabel",
+                wraplength=440,
+                justify="left",
+            ).grid(row=2, column=1, sticky="w", pady=(0, 20))
+        actions = ttk.Frame(card, style="Dialog.TFrame")
+        actions.grid(row=3, column=0, columnspan=2, sticky="e")
+        if error:
+            copy = ttk.Button(actions, text=app.t("dialog.copy_details"), style="Ghost.TButton", command=lambda: app._copy_text(body))
+            copy.pack(side="left", padx=(0, 8))
+        close = ttk.Button(actions, text=app.t("close"), style="Primary.TButton", command=self.window.destroy)
+        close.pack(side="left")
         self.window.bind("<Escape>", lambda _event: self.window.destroy())
         self.window.bind("<Return>", lambda _event: self.window.destroy())
         self.window.protocol("WM_DELETE_WINDOW", self.window.destroy)
@@ -529,9 +711,11 @@ class ModelPickerDialog:
         footer = ttk.Frame(self.window, style="Dialog.TFrame", padding=(24, 8, 24, 22))
         footer.grid(row=2, column=0, sticky="ew")
         footer.columnconfigure(0, weight=1)
-        ttk.Button(footer, text=app.t("cancel"), style="Ghost.TButton", command=self.window.destroy).grid(row=0, column=1, padx=(0, 8))
+        cancel_button = ttk.Button(footer, text=app.t("cancel"), style="Ghost.TButton", command=self.window.destroy)
+        cancel_button.grid(row=0, column=1, padx=(0, 8))
         self.select_button = ttk.Button(footer, text=app.t("model_picker.select"), style="Primary.TButton", command=self._select)
         self.select_button.grid(row=0, column=2)
+        app._guide(self.select_button, "tip.model_picker")
         self.window.bind("<Escape>", lambda _event: self.window.destroy())
         self._populate()
         search.focus_set()
@@ -588,6 +772,8 @@ class RenWeaveDesktopApp:
         self.last_state_updated_at = ""
         self.progress_payload: dict[str, object] = {}
         self.resume_candidate: dict[str, object] | None = None
+        self.token_budget: TokenBudget | None = None
+        self.token_budget_target = ""
         self.logs: list[str] = []
         self.connection_state = "idle"
         self.connection_detail: dict[str, object] = {}
@@ -634,6 +820,39 @@ class RenWeaveDesktopApp:
     def t(self, key: str, **values: object) -> str:
         text = COPY[self.locale.get()].get(key, COPY["en"].get(key, key))
         return text.format(**values) if values else text
+
+    def _guide(self, widget, key: str):
+        GuidedTooltip(self, widget, self.t(key))
+        return widget
+
+    @staticmethod
+    def _format_token_count(value: int) -> str:
+        value = max(0, int(value))
+        if value >= 1_000_000:
+            rendered = f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".")
+            return f"{rendered}M"
+        if value >= 1_000:
+            rendered = f"{value / 1_000:.1f}".rstrip("0").rstrip(".")
+            return f"{rendered}K"
+        return f"{value:,}"
+
+    def _get_token_budget(self) -> TokenBudget | None:
+        target = self.project.get().strip()
+        if not target:
+            return None
+        try:
+            resolved = str(Path(target).expanduser().resolve())
+        except OSError:
+            return None
+        if self.token_budget is not None and self.token_budget_target == resolved:
+            return self.token_budget
+        try:
+            self.token_budget = estimate_project_tokens(resolved)
+            self.token_budget_target = resolved
+        except (OSError, ValueError, RuntimeError):
+            self.token_budget = None
+            self.token_budget_target = ""
+        return self.token_budget
 
     def _configure_styles(self) -> None:
         style = self.ttk.Style(self.root)
@@ -838,18 +1057,24 @@ class RenWeaveDesktopApp:
         return entry
 
     def _render_model(self) -> None:
-        card = self._card(padding=18)
+        card = self._card(padding=14)
         card.columnconfigure(0, weight=1)
 
         title_row = self.ttk.Frame(card, style="Card.TFrame")
         title_row.grid(row=0, column=0, sticky="ew")
         title_row.columnconfigure(0, weight=1)
         self.ttk.Label(title_row, text=self.t("provider.choose"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
-        self.ttk.Button(title_row, text=self.t("model.import"), style="Ghost.TButton", command=self._browse_provider).grid(row=0, column=1, sticky="e")
-        self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(3, 10))
+        import_button = self.ttk.Button(title_row, text=self.t("model.import"), style="Ghost.TButton", command=self._browse_provider)
+        import_button.grid(row=0, column=1, sticky="e")
+        self._guide(import_button, "tip.import_profile")
+        self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 6))
+
+        sequence = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=12, pady=5)
+        sequence.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        self.tk.Label(sequence, text=self.t("model.sequence"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x")
 
         preset_grid = self.tk.Frame(card, background=Colors.CARD)
-        preset_grid.grid(row=2, column=0, sticky="ew")
+        preset_grid.grid(row=3, column=0, sticky="ew")
         for column in range(4):
             preset_grid.columnconfigure(column, weight=1, uniform="provider")
         selected_id = self.selected_provider_id.get()
@@ -871,54 +1096,65 @@ class RenWeaveDesktopApp:
                 highlightbackground=preset.accent if selected else Colors.OUTLINE_VARIANT,
                 highlightcolor=preset.accent,
                 padx=12,
-                pady=10,
+                pady=7,
                 cursor="hand2",
             )
-            button.grid(row=index // 4, column=index % 4, sticky="ew", padx=(0 if index % 4 == 0 else 5, 0), pady=(0, 6))
+            button.grid(row=index // 4, column=index % 4, sticky="ew", padx=(0 if index % 4 == 0 else 5, 0), pady=(0, 4))
+            self._guide(button, "tip.provider")
 
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
-        selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=12, pady=9)
-        selection.grid(row=3, column=0, sticky="ew", pady=(4, 12))
+        selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=12, pady=7)
+        selection.grid(row=4, column=0, sticky="ew", pady=(2, 7))
         category = self.t(f"provider.{preset.category}")
         self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=("Segoe UI", 8, "bold"), padx=7, pady=3).pack(side="left")
         self.tk.Label(selection, text=preset.localized_description(self.locale.get()), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), anchor="w").pack(side="left", padx=(10, 0))
 
         config = self.ttk.Frame(card, style="Card.TFrame")
-        config.grid(row=4, column=0, sticky="nsew")
+        config.grid(row=5, column=0, sticky="nsew")
         config.columnconfigure(0, weight=1)
         config.columnconfigure(1, weight=1)
         left = self.ttk.Frame(config, style="Card.TFrame")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
         left.columnconfigure(0, weight=1)
-        self.ttk.Label(left, text=self.t("model.config"), style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.ttk.Label(left, text=self.t("model.config"), style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
         self.ttk.Label(left, text=self.t("model.endpoint"), style="Field.TLabel").grid(row=1, column=0, sticky="w")
         self.endpoint_box = self.ttk.Combobox(left, textvariable=self.base_url, values=preset.base_urls, style="Workspace.TCombobox")
-        self.endpoint_box.grid(row=2, column=0, sticky="ew", pady=(5, 10))
+        self.endpoint_box.grid(row=2, column=0, sticky="ew", pady=(4, 7))
+        self._guide(self.endpoint_box, "tip.endpoint")
         self.ttk.Label(left, text=self.t("model.key"), style="Field.TLabel").grid(row=3, column=0, sticky="w")
         self.api_key_entry = self.ttk.Entry(left, textvariable=self.api_key, style="Workspace.TEntry", show="" if self.show_key.get() else "•")
-        self.api_key_entry.grid(row=4, column=0, sticky="ew", pady=(5, 0))
+        self.api_key_entry.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        self._guide(self.api_key_entry, "tip.api_key")
         key_options = self.ttk.Frame(left, style="Card.TFrame")
-        key_options.grid(row=5, column=0, sticky="ew", pady=(5, 0))
+        key_options.grid(row=5, column=0, sticky="ew", pady=(3, 0))
         self.ttk.Label(key_options, text=self.t("model.key_hint"), style="Hint.TLabel").pack(side="left")
-        self.ttk.Checkbutton(key_options, text=self.t("model.show_key"), variable=self.show_key, style="Material.TCheckbutton", command=self._toggle_key).pack(side="right")
+        show_key_button = self.ttk.Checkbutton(key_options, text=self.t("model.show_key"), variable=self.show_key, style="Material.TCheckbutton", command=self._toggle_key)
+        show_key_button.pack(side="right")
+        self._guide(show_key_button, "tip.show_key")
         self.connect_button = self.ttk.Button(left, text=self.t("model.load"), style="Secondary.TButton", command=self._connect_models)
-        self.connect_button.grid(row=6, column=0, sticky="w", pady=(12, 0))
+        self.connect_button.grid(row=6, column=0, sticky="w", pady=(9, 0))
+        self._guide(self.connect_button, "tip.load_models")
+        self.ttk.Label(left, text=self.t("model.load_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=7, column=0, sticky="w", pady=(4, 0))
 
         right = self.ttk.Frame(config, style="Card.TFrame")
         right.grid(row=0, column=1, sticky="nsew", padx=(14, 0))
         right.columnconfigure(0, weight=1)
-        self.ttk.Label(right, text=self.t("model.validation"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.ttk.Label(right, text=self.t("model.validation"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 7))
         self.ttk.Label(right, text=self.t("model.model"), style="Field.TLabel").grid(row=1, column=0, columnspan=2, sticky="w")
         self.model_box = self.ttk.Entry(right, textvariable=self.model, style="Workspace.TEntry")
-        self.model_box.grid(row=2, column=0, sticky="ew", pady=(5, 0))
+        self.model_box.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self._guide(self.model_box, "tip.model_id")
         self.browse_models_button = self.ttk.Button(right, text=self.t("model.browse", count=len(self.model_choices)), style="Ghost.TButton", command=self._browse_models)
-        self.browse_models_button.grid(row=2, column=1, sticky="e", padx=(7, 0), pady=(5, 0))
+        self.browse_models_button.grid(row=2, column=1, sticky="e", padx=(7, 0), pady=(4, 0))
+        self._guide(self.browse_models_button, "tip.browse_models")
         self.ttk.Label(right, text=self.t("model.model_hint"), style="Hint.TLabel", wraplength=350, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.verify_button = self.ttk.Button(right, text=self.t("model.verify"), style="Primary.TButton", command=self._verify_model)
-        self.verify_button.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self.verify_button.grid(row=4, column=0, columnspan=2, sticky="w", pady=(9, 0))
+        self._guide(self.verify_button, "tip.verify_model")
+        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=13)
-        status_card.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
+        status_card.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(7, 0))
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
         details = dict(self.connection_detail)
         detail_key = f"model.{state_key}_body"
@@ -967,19 +1203,27 @@ class RenWeaveDesktopApp:
 
     def _render_game(self) -> None:
         card = self._card()
-        self._path_field(card, 0, self.t("game.project"), self.project, self.t("game.project_hint"), self._browse_project)
-        self._path_field(card, 3, self.t("game.workspace"), self.workspace, self.t("game.workspace_hint"), self._browse_workspace)
+        self._path_field(card, 0, self.t("game.project"), self.project, self.t("game.project_hint"), self._browse_project, "tip.game")
+        self._path_field(card, 3, self.t("game.workspace"), self.workspace, self.t("game.workspace_hint"), self._browse_workspace, "tip.workspace")
         self.ttk.Label(card, text=self.t("game.advanced"), style="Section.TLabel").grid(row=6, column=0, sticky="w", pady=(20, 8))
-        self._path_field(card, 7, self.t("game.sdk"), self.renpy_sdk, self.t("game.sdk_hint"), self._browse_sdk)
+        self._path_field(card, 7, self.t("game.sdk"), self.renpy_sdk, self.t("game.sdk_hint"), self._browse_sdk, "tip.sdk")
         self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(12, 0))
+        safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
+        safety.grid(row=11, column=0, sticky="ew", pady=(16, 0))
+        self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=("Segoe UI", 10, "bold")).pack(side="left")
+        self.tk.Label(safety, text=self.t("game.safety_note"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), wraplength=700, justify="left").pack(side="left", padx=(9, 0))
 
-    def _path_field(self, parent, row: int, label: str, variable, hint: str, command: Callable[[], None]) -> None:
+    def _path_field(self, parent, row: int, label: str, variable, hint: str, command: Callable[[], None], tooltip_key: str) -> None:
         self.ttk.Label(parent, text=label, style="Field.TLabel").grid(row=row, column=0, sticky="w")
         line = self.ttk.Frame(parent, style="Card.TFrame")
         line.grid(row=row + 1, column=0, sticky="ew", pady=(5, 0))
         line.columnconfigure(0, weight=1)
-        self.ttk.Entry(line, textvariable=variable, style="Workspace.TEntry").grid(row=0, column=0, sticky="ew")
-        self.ttk.Button(line, text=self.t("browse"), style="Secondary.TButton", command=command).grid(row=0, column=1, padx=(10, 0))
+        entry = self.ttk.Entry(line, textvariable=variable, style="Workspace.TEntry")
+        entry.grid(row=0, column=0, sticky="ew")
+        browse = self.ttk.Button(line, text=self.t("browse"), style="Secondary.TButton", command=command)
+        browse.grid(row=0, column=1, padx=(10, 0))
+        self._guide(entry, tooltip_key)
+        self._guide(browse, tooltip_key)
         self.ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
 
     def _render_languages(self) -> None:
@@ -988,11 +1232,16 @@ class RenWeaveDesktopApp:
         card.columnconfigure(1, weight=1)
         self.ttk.Label(card, text=self.t("languages.source"), style="Field.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
         source_values = ("auto",) + self.LANGUAGE_CHOICES
-        self.ttk.Combobox(card, textvariable=self.source_language, values=source_values, style="Workspace.TCombobox").grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(5, 0))
+        source = self.ttk.Combobox(card, textvariable=self.source_language, values=source_values, style="Workspace.TCombobox")
+        source.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(5, 0))
         self.ttk.Label(card, text=self.t("languages.target"), style="Field.TLabel").grid(row=0, column=1, sticky="w", padx=(12, 0))
         target = self.ttk.Combobox(card, textvariable=self.target_language, values=self.LANGUAGE_CHOICES, style="Workspace.TCombobox")
         target.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(5, 0))
         self.ttk.Label(card, text=self.t("languages.hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.ttk.Label(card, text=self.t("languages.source_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=3, column=0, sticky="nw", padx=(0, 12), pady=(16, 0))
+        self.ttk.Label(card, text=self.t("languages.target_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=3, column=1, sticky="nw", padx=(12, 0), pady=(16, 0))
+        self._guide(source, "languages.source_hint")
+        self._guide(target, "languages.target_hint")
         if not self.target_language.get():
             target.focus_set()
 
@@ -1005,18 +1254,67 @@ class RenWeaveDesktopApp:
             (self.t("review.languages"), f"{self.source_language.get() or 'auto'}  →  {self.target_language.get()}"),
             (self.t("review.options"), self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no")),
         )
-        for row, (title, body) in enumerate(summaries):
+        card.columnconfigure(0, weight=1, uniform="review")
+        card.columnconfigure(1, weight=1, uniform="review")
+        for index, (title, body) in enumerate(summaries):
             summary = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
-            summary.grid(row=row, column=0, sticky="ew", pady=(0 if row == 0 else 8, 0))
+            summary.grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="nsew",
+                padx=(0 if index % 2 == 0 else 6, 0),
+                pady=(0 if index < 2 else 8, 0),
+            )
             summary.columnconfigure(0, weight=1)
             self.ttk.Label(summary, text=title, style="Status.TLabel").grid(row=0, column=0, sticky="w")
-            self.ttk.Label(summary, text=body, style="StatusBody.TLabel", wraplength=650, justify="left").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        self.ttk.Checkbutton(card, text=self.t("review.install"), variable=self.install, style="Material.TCheckbutton").grid(row=4, column=0, sticky="w", pady=(18, 0))
-        self.ttk.Label(card, text=self.t("review.install_hint"), style="Hint.TLabel").grid(row=5, column=0, sticky="w", pady=(4, 0))
-        self.ttk.Label(card, text=self.t("review.key_safe"), style="Hint.TLabel").grid(row=6, column=0, sticky="w", pady=(14, 0))
+            self.ttk.Label(summary, text=body, style="StatusBody.TLabel", wraplength=330, justify="left").grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        budget = self._get_token_budget()
+        budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
+        budget_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        budget_card.columnconfigure(0, weight=1)
+        self.tk.Label(budget_card, text=self.t("budget.title").upper(), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+        if budget:
+            low = self._format_token_count(budget.estimated_total_low)
+            high = self._format_token_count(budget.estimated_total_high)
+            self.tk.Label(budget_card, text=self.t("budget.range", low=low, high=high), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 18, "bold"), anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.tk.Label(
+                budget_card,
+                text=self.t(
+                    "budget.breakdown",
+                    input_low=self._format_token_count(budget.estimated_input_low),
+                    input_high=self._format_token_count(budget.estimated_input_high),
+                    output_low=self._format_token_count(budget.estimated_output_low),
+                    output_high=self._format_token_count(budget.estimated_output_high),
+                ),
+                background=Colors.PRIMARY_CONTAINER,
+                foreground=Colors.ON_PRIMARY_CONTAINER,
+                font=("Segoe UI", 9, "bold"),
+                anchor="w",
+            ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+            self.tk.Label(
+                budget_card,
+                text=self.t(
+                    "budget.note",
+                    scripts=budget.script_count,
+                    confidence=self.t(f"budget.confidence.{budget.confidence}"),
+                ),
+                background=Colors.PRIMARY_CONTAINER,
+                foreground=Colors.ON_SURFACE_VARIANT,
+                font=("Segoe UI", 9),
+                wraplength=720,
+                justify="left",
+                anchor="w",
+            ).grid(row=3, column=0, sticky="w", pady=(5, 0))
+        else:
+            self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
+
+        self.ttk.Checkbutton(card, text=self.t("review.install"), variable=self.install, style="Material.TCheckbutton").grid(row=3, column=0, columnspan=2, sticky="w", pady=(16, 0))
+        self.ttk.Label(card, text=self.t("review.install_hint"), style="Hint.TLabel").grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Label(card, text=self.t("review.key_safe"), style="Hint.TLabel").grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 0))
         if self.resume_candidate:
             resume = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
-            resume.grid(row=7, column=0, sticky="ew", pady=(14, 0))
+            resume.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(12, 0))
             self.ttk.Label(resume, text=self.t("review.resume_found"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
             self.ttk.Label(
                 resume,
@@ -1090,27 +1388,58 @@ class RenWeaveDesktopApp:
             self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
             self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"), anchor="w", wraplength=175, justify="left").pack(fill="x", pady=(5, 0))
 
+        usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
+        if usage_status not in {"reported", "unavailable", "pending"}:
+            usage_status = "pending"
+        token_strip = self.tk.Frame(
+            card,
+            background=Colors.WARNING_CONTAINER if usage_status == "unavailable" else Colors.PRIMARY_CONTAINER,
+            padx=13,
+            pady=9,
+        )
+        token_strip.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        token_strip.columnconfigure(1, weight=1)
+        input_tokens = int(payload.get("total_prompt_tokens", 0) or 0)
+        output_tokens = int(payload.get("total_completion_tokens", 0) or 0)
+        estimate_low = int(payload.get("estimated_total_tokens_low", 0) or 0)
+        estimate_high = int(payload.get("estimated_total_tokens_high", 0) or 0)
+        strip_background = Colors.WARNING_CONTAINER if usage_status == "unavailable" else Colors.PRIMARY_CONTAINER
+        strip_foreground = Colors.WARNING if usage_status == "unavailable" else Colors.ON_PRIMARY_CONTAINER
+        self.tk.Label(
+            token_strip,
+            text=self.t("budget.actual", total=self._format_token_count(tokens), input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
+            background=strip_background,
+            foreground=strip_foreground,
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=0, column=0, sticky="w")
+        projected = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t("progress.estimating")
+        self.tk.Label(token_strip, text=projected, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9)).grid(row=0, column=1, sticky="w", padx=(18, 0))
+        self.tk.Label(token_strip, text=self.t(f"budget.reporting.{usage_status}"), background=strip_background, foreground=strip_foreground, font=("Segoe UI", 9, "bold")).grid(row=0, column=2, sticky="e")
+
         if self.last_stage == "paused":
             notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
-            notice.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+            notice.grid(row=5, column=0, sticky="ew", pady=(0, 12))
             self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=("Segoe UI", 9, "bold")).pack(side="left")
             self.tk.Label(notice, text=self.t("progress.paused_body"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
 
         log_header = self.ttk.Frame(card, style="Card.TFrame")
-        log_header.grid(row=5, column=0, sticky="ew")
+        log_header.grid(row=6, column=0, sticky="ew")
         log_header.columnconfigure(0, weight=1)
         self.ttk.Label(log_header, text=self.t("progress.log"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
         log_path = str(payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
-        self.ttk.Button(log_header, text=self.t("progress.copy_log"), style="Ghost.TButton", command=lambda: self._copy_text(log_path)).grid(row=0, column=1, sticky="e")
-        self.ttk.Label(card, text=self.t("progress.log_path", path=log_path), style="Hint.TLabel", wraplength=760).grid(row=6, column=0, sticky="w", pady=(2, 5))
+        copy_log = self.ttk.Button(log_header, text=self.t("progress.copy_log"), style="Ghost.TButton", command=lambda: self._copy_text(log_path))
+        copy_log.grid(row=0, column=1, sticky="e")
+        self._guide(copy_log, "tip.copy_log")
+        usage_path = str(Path(self.workspace.get().strip()) / "usage.json")
+        self.ttk.Label(card, text=f"{self.t('progress.log_path', path=log_path)}   ·   {self.t('budget.ledger', path=usage_path)}", style="Hint.TLabel", wraplength=790).grid(row=7, column=0, sticky="w", pady=(2, 5))
         log_frame = self.ttk.Frame(card, style="Card.TFrame")
-        log_frame.grid(row=7, column=0, sticky="nsew")
+        log_frame.grid(row=8, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        card.rowconfigure(7, weight=1)
+        card.rowconfigure(8, weight=1)
         self.log = self.tk.Text(
             log_frame,
-            height=7,
+            height=5,
             wrap="word",
             state="normal",
             borderwidth=1,
@@ -1131,14 +1460,24 @@ class RenWeaveDesktopApp:
         self.log.configure(state="disabled")
 
     def _render_footer(self) -> None:
+        effect = self.ttk.Label(
+            self.footer,
+            text=self.t(f"footer.effect.{self.STEPS[self.step]}"),
+            style="Hint.TLabel",
+            wraplength=560,
+            justify="left",
+        )
+        effect.grid(row=0, column=1, sticky="e", padx=(18, 18))
         if self.step > 0 and self.step < 4:
             self.back_button = self.ttk.Button(self.footer, text=self.t("back"), style="Ghost.TButton", command=lambda: self._go_to_step(self.step - 1))
             self.back_button.grid(row=0, column=0, sticky="w")
+            self._guide(self.back_button, "tip.back")
         action_text = self.t("progress.resume") if self.step == 3 and self.resume_candidate else (self.t("start") if self.step == 3 else self.t("continue"))
         if self.step < 4:
             command = self._start if self.step == 3 else self._continue
             self.next_button = self.ttk.Button(self.footer, text=action_text, style="Primary.TButton", command=command)
             self.next_button.grid(row=0, column=2, sticky="e")
+            self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
             if self.step == 3:
                 self.start_button = self.next_button
             if self.step == 0 and self.connection_state != "verified":
@@ -1148,9 +1487,12 @@ class RenWeaveDesktopApp:
             if running:
                 self.pause_button = self.ttk.Button(self.footer, text=self.t("progress.pause"), style="Secondary.TButton", command=self._request_pause)
                 self.pause_button.grid(row=0, column=2, sticky="e")
+                self._guide(self.pause_button, "tip.pause")
             elif self.last_stage in {"paused", "failed"}:
                 label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
-                self.ttk.Button(self.footer, text=label, style="Primary.TButton", command=self._start).grid(row=0, column=2, sticky="e")
+                resume_button = self.ttk.Button(self.footer, text=label, style="Primary.TButton", command=self._start)
+                resume_button.grid(row=0, column=2, sticky="e")
+                self._guide(resume_button, "tip.resume")
             else:
                 self.ttk.Button(self.footer, text=self.t("close"), style="Primary.TButton", command=self._close_window).grid(row=0, column=2, sticky="e")
 

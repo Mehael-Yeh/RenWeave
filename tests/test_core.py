@@ -292,6 +292,23 @@ class CorePipelineTests(unittest.TestCase):
             app._continue()
             self.assertEqual(app.step, 3)
             self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
+            self.assertIsNotNone(app.token_budget)
+
+            def visible_texts(widget):
+                texts = []
+                for child in widget.winfo_children():
+                    try:
+                        text = child.cget("text")
+                    except tk.TclError:
+                        text = ""
+                    if text:
+                        texts.append(str(text))
+                    texts.extend(visible_texts(child))
+                return texts
+
+            review_text = "\n".join(visible_texts(app.content))
+            self.assertIn("预计 Token 预算", review_text)
+            self.assertIn("Token", review_text)
 
             class ActiveWorker:
                 @staticmethod
@@ -311,6 +328,9 @@ class CorePipelineTests(unittest.TestCase):
                 "total_model_calls": 12,
                 "total_prompt_tokens": 1000,
                 "total_completion_tokens": 250,
+                "estimated_total_tokens_low": 12000,
+                "estimated_total_tokens_high": 18000,
+                "usage_reporting_status": "reported",
                 "current_scene_label": "chapter_two",
             }
             app.status.set("正在翻译")
@@ -318,6 +338,10 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(float(app.progress["maximum"]), 100)
             self.assertEqual(float(app.progress["value"]), 58.5)
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
+            progress_text = "\n".join(visible_texts(app.content))
+            self.assertIn("提供商已报告 1.2K", progress_text)
+            self.assertIn("预计项目总量 12.0K–18.0K", progress_text)
+            self.assertIn("提供商已返回 Token 用量", progress_text)
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)
             self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")
