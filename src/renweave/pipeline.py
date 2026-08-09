@@ -18,6 +18,7 @@ from .knowledge import DeterministicKnowledgeBuilder, KnowledgeBase
 from .models import ProjectIndex, TextChannel, TextUnit
 from .narrative import NarrativeKnowledge, NarrativeKnowledgeSynthesizer
 from .provider import ModelProfile, OpenAICompatibleGateway
+from .refinement import GlobalTranslationRefiner
 from .translation import SceneTranslator
 from .validation import TranslationValidator
 
@@ -36,6 +37,8 @@ class PipelineStage(str, Enum):
     NARRATIVE_READY = "narrative_ready"
     TRANSLATING = "translating"
     VALIDATED = "validated"
+    REFINING = "refining"
+    REFINED = "refined"
     BUILDING = "building"
     COMPLETE = "complete"
     FAILED = "failed"
@@ -59,6 +62,9 @@ class PipelineState:
     knowledge_model_calls: int = 0
     knowledge_cache_hits: int = 0
     knowledge_warnings: int = 0
+    refinement_model_calls: int = 0
+    refinement_cache_hits: int = 0
+    refinement_changes: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -75,6 +81,8 @@ class RenWeavePipeline:
         self.knowledge_path = self.workspace / "knowledge.json"
         self.narrative_path = self.workspace / "narrative-knowledge.json"
         self.knowledge_cache_dir = self.workspace / "knowledge-cache"
+        self.refinement_path = self.workspace / "refinement.json"
+        self.refinement_cache_dir = self.workspace / "refinement-cache"
         self.acquisition_path = self.workspace / "acquisition.json"
         self.decompilation_path = self.workspace / "decompilation.json"
         self.acquired_dir = self.workspace / "acquired"
@@ -215,6 +223,7 @@ class RenWeavePipeline:
         unrpyc_path: str | Path | None = None,
         allow_tool_download: bool = True,
         synthesize_knowledge: bool = True,
+        refine_translations: bool = True,
     ) -> PipelineState:
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
@@ -322,12 +331,37 @@ class RenWeavePipeline:
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
         completed_scene_ids = set(state.completed_scene_ids)
         if expected_scene_ids <= completed_scene_ids and not state.failed_scene_ids:
+            collected = self._collect_translations(state.completed_scene_ids)
+            if refine_translations:
+                state.stage = PipelineStage.REFINING
+                self._save_state(state)
+                batch_characters = 24000
+                if profile.context_window > 0:
+                    batch_characters = max(4000, min(36000, profile.context_window // 2))
+                collected, refinement = GlobalTranslationRefiner(
+                    gateway,
+                    self.refinement_cache_dir,
+                    max_batch_characters=batch_characters,
+                ).refine(
+                    index,
+                    collected,
+                    narrative,
+                    source_language=source_language,
+                    target_language=target_language,
+                )
+                self._persist_translations(index, collected)
+                atomic_write_json(self.refinement_path, refinement.to_dict())
+                state.refinement_model_calls = refinement.usage.model_calls
+                state.refinement_cache_hits = refinement.usage.cache_hits
+                state.refinement_changes = len(refinement.changes)
+                state.stage = PipelineStage.REFINED
+                self._save_state(state)
             state.stage = PipelineStage.BUILDING
             self._save_state(state)
             try:
                 manifest = RenpyTranslationEmitter().emit(
                     index,
-                    self._collect_translations(state.completed_scene_ids),
+                    collected,
                     target_language,
                     self.output_dir,
                 )
@@ -401,6 +435,24 @@ class RenWeavePipeline:
                 translations[str(text_id)] = str(translated)
         return translations
 
+    def _persist_translations(
+        self,
+        index: ProjectIndex,
+        translations: dict[str, str],
+    ) -> None:
+        for scene in index.scenes:
+            if not scene.text_units:
+                continue
+            scene_translations = {
+                unit.id: translations[unit.id]
+                for unit in scene.text_units
+                if unit.id in translations
+            }
+            atomic_write_json(self.translations_dir / f"{scene.id}.json", {
+                "scene_id": scene.id,
+                "translations": scene_translations,
+            })
+
     def _load_string_memory(
         self,
         index: ProjectIndex,
@@ -463,6 +515,9 @@ class RenWeavePipeline:
             knowledge_model_calls=0,
             knowledge_cache_hits=0,
             knowledge_warnings=0,
+            refinement_model_calls=0,
+            refinement_cache_hits=0,
+            refinement_changes=0,
         )
         self._save_state(state)
         return state
@@ -478,6 +533,9 @@ class RenWeavePipeline:
         payload.setdefault("knowledge_model_calls", 0)
         payload.setdefault("knowledge_cache_hits", 0)
         payload.setdefault("knowledge_warnings", 0)
+        payload.setdefault("refinement_model_calls", 0)
+        payload.setdefault("refinement_cache_hits", 0)
+        payload.setdefault("refinement_changes", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:

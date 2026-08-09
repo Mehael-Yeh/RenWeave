@@ -25,6 +25,7 @@ from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile
+from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
 
@@ -406,6 +407,71 @@ class CorePipelineTests(unittest.TestCase):
         self.assertGreaterEqual(state.knowledge_model_calls, 1)
         self.assertTrue((workspace / "narrative-knowledge.json").is_file())
 
+    def test_run_applies_global_refinement_before_build(self) -> None:
+        project = Path(self.temp.name) / "RefineGame"
+        game = project / "game"
+        game.mkdir(parents=True)
+        game.joinpath("script.rpy").write_text(
+            'label start:\n'
+            '    eve "Moon Key"\n'
+            '    eve "Second."\n'
+            '    eve "Third."\n'
+            '    eve "Moon Key"\n'
+            '    eve "Fifth."\n'
+            '    eve "Sixth."\n',
+            encoding="utf-8",
+        )
+
+        class PipelineRefinementGateway:
+            def __init__(self):
+                self.profile = ModelProfile(
+                    name="pipeline-refine",
+                    model="fake-pipeline-refine",
+                    base_url="https://example.invalid",
+                )
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                if "candidates" in request:
+                    payload = {
+                        "corrections": [
+                            {"id": item["text_id"], "text": "Mondschlüssel", "reason": "Consistency"}
+                            for item in request["candidates"]
+                            if item["source"] == "Moon Key"
+                        ],
+                        "observations": [],
+                    }
+                else:
+                    seen = 0
+                    rows = []
+                    for line in request["scene"]["lines"]:
+                        if line["source"] == "Moon Key":
+                            seen += 1
+                            translated = "Mondschlüssel" if seen == 1 else "Mond-Schlüssel"
+                        else:
+                            translated = f"DE: {line['source']}"
+                        rows.append({"id": line["id"], "text": translated})
+                    payload = {"translations": rows}
+                return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+        workspace = Path(self.temp.name) / "pipeline-refine-workspace"
+        state = RenWeavePipeline(workspace).translate(
+            project,
+            "en",
+            "de",
+            ModelProfile(
+                name="pipeline-refine",
+                model="fake-pipeline-refine",
+                base_url="https://example.invalid",
+            ),
+            gateway=PipelineRefinementGateway(),
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(state.refinement_changes, 1)
+        self.assertTrue((workspace / "refinement.json").is_file())
+        generated = Path(state.output_dir, "script.rpy").read_text(encoding="utf-8")
+        self.assertEqual(generated.count('eve "Mondschlüssel"'), 2)
+
     def test_unrpyc_adapter_stages_and_decompiles_without_touching_source(self) -> None:
         compiled_root = Path(self.temp.name) / "compiled"
         compiled_root.mkdir()
@@ -506,6 +572,70 @@ class CorePipelineTests(unittest.TestCase):
         self.assertIn("North Tower", context.world_context)
         self.assertEqual(context.character_profiles[0]["role"], "Investigator")
         self.assertEqual(context.term_hints[0]["source"], "Moon Key")
+
+    def test_global_refinement_reviews_only_risk_candidates_and_caches(self) -> None:
+        risk_script = '''label risk:
+    eve "Moon Key"
+    eve "A second line."
+    eve "A third line."
+    eve "Moon Key"
+    eve "A fifth line."
+    eve "A sixth line."
+'''
+        (self.game / "risk.rpy").write_text(risk_script, encoding="utf-8")
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"DE: {unit.source}" for unit in index.text_units}
+        repeated = [unit for unit in index.text_units if unit.source == "Moon Key"]
+        translations[repeated[0].id] = "Mondschlüssel"
+        translations[repeated[1].id] = "Mond-Schlüssel"
+
+        class RefinementGateway:
+            def __init__(self):
+                self.profile = ModelProfile(
+                    name="refine",
+                    model="fake-refine",
+                    base_url="https://example.invalid",
+                )
+                self.calls = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                self.calls += 1
+                request = json.loads(messages[-1]["content"])
+                corrections = [
+                    {"id": item["text_id"], "text": "Mondschlüssel", "reason": "Consistent term"}
+                    for item in request["candidates"]
+                    if item["source"] == "Moon Key"
+                ]
+                return {
+                    "choices": [{"message": {"content": json.dumps({
+                        "corrections": corrections,
+                        "observations": ["Term normalized."],
+                    })}}],
+                    "usage": {"prompt_tokens": 80, "completion_tokens": 20},
+                }
+
+        gateway = RefinementGateway()
+        cache = Path(self.temp.name) / "refinement-cache"
+        refined, report = GlobalTranslationRefiner(gateway, cache).refine(
+            index,
+            translations,
+            None,
+            source_language="en",
+            target_language="de",
+        )
+        calls = gateway.calls
+        _refined_again, cached_report = GlobalTranslationRefiner(gateway, cache).refine(
+            index,
+            translations,
+            None,
+            source_language="en",
+            target_language="de",
+        )
+        self.assertEqual(gateway.calls, calls)
+        self.assertGreaterEqual(cached_report.usage.cache_hits, 1)
+        self.assertEqual({refined[unit.id] for unit in repeated}, {"Mondschlüssel"})
+        self.assertEqual(len(report.changes), 1)
+        self.assertGreaterEqual(report.candidates_reviewed, 2)
 
     def test_pipeline_automatically_indexes_decompiled_rpyc(self) -> None:
         project = Path(self.temp.name) / "CompiledGame"

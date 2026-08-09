@@ -15,7 +15,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.4.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.5.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     analyze = commands.add_parser("analyze", help="识别并分析一个 Ren'Py 项目，不调用 AI")
@@ -34,6 +34,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
     run.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
     run.add_argument("--no-ai-knowledge", action="store_true", help="跳过 AI 剧情知识提炼，仅使用零 Token 证据层")
+    run.add_argument("--no-refine", action="store_true", help="跳过跨场景风险审计与 AI 精修")
     run.add_argument("--limit", type=int, default=0, help="开发时限制翻译场景数；0 表示全部")
     run.add_argument(
         "--repair-attempts",
@@ -151,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
             unrpyc_path=args.unrpyc,
             allow_tool_download=not args.no_tool_download,
             synthesize_knowledge=not args.no_ai_knowledge,
+            refine_translations=not args.no_refine,
         )
         print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
         return 0 if not state.failed_scene_ids else 2
