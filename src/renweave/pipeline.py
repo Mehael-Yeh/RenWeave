@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
+import hashlib
 from pathlib import Path
 
 from .acquisition import ArchiveAcquirer
 from .context import ContextPlanner
+from .decompiler import DecompilationError, DecompilationManifest, UnrpycDecompiler, UnrpycToolManager
 from .discovery import ProjectDiscovery
 from .emitter import RenpyTranslationEmitter, normalize_renpy_language
 from .indexer import ProjectIndexer
@@ -26,6 +28,7 @@ class PipelineStage(str, Enum):
     CREATED = "created"
     DISCOVERED = "discovered"
     ACQUIRED = "acquired"
+    DECOMPILED = "decompiled"
     INDEXED = "indexed"
     KNOWLEDGE_READY = "knowledge_ready"
     TRANSLATING = "translating"
@@ -49,6 +52,7 @@ class PipelineState:
     renpy_language: str = ""
     output_dir: str = ""
     installed_dir: str = ""
+    project_fingerprint: str = ""
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -64,7 +68,10 @@ class RenWeavePipeline:
         self.index_path = self.workspace / "project-index.json"
         self.knowledge_path = self.workspace / "knowledge.json"
         self.acquisition_path = self.workspace / "acquisition.json"
+        self.decompilation_path = self.workspace / "decompilation.json"
         self.acquired_dir = self.workspace / "acquired"
+        self.decompiled_dir = self.workspace / "decompiled"
+        self.tools_dir = self.workspace / "tools"
         self.translations_dir = self.workspace / "translations"
         self.reports_dir = self.workspace / "reports"
         self.output_dir = self.workspace / "output"
@@ -75,12 +82,18 @@ class RenWeavePipeline:
         *,
         source_language: str = "auto",
         target_language: str = "und",
+        unrpyc_path: str | Path | None = None,
+        allow_tool_download: bool = True,
     ) -> tuple[ProjectIndex, KnowledgeBase]:
         resolved_target = str(Path(target).expanduser().resolve())
+        project = ProjectDiscovery().discover(target)
+        project_fingerprint = self._project_fingerprint(project)
         if self.state_path.is_file() and self.index_path.is_file() and self.knowledge_path.is_file():
             existing = self._load_state()
             if (
-                existing.project_target == resolved_target
+                existing.schema_version >= 2
+                and existing.project_target == resolved_target
+                and existing.project_fingerprint == project_fingerprint
                 and existing.source_language == source_language
                 and existing.target_language == target_language
                 and existing.stage not in {PipelineStage.CREATED, PipelineStage.DISCOVERED, PipelineStage.FAILED}
@@ -89,18 +102,32 @@ class RenWeavePipeline:
                     ProjectIndex.from_dict(read_json(self.index_path)),
                     KnowledgeBase.from_dict(read_json(self.knowledge_path)),
                 )
-        state = self._new_state(target, source_language, target_language)
+        state = self._new_state(
+            target,
+            source_language,
+            target_language,
+            project_fingerprint=project_fingerprint,
+        )
         try:
             state.stage = PipelineStage.DISCOVERED
             self._save_state(state)
-            project = ProjectDiscovery().discover(target)
             acquisition = ArchiveAcquirer().acquire(project, self.acquired_dir, scripts_only=True)
             atomic_write_json(self.acquisition_path, acquisition.to_dict())
             state.stage = PipelineStage.ACQUIRED
             self._save_state(state)
+            decompilation = self._decompile_roots(
+                [Path(project.game_dir), *acquisition.source_roots],
+                unrpyc_path=unrpyc_path,
+                allow_tool_download=allow_tool_download,
+            )
+            state.stage = PipelineStage.DECOMPILED
+            self._save_state(state)
             index = ProjectIndexer().build(
                 target,
-                additional_source_roots=acquisition.source_roots,
+                additional_source_roots=[
+                    *acquisition.source_roots,
+                    *decompilation.output_roots,
+                ],
             )
             atomic_write_json(self.index_path, index.to_dict())
             state.stage = PipelineStage.INDEXED
@@ -116,6 +143,55 @@ class RenWeavePipeline:
             self._save_state(state)
             raise
 
+    def decompile(
+        self,
+        target: str | Path,
+        *,
+        unrpyc_path: str | Path | None = None,
+        allow_tool_download: bool = True,
+    ) -> DecompilationManifest:
+        project = ProjectDiscovery().discover(target)
+        acquisition = ArchiveAcquirer().acquire(project, self.acquired_dir, scripts_only=True)
+        atomic_write_json(self.acquisition_path, acquisition.to_dict())
+        return self._decompile_roots(
+            [Path(project.game_dir), *acquisition.source_roots],
+            unrpyc_path=unrpyc_path,
+            allow_tool_download=allow_tool_download,
+        )
+
+    def _decompile_roots(
+        self,
+        source_roots: list[Path],
+        *,
+        unrpyc_path: str | Path | None,
+        allow_tool_download: bool,
+    ) -> DecompilationManifest:
+        if self._requires_decompilation(source_roots):
+            entrypoint = UnrpycToolManager(self.tools_dir).resolve(
+                unrpyc_path,
+                allow_download=allow_tool_download,
+            )
+            try:
+                manifest = UnrpycDecompiler(entrypoint).decompile(
+                    source_roots,
+                    self.decompiled_dir,
+                )
+            except DecompilationError as exc:
+                if exc.manifest is not None:
+                    atomic_write_json(self.decompilation_path, exc.manifest.to_dict())
+                raise
+        else:
+            manifest = DecompilationManifest(
+                schema_version=1,
+                tool="not-required",
+                tool_version="",
+                output_roots=[],
+                skipped_with_source=[],
+                files=[],
+            )
+        atomic_write_json(self.decompilation_path, manifest.to_dict())
+        return manifest
+
     def translate(
         self,
         target: str | Path,
@@ -128,6 +204,8 @@ class RenWeavePipeline:
         install: bool = False,
         overwrite_existing: bool = False,
         repair_attempts: int = 2,
+        unrpyc_path: str | Path | None = None,
+        allow_tool_download: bool = True,
     ) -> PipelineState:
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
@@ -135,6 +213,8 @@ class RenWeavePipeline:
             target,
             source_language=source_language,
             target_language=target_language,
+            unrpyc_path=unrpyc_path,
+            allow_tool_download=allow_tool_download,
         )
         state = self._load_state()
         state.stage = PipelineStage.TRANSLATING
@@ -330,9 +410,11 @@ class RenWeavePipeline:
         target: str | Path,
         source_language: str,
         target_language: str,
+        *,
+        project_fingerprint: str,
     ) -> PipelineState:
         state = PipelineState(
-            schema_version=1,
+            schema_version=2,
             project_target=str(Path(target).expanduser().resolve()),
             source_language=source_language,
             target_language=target_language,
@@ -344,6 +426,7 @@ class RenWeavePipeline:
             if target_language.casefold() != "und"
             else "",
             installed_dir="",
+            project_fingerprint=project_fingerprint,
         )
         self._save_state(state)
         return state
@@ -355,6 +438,7 @@ class RenWeavePipeline:
         payload.setdefault("renpy_language", "")
         payload.setdefault("output_dir", "")
         payload.setdefault("installed_dir", "")
+        payload.setdefault("project_fingerprint", "")
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
@@ -364,3 +448,34 @@ class RenWeavePipeline:
     @staticmethod
     def _now() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _requires_decompilation(source_roots: list[Path]) -> bool:
+        suffixes = {".rpyc": ".rpy", ".rpymc": ".rpym"}
+        for root in source_roots:
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*"):
+                source_suffix = suffixes.get(path.suffix.casefold())
+                if source_suffix and path.is_file() and not path.with_suffix(source_suffix).is_file():
+                    return True
+        return False
+
+    @staticmethod
+    def _project_fingerprint(project) -> str:
+        digest = hashlib.sha256()
+        game_dir = Path(project.game_dir)
+        digest.update(str(game_dir).encode("utf-8"))
+        for kind, paths in (
+            ("source", project.source_scripts),
+            ("compiled", project.compiled_scripts),
+            ("archive", project.archives),
+        ):
+            for relative in paths:
+                path = game_dir / relative
+                stat = path.stat()
+                digest.update(kind.encode("ascii"))
+                digest.update(relative.encode("utf-8"))
+                digest.update(str(stat.st_size).encode("ascii"))
+                digest.update(str(stat.st_mtime_ns).encode("ascii"))
+        return digest.hexdigest()

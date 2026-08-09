@@ -13,8 +13,8 @@ class ProjectDiscovery:
     def discover(self, target: str | Path) -> ProjectInfo:
         path = Path(target).expanduser().resolve()
         project_root, game_dir = self._resolve(path)
-        source_scripts = self._files(game_dir, "*.rpy", exclude_tl=True)
-        compiled_scripts = self._files(game_dir, "*.rpyc", exclude_tl=True)
+        source_scripts = self._files_many(game_dir, ("*.rpy", "*.rpym"), exclude_tl=True)
+        compiled_scripts = self._files_many(game_dir, ("*.rpyc", "*.rpymc"), exclude_tl=True)
         archives = self._files(game_dir, "*.rpa", exclude_tl=False)
         tl_dir = game_dir / "tl"
         languages = sorted(
@@ -42,7 +42,13 @@ class ProjectDiscovery:
             return path.parent, path
         if (path / "game").is_dir():
             return path, path / "game"
-        if any(path.glob("*.rpy")) or any(path.glob("*.rpyc")) or any(path.glob("*.rpa")):
+        if (
+            any(path.glob("*.rpy"))
+            or any(path.glob("*.rpym"))
+            or any(path.glob("*.rpyc"))
+            or any(path.glob("*.rpymc"))
+            or any(path.glob("*.rpa"))
+        ):
             return path.parent, path
         raise ProjectDiscoveryError(f"未找到 game 目录或 Ren'Py 脚本：{path}")
 
@@ -54,6 +60,19 @@ class ProjectDiscovery:
                 continue
             result.append(item)
         return sorted(result, key=lambda item: item.as_posix().casefold())
+
+    @classmethod
+    def _files_many(
+        cls,
+        game_dir: Path,
+        patterns: tuple[str, ...],
+        *,
+        exclude_tl: bool,
+    ) -> list[Path]:
+        result = []
+        for pattern in patterns:
+            result.extend(cls._files(game_dir, pattern, exclude_tl=exclude_tl))
+        return sorted(set(result), key=lambda item: item.as_posix().casefold())
 
     @staticmethod
     def _version(project_root: Path) -> str:

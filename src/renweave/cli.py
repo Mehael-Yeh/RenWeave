@@ -15,13 +15,15 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.2.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.3.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     analyze = commands.add_parser("analyze", help="识别并分析一个 Ren'Py 项目，不调用 AI")
     analyze.add_argument("target", help="游戏根目录、game 目录或游戏程序")
     analyze.add_argument("--workspace", required=True, help="RenWeave 独立工作目录")
     analyze.add_argument("--source-language", default="auto", help="源语言代码或名称；默认自动识别")
+    analyze.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
+    analyze.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
 
     run = commands.add_parser("run", help="执行场景级翻译流水线")
     run.add_argument("target", help="游戏根目录、game 目录或游戏程序")
@@ -29,6 +31,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--provider", required=True, help="模型配置 JSON")
     run.add_argument("--source-language", default="auto", help="源语言代码或名称；默认自动识别")
     run.add_argument("--target-language", required=True, help="任意目标语言代码或名称，例如 es-ES、ja、Deutsch")
+    run.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
+    run.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
     run.add_argument("--limit", type=int, default=0, help="开发时限制翻译场景数；0 表示全部")
     run.add_argument(
         "--repair-attempts",
@@ -52,6 +56,12 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="安装时允许覆盖不是由 RenWeave 生成的同名文件",
     )
+
+    decompile = commands.add_parser("decompile", help="解包并反编译项目中缺少 RPY 源码的 RPYC/RPYMC")
+    decompile.add_argument("target", help="游戏根目录、game 目录或游戏程序")
+    decompile.add_argument("--workspace", required=True, help="RenWeave 独立工作目录")
+    decompile.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
+    decompile.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
 
     provider = commands.add_parser("provider-check", help="离线检查模型配置")
     provider.add_argument("config", help="模型配置 JSON")
@@ -88,10 +98,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         pipeline = RenWeavePipeline(args.workspace)
+        if args.command == "decompile":
+            manifest = pipeline.decompile(
+                args.target,
+                unrpyc_path=args.unrpyc,
+                allow_tool_download=not args.no_tool_download,
+            )
+            print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
+            return 0
+
         if args.command == "analyze":
             index, knowledge = pipeline.analyze(
                 args.target,
                 source_language=args.source_language,
+                unrpyc_path=args.unrpyc,
+                allow_tool_download=not args.no_tool_download,
             )
             print(json.dumps({
                 "project": index.project.name,
@@ -126,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
             install=args.install,
             overwrite_existing=args.overwrite_existing,
             repair_attempts=max(0, args.repair_attempts),
+            unrpyc_path=args.unrpyc,
+            allow_tool_download=not args.no_tool_download,
         )
         print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
         return 0 if not state.failed_scene_ids else 2

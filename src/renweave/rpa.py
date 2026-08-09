@@ -263,4 +263,4 @@ class RpaArchive:
 
 def script_member(name: str) -> bool:
     suffix = PurePosixPath(name.replace("\\", "/")).suffix.casefold()
-    return suffix in {".rpy", ".rpyc", ".py", ".pyc"}
+    return suffix in {".rpy", ".rpyc", ".rpym", ".rpymc", ".py", ".pyc"}

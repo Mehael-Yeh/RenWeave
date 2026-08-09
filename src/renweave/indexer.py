@@ -30,7 +30,8 @@ class ProjectIndexer:
             source_root = Path(raw_root).expanduser().resolve()
             if not source_root.is_dir():
                 continue
-            for path in sorted(source_root.rglob("*.rpy"), key=lambda item: item.as_posix().casefold()):
+            paths = list(source_root.rglob("*.rpy")) + list(source_root.rglob("*.rpym"))
+            for path in sorted(set(paths), key=lambda item: item.as_posix().casefold()):
                 script, parsed_scenes = self.parser.parse_file(
                     path,
                     source_root,

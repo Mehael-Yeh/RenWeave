@@ -2,13 +2,22 @@ from __future__ import annotations
 
 import json
 import hashlib
+import io
 import pickle
 import tempfile
 import unittest
 import zlib
+import zipfile
 from pathlib import Path
 
 from renweave.context import ContextPlanner
+from renweave.decompiler import (
+    UNRPYC_ARCHIVE_SHA256,
+    UNRPYC_COMMIT,
+    DecompilationError,
+    UnrpycDecompiler,
+    UnrpycToolManager,
+)
 from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
 from renweave.indexer import ProjectIndexer
 from renweave.installer import TranslationInstaller
@@ -129,6 +138,16 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue((workspace / "knowledge.json").is_file())
         state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(state["stage"], str(PipelineStage.KNOWLEDGE_READY))
+
+    def test_analysis_cache_invalidates_when_project_scripts_change(self) -> None:
+        workspace = Path(self.temp.name) / "fingerprint-workspace"
+        pipeline = RenWeavePipeline(workspace)
+        first, _ = pipeline.analyze(self.root)
+        with (self.game / "script.rpy").open("a", encoding="utf-8", newline="\n") as writer:
+            writer.write('\nlabel added_later:\n    "A newly added line."\n')
+        second, _ = pipeline.analyze(self.root)
+        self.assertEqual(len(second.scenes), len(first.scenes) + 1)
+        self.assertIn("added_later", {scene.label for scene in second.scenes})
 
     def test_rpa3_safe_selective_extraction(self) -> None:
         archive_path = self.root / "game" / "scripts.rpa"
@@ -341,6 +360,109 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.stage, PipelineStage.COMPLETE)
         self.assertEqual(gateway.initial_calls, 3)
         self.assertEqual(gateway.repair_calls, 1)
+
+    def test_unrpyc_adapter_stages_and_decompiles_without_touching_source(self) -> None:
+        compiled_root = Path(self.temp.name) / "compiled"
+        compiled_root.mkdir()
+        compiled = compiled_root / "route.rpyc"
+        compiled.write_bytes(b"compiled-placeholder")
+        tool = self._write_fake_unrpyc()
+        output = Path(self.temp.name) / "decompiled"
+        manifest = UnrpycDecompiler(tool).decompile([compiled_root], output)
+        self.assertEqual(len(manifest.files), 1)
+        recovered = Path(manifest.files[0].output_path)
+        self.assertTrue(recovered.is_file())
+        self.assertIn("label recovered", recovered.read_text(encoding="utf-8"))
+        self.assertFalse((compiled_root / "route.rpy").exists())
+
+    def test_pipeline_automatically_indexes_decompiled_rpyc(self) -> None:
+        project = Path(self.temp.name) / "CompiledGame"
+        game = project / "game"
+        game.mkdir(parents=True)
+        (game / "route.rpyc").write_bytes(b"compiled-placeholder")
+        workspace = Path(self.temp.name) / "compiled-workspace"
+        index, _knowledge = RenWeavePipeline(workspace).analyze(
+            project,
+            unrpyc_path=self._write_fake_unrpyc(),
+            allow_tool_download=False,
+        )
+        self.assertEqual([scene.label for scene in index.scenes], ["recovered"])
+        manifest = json.loads((workspace / "decompilation.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(manifest["files"]), 1)
+        self.assertEqual(manifest["tool_version"], "2.0.2")
+
+    def test_unrpyc_download_can_be_disabled(self) -> None:
+        manager = UnrpycToolManager(Path(self.temp.name) / "empty-tools")
+        with self.assertRaises(DecompilationError):
+            manager.resolve(allow_download=False)
+
+    def test_failed_decompilation_keeps_diagnostic_manifest(self) -> None:
+        project = Path(self.temp.name) / "BrokenCompiledGame"
+        game = project / "game"
+        game.mkdir(parents=True)
+        (game / "broken.rpyc").write_bytes(b"broken")
+        tool_dir = Path(self.temp.name) / "nonproducing-unrpyc"
+        tool_dir.mkdir()
+        tool = tool_dir / "unrpyc.py"
+        tool.write_text("# deliberately produces no output\n", encoding="utf-8")
+        workspace = Path(self.temp.name) / "broken-workspace"
+        with self.assertRaises(DecompilationError):
+            RenWeavePipeline(workspace).decompile(
+                project,
+                unrpyc_path=tool,
+                allow_tool_download=False,
+            )
+        diagnostics = json.loads((workspace / "decompilation.json").read_text(encoding="utf-8"))
+        self.assertEqual(diagnostics["files"], [])
+        self.assertIn("nonproducing-unrpyc", diagnostics["tool"])
+
+    def test_unrpyc_tool_archive_rejects_path_traversal(self) -> None:
+        payload = io.BytesIO()
+        with zipfile.ZipFile(payload, "w") as archive:
+            archive.writestr("unrpyc-root/../escape.py", "bad")
+        with self.assertRaises(DecompilationError):
+            UnrpycToolManager._extract_verified(
+                payload.getvalue(),
+                Path(self.temp.name) / "unsafe-tool",
+            )
+
+    def test_cached_unrpyc_install_detects_tampering(self) -> None:
+        manager = UnrpycToolManager(Path(self.temp.name) / "verified-tools")
+        manager.install_dir.mkdir(parents=True)
+        (manager.install_dir / "unrpyc.py").write_text("print('ok')\n", encoding="utf-8")
+        dependency = manager.install_dir / "decompiler.py"
+        dependency.write_text("VALUE = 1\n", encoding="utf-8")
+        (manager.install_dir / "renweave-source.json").write_text(
+            json.dumps({
+                "commit": UNRPYC_COMMIT,
+                "archive_sha256": UNRPYC_ARCHIVE_SHA256,
+                "tree_sha256": manager._tree_digest(manager.install_dir),
+            }),
+            encoding="utf-8",
+        )
+        self.assertTrue(manager.resolve(allow_download=False).is_file())
+        dependency.write_text("VALUE = 2\n", encoding="utf-8")
+        with self.assertRaises(DecompilationError):
+            manager.resolve(allow_download=False)
+
+    def _write_fake_unrpyc(self) -> Path:
+        tool_dir = Path(self.temp.name) / "fake-unrpyc"
+        tool_dir.mkdir(exist_ok=True)
+        entrypoint = tool_dir / "unrpyc.py"
+        entrypoint.write_text(
+            "from pathlib import Path\n"
+            "import sys\n"
+            "for raw in sys.argv[1:]:\n"
+            "    path = Path(raw)\n"
+            "    if path.suffix.lower() == '.rpyc':\n"
+            "        path.with_suffix('.rpy').write_text(\n"
+            "            'label recovered:\\n    eve \\\"Recovered dialogue.\\\"\\n', encoding='utf-8')\n"
+            "    elif path.suffix.lower() == '.rpymc':\n"
+            "        path.with_suffix('.rpym').write_text(\n"
+            "            'label recovered_module:\\n    \\\"Recovered module.\\\"\\n', encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        return entrypoint
 
 
 if __name__ == "__main__":

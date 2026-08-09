@@ -4,14 +4,16 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.2.0 Build
+## 当前里程碑：0.3.0 Decompile
 
 首个可运行核心已经实现：
 
 - 从游戏根目录、`game` 目录或游戏程序识别 Ren'Py 项目。
 - 安全读取并解包 RPA 2.0、3.0、3.2；受限反序列化索引并阻止路径穿越。
 - 一键分析时只从 RPA 采集脚本类文件，避免无意义复制大型图片和音频资源。
-- 发现 `.rpy`、`.rpyc`、`.rpa` 和已有 `game/tl/<language>`，并从源剧情索引中排除旧译文。
+- 发现 `.rpy`、`.rpym`、`.rpyc`、`.rpymc`、`.rpa` 和已有 `game/tl/<language>`，并从源剧情索引中排除旧译文。
+- 自动识别缺少对应源码的 `.rpyc` / `.rpymc`，在独立工作区中反编译并纳入场景索引。
+- 按需下载固定提交的 unrpyc 2.0.2，验证 SHA-256，并限制下载体积、解压体积和归档路径。
 - 保留源文件哈希、编码、BOM 和换行信息。
 - 将 `.rpy` 解析为稳定的场景与文本中间表示：对白、旁白、菜单和 `_()` UI 文本。
 - 建立 `call`、`jump` 和文件内自然延续剧情边。
@@ -28,7 +30,7 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 在完整翻译通过校验后自动生成 `output/game/tl/<language>` 可安装目录。
 - 可选一键安装；默认拒绝覆盖非 RenWeave 创建的同名翻译文件。
 
-当前版本尚未接入 RPYC 反编译、AI 剧情时间线分析、跨场景全局精修、Ren'Py 编译校验和最终 RPA 构建。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
+当前版本尚未接入 AI 剧情时间线分析、跨场景全局精修、Ren'Py 编译校验和最终 RPA 构建。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -38,6 +40,7 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 python -m unittest discover -s tests -v
 python -m renweave analyze "D:\Games\Example" --workspace "D:\RenWeaveWork\Example"
 python -m renweave unpack "D:\Games\Example\game\scripts.rpa" --output "D:\UnpackedScripts" --scripts-only
+python -m renweave decompile "D:\Games\Example" --workspace "D:\RenWeaveWork\Example"
 ```
 
 使用源码目录直接运行时：
@@ -69,6 +72,8 @@ python -m renweave build --workspace "D:\RenWeaveWork\Example" --install
 
 目标语言没有内置白名单：可以使用 Ren'Py 目录标识、BCP 47 风格代码或模型能够理解的语言名称。`zh_hans` 只是简体中文项目可选的目标标识之一，不是产品默认值。目标名称会被转换为可用作 Ren'Py 标识符的运行时语言名。
 
+当项目只有编译脚本时，`analyze` 和 `run` 会自动获取并运行固定版本的 [unrpyc](https://github.com/CensoredUsername/unrpyc)。使用 `--no-tool-download` 可强制离线；也可用 `--unrpyc D:\Tools\unrpyc.py` 或环境变量 `RENWEAVE_UNRPYC` 指定已有工具。反编译在隔离子进程和工作区副本中执行，不会把 `.rpy` 写回原游戏。由于 RPYC 本质上包含序列化数据，仍应只处理来源可信的游戏文件。
+
 ## 工作区产物
 
 ```text
@@ -76,6 +81,9 @@ workspace/
 ├── state.json
 ├── acquisition.json
 ├── acquired/
+├── decompilation.json
+├── decompiled/
+├── tools/                    # 仅在按需获取 unrpyc 后生成
 ├── project-index.json
 ├── knowledge.json
 ├── translations/
