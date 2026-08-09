@@ -3,12 +3,15 @@
 from .models import ProjectIndex, Scene, TextUnit
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelProfile
+from .provider_presets import PROVIDER_PRESETS, ProviderPreset
 
 __all__ = [
     "ModelProfile",
+    "PROVIDER_PRESETS",
     "PipelineStage",
     "PipelineState",
     "ProjectIndex",
+    "ProviderPreset",
     "RenWeavePipeline",
     "Scene",
     "TextUnit",

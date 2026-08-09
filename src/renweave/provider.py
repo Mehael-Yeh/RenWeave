@@ -44,6 +44,7 @@ class ModelProfile:
     name: str
     model: str
     base_url: str
+    provider_id: str = "custom"
     api_key_env: str = ""
     api_key: str = ""
     timeout_seconds: int = 120
@@ -69,6 +70,8 @@ class ModelProfile:
             raise ValueError("Provider name is required")
         if not isinstance(self.base_url, str) or not self.base_url.startswith(("http://", "https://")):
             raise ValueError("Base URL must be an HTTP(S) address")
+        if not isinstance(self.provider_id, str) or not self.provider_id.strip():
+            raise ValueError("provider_id is required")
         parsed = urllib.parse.urlsplit(self.base_url)
         if not parsed.netloc:
             raise ValueError("Base URL must include a host")
@@ -100,6 +103,7 @@ class ModelProfile:
             "name": self.name.strip(),
             "model": self.model.strip(),
             "base_url": self.base_url.rstrip("/"),
+            "provider_id": self.provider_id.strip(),
             "api_key_env": self.api_key_env.strip(),
             "timeout_seconds": self.timeout_seconds,
             "context_window": self.context_window,
@@ -175,7 +179,8 @@ class OpenAICompatibleCatalog:
                 {"role": "system", "content": "You are an API health check."},
                 {"role": "user", "content": 'Return only {"ok":true}.'},
             ],
-            temperature=0,
+            # MiniMax and several compatible providers reject a literal zero.
+            temperature=0.1,
         )
         # A syntactically valid chat response proves that the selected model can be called.
         if not isinstance(response.get("choices"), list) or not response["choices"]:

@@ -42,6 +42,7 @@ from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile, OpenAICompatibleCatalog
+from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
@@ -746,6 +747,39 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(payload["base_url"], "https://models.example/v1")
         self.assertNotIn("api_key", payload)
         self.assertNotIn("never-write-this", target.read_text(encoding="utf-8"))
+
+    def test_provider_presets_cover_required_official_and_aggregator_apis(self) -> None:
+        required = {"openai", "google", "anthropic", "deepseek", "minimax", "openrouter", "custom"}
+        self.assertTrue(required.issubset(PROVIDER_PRESETS_BY_ID))
+        self.assertEqual(get_provider_preset("openai").base_url, "https://api.openai.com/v1")
+        self.assertEqual(
+            get_provider_preset("google").base_url,
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+        )
+        self.assertEqual(get_provider_preset("anthropic").base_url, "https://api.anthropic.com/v1")
+        self.assertEqual(get_provider_preset("deepseek").base_url, "https://api.deepseek.com")
+        self.assertIn("https://api.minimaxi.com/v1", get_provider_preset("minimax").base_urls)
+        self.assertEqual(get_provider_preset("openrouter").category, "aggregator")
+        self.assertEqual(get_provider_preset("custom").category, "custom")
+        with self.assertRaisesRegex(ValueError, "Unknown provider preset"):
+            get_provider_preset("missing")
+
+    def test_provider_profile_round_trips_selected_preset_without_secret(self) -> None:
+        target = Path(self.temp.name) / "provider-preset.json"
+        profile = ModelProfile(
+            name="Google Gemini",
+            model="gemini-test",
+            base_url=get_provider_preset("google").base_url,
+            provider_id="google",
+            api_key="memory-only",
+            api_key_env="GEMINI_API_KEY",
+        )
+        profile.save(target)
+        loaded = ModelProfile.load(target)
+        self.assertEqual(loaded.provider_id, "google")
+        self.assertEqual(loaded.api_key_env, "GEMINI_API_KEY")
+        self.assertEqual(loaded.resolved_api_key(), "")
+        self.assertNotIn("memory-only", target.read_text(encoding="utf-8"))
 
     def test_provider_catalog_reports_authentication_failure_with_hint(self) -> None:
         denied = urllib.error.HTTPError(
