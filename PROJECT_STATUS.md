@@ -2,14 +2,14 @@
 
 ## Release target
 
-RenWeave 1.1 provides a complete, context-aware Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected OpenAI-compatible model.
+RenWeave 1.2 provides a complete, context-aware Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model and includes guided presets for major official and aggregated APIs.
 
 ## Requirement coverage
 
 | Requirement | Status | Implementation |
 | --- | --- | --- |
-| Guided one-click UI | Complete | English-default, Chinese-switchable five-step desktop flow with unified Material-inspired screens and dialogs |
-| Complete model setup | Complete | Endpoint validation, authenticated model discovery, editable selection, minimal model health check, secret-free profile persistence |
+| Guided one-click UI | Complete | English-default, Chinese-switchable five-step Calm Technical Workspace with a persistent workflow rail and unified screens, actions, states, and dialogs |
+| Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom presets; editable endpoints; model discovery; exact-ID fallback; minimal health check; secret-free persistence |
 | Unpack Ren'Py games | Complete | Safe RPA 2.0/3.0/3.2 reader and selective script acquisition |
 | Decompile compiled scripts | Complete | Pinned and hash-verified unrpyc, isolated subprocess, and workspace copies |
 | Understand the complete game | Complete | Scene graph, deterministic evidence, storyline chunks, hierarchical narrative synthesis, character, relationship, and term profiles |

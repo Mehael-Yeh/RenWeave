@@ -23,7 +23,7 @@ Ren'Py 游戏的上下文感知一键翻译工具。织译会先理解场景、�
 
 ## 快速开始
 
-需要 Python 3.10 或更高版本，以及兼容 OpenAI Chat Completions 的 API。
+需要 Python 3.10 或更高版本，以及任一受支持提供商的 API 密钥。
 
 ```powershell
 git clone https://github.com/Mehael-Yeh/RenWeave.git
@@ -34,7 +34,7 @@ renweave-gui
 
 桌面程序按五步引导操作：
 
-1. 填写 API 地址和密钥，获取模型列表并验证所选模型。
+1. 选择提供商，填写 API 密钥，获取模型列表并验证所选模型。
 2. 选择 Ren'Py 游戏与独立工作区。
 3. 选择任意源语言和目标语言。
 4. 确认自动化流程与输出选项。
@@ -42,15 +42,26 @@ renweave-gui
 
 界面默认显示英文；可在右上角选择 **简体中文** 即时切换。界面中填写的 API 密钥仅保留在内存，自动保存的模型配置不会包含密钥。
 
-## 模型配置
+## 提供商与模型验证
 
-推荐直接使用桌面程序：它会验证接口、获取模型列表、用一次最小请求测试所选模型，并自动保存可复用配置。
+桌面程序内置常见官方 API 与聚合平台的可编辑预设。它会验证接口、获取模型列表、允许准确填写模型 ID、用一次最小请求测试所选模型，并自动保存不含密钥的可复用配置。若某个接口不提供 `/models`，仍可填写准确模型 ID 后直接验证。
+
+| 提供商 | 预设地址 | 说明 |
+| --- | --- | --- |
+| [OpenAI](https://platform.openai.com/docs/api-reference/models) | `https://api.openai.com/v1` | 官方模型发现与 Chat Completions |
+| [Google Gemini](https://ai.google.dev/gemini-api/docs/openai) | `https://generativelanguage.googleapis.com/v1beta/openai` | Google 官方 OpenAI 兼容接口 |
+| [Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) | `https://api.anthropic.com/v1` | Claude 兼容层；不发送 JSON 响应参数 |
+| [DeepSeek](https://api-docs.deepseek.com/) | `https://api.deepseek.com` | 官方 OpenAI 兼容接口，也可选择 `/v1` 地址 |
+| [MiniMax](https://platform.minimax.io/docs/api-reference/models/openai/list-models) | `https://api.minimax.io/v1` | 同时提供国际站和中国大陆地址 |
+| [OpenRouter](https://openrouter.ai/docs/api/api-reference/models/get-models) | `https://openrouter.ai/api/v1` | 聚合模型目录 |
+| 自定义接口 | 可编辑 | 任意第三方或本地 OpenAI 兼容接口 |
 
 CLI 用户可复制 [`examples/provider.openai-compatible.json`](../examples/provider.openai-compatible.json)：
 
 ```json
 {
   "kind": "openai_compatible",
+  "provider_id": "custom",
   "name": "My provider",
   "model": "my-translation-model",
   "base_url": "https://api.example.com/v1",
@@ -71,6 +82,16 @@ renweave run "D:\Games\Example" `
 ```
 
 只有需要把验证后的输出复制到 `game/tl/<language>` 时才添加 `--install`。使用 `renweave build --workspace <路径>` 可以从已经通过验证的检查点重新打包，不再调用模型。
+
+## 界面设计
+
+织译采用 **Calm Technical Workspace（沉静技术工作台）** 风格：固定的深色流程导航、清晰的浅色工作画布、紧凑的提供商卡片，以及克制的靛蓝强调色。所有页面统一使用 8 点间距节奏、输入框样式、状态面板、弹窗结构和三级按钮逻辑：
+
+- **主按钮**：每个界面唯一的下一步或确认操作。
+- **次按钮**：重要但不会推进流程的操作。
+- **轻按钮**：返回、浏览、导入与取消。
+
+它借鉴现代开发工具和编辑型工作区，而不是装饰性的游戏启动器。提供商选择流程的研究参考了 [CC Switch](https://github.com/farion1231/cc-switch)，但织译使用独立的任务型视觉系统与实现。模型导入始终位于第一步，所有端点均可编辑，五个页面及弹窗使用同一套视觉与交互语言。
 
 ## 工作方式
 

@@ -2,6 +2,15 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.2.0 - 2026-08-10
+
+- Added verified quick-connect presets for OpenAI, Google Gemini, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom OpenAI-compatible endpoints.
+- Added provider-aware endpoints, environment variable names, default model hints, and JSON-response capability handling.
+- Added an exact-model-ID fallback when a provider does not expose a usable model catalog.
+- Added a searchable model picker while keeping model IDs directly editable.
+- Redesigned the full desktop flow and dialogs as a consistent Calm Technical Workspace with a dark workflow rail, light task canvas, and unified primary, secondary, and ghost actions.
+- Documented the interface design system and provider compatibility matrix in English and Simplified Chinese.
+
 ## 1.1.0 - 2026-08-10
 
 - Replaced the single-page form with a guided five-step Material-inspired desktop flow.

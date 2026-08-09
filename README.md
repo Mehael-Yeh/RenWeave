@@ -23,7 +23,7 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 
 ## Quick start
 
-Requirements: Python 3.10 or newer and an OpenAI-compatible chat-completions API.
+Requirements: Python 3.10 or newer and an API key for a supported provider.
 
 ```powershell
 git clone https://github.com/Mehael-Yeh/RenWeave.git
@@ -34,7 +34,7 @@ renweave-gui
 
 The desktop app guides you through five steps:
 
-1. Enter the API endpoint and key, load its model list, and verify the selected model.
+1. Choose a provider, enter its API key, load its model list, and verify the selected model.
 2. Choose the Ren'Py game and an isolated workspace.
 3. Choose any source and target languages.
 4. Review the automatically selected pipeline and output options.
@@ -42,15 +42,26 @@ The desktop app guides you through five steps:
 
 English is the default interface language. Choose **简体中文** from the top-right language menu to switch immediately. API keys entered in the app remain in memory; the generated provider profile never contains the key.
 
-## Model configuration
+## Providers and model validation
 
-The app is the recommended setup path because it validates the endpoint, discovers models, tests the selected model with one minimal request, and saves the resulting profile automatically.
+The app includes editable presets for common official APIs and aggregators. It validates the endpoint, discovers models, keeps exact model IDs editable, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
+
+| Provider | Preset endpoint | Notes |
+| --- | --- | --- |
+| [OpenAI](https://platform.openai.com/docs/api-reference/models) | `https://api.openai.com/v1` | Official model discovery and Chat Completions |
+| [Google Gemini](https://ai.google.dev/gemini-api/docs/openai) | `https://generativelanguage.googleapis.com/v1beta/openai` | Official OpenAI-compatible endpoint |
+| [Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) | `https://api.anthropic.com/v1` | Claude compatibility layer; JSON response parameters are omitted |
+| [DeepSeek](https://api-docs.deepseek.com/) | `https://api.deepseek.com` | Official OpenAI-compatible API; `/v1` is also selectable |
+| [MiniMax](https://platform.minimax.io/docs/api-reference/models/openai/list-models) | `https://api.minimax.io/v1` | International and mainland China endpoints |
+| [OpenRouter](https://openrouter.ai/docs/api/api-reference/models/get-models) | `https://openrouter.ai/api/v1` | Aggregated model catalog |
+| Custom | Editable | Any third-party or local OpenAI-compatible endpoint |
 
 For CLI use, copy [`examples/provider.openai-compatible.json`](examples/provider.openai-compatible.json):
 
 ```json
 {
   "kind": "openai_compatible",
+  "provider_id": "custom",
   "name": "My provider",
   "model": "my-translation-model",
   "base_url": "https://api.example.com/v1",
@@ -71,6 +82,16 @@ renweave run "D:\Games\Example" `
 ```
 
 Add `--install` only when you want the verified output copied to `game/tl/<language>`. Use `renweave build --workspace <path>` to rebuild a package from validated checkpoints without another model call.
+
+## Interface design
+
+RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow rail, a high-contrast light work canvas, compact provider tiles, and one restrained indigo accent. The same 8-point spacing rhythm, field treatment, status panels, dialog structure, and three-level button hierarchy are used throughout:
+
+- **Primary** for the single next or confirming action.
+- **Secondary** for an important action that does not advance the workflow.
+- **Ghost** for navigation, browsing, importing, and cancellation.
+
+The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. The model-first setup stays visible, every endpoint remains editable, and all five screens and dialogs share the same interaction vocabulary.
 
 ## How it works
 

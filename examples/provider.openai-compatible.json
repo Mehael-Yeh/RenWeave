@@ -1,5 +1,6 @@
 {
   "kind": "openai_compatible",
+  "provider_id": "custom",
   "name": "My translation model",
   "model": "model-name",
   "base_url": "https://example.com/v1",
