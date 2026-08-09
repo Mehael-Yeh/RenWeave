@@ -2,7 +2,7 @@
 
 ## Release target
 
-RenWeave 1.2 provides a complete, context-aware Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model and includes guided presets for major official and aggregated APIs.
+RenWeave 1.3 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model and includes guided presets for major official and aggregated APIs.
 
 ## Requirement coverage
 
@@ -19,6 +19,8 @@ RenWeave 1.2 provides a complete, context-aware Ren'Py localization path from a 
 | Preserve Ren'Py semantics | Complete | Stable text IDs and validation of coverage, tags, interpolation, placeholders, and generated scripts |
 | Build and distribute | Complete | Standard `game/tl/<language>` scripts, deterministic verified RPA 3.0, safe installer, CI, and manual release automation |
 | Recover from failures | Complete | Atomic workspace artifacts, completed-scene checkpoints, request retries, targeted repair, and persistent diagnostics |
+| Visible progress and ETA | Complete | Weighted 0–100% pipeline progress, phase and scene status, checkpoint counts, Token usage, and adaptive ETA |
+| Safe pause and resume | Complete | Cooperative phase/scene cancellation, content fingerprints, checkpoint revalidation, CLI interrupt handling, workspace locking, and failure circuit breaking |
 
 ## Deliberate boundaries
 

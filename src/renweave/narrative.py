@@ -4,12 +4,13 @@ import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .io import atomic_write_json, read_json
 from .knowledge import KnowledgeBase
 from .models import ProjectIndex, TextChannel
 from .provider import OpenAICompatibleGateway, response_json
+from .runtime import CancellationRequested
 
 
 CHUNK_SYSTEM_PROMPT = """You analyze one compact cluster of scenes from a Ren'Py game.
@@ -106,12 +107,21 @@ class NarrativeKnowledge:
 
 
 class CachedKnowledgeCaller:
-    def __init__(self, gateway: OpenAICompatibleGateway, cache_dir: str | Path) -> None:
+    def __init__(
+        self,
+        gateway: OpenAICompatibleGateway,
+        cache_dir: str | Path,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> None:
         self.gateway = gateway
         self.cache_dir = Path(cache_dir).expanduser().resolve()
         self.usage = KnowledgeUsage()
+        self.cancel_check = cancel_check
 
     def call(self, kind: str, system: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.cancel_check and self.cancel_check():
+            raise CancellationRequested(f"Cancellation requested before {kind} model call")
         profile = getattr(self.gateway, "profile", None)
         identity = {
             "kind": kind,
@@ -129,6 +139,8 @@ class CachedKnowledgeCaller:
                 self.usage.cache_hits += 1
                 return cached["payload"]
 
+        if self.cancel_check and self.cancel_check():
+            raise CancellationRequested(f"Cancellation requested before {kind} network request")
         response = self.gateway.chat([
             {"role": "system", "content": system},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -167,10 +179,15 @@ class NarrativeKnowledgeSynthesizer:
         *,
         max_chunk_characters: int = 24000,
         max_chunk_scenes: int = 20,
+        cancel_check: Callable[[], bool] | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
-        self.caller = CachedKnowledgeCaller(gateway, cache_dir)
+        self.caller = CachedKnowledgeCaller(gateway, cache_dir, cancel_check=cancel_check)
         self.max_chunk_characters = max(4000, max_chunk_characters)
         self.max_chunk_scenes = max(2, max_chunk_scenes)
+        self.progress_callback = progress_callback
+        self.progress_done = 0
+        self.progress_total = 1
 
     def synthesize(
         self,
@@ -218,8 +235,11 @@ class NarrativeKnowledgeSynthesizer:
                 try:
                     result = self.caller.call("storyline", CHUNK_SYSTEM_PROMPT, request)
                     chunk_results.append((storyline.key, scene_ids, result))
+                except CancellationRequested:
+                    raise
                 except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                     warnings.append(f"storyline {storyline.key} chunk {ordinal}: {exc}")
+                self._advance_progress(f"Analyzed storyline chunk {self.progress_done + 1}")
 
         storylines = self._merge_storylines(chunk_results, allowed_scene_ids)
         world_facts = self._merge_facts(chunk_results, allowed_scene_ids)
@@ -233,6 +253,7 @@ class NarrativeKnowledgeSynthesizer:
             allowed_scene_ids,
         )
         world_facts = self._dedupe_facts([*world_facts, *global_facts])
+        self._finish_progress("Narrative analysis complete")
         return NarrativeKnowledge(
             schema_version=1,
             project_fingerprint=project_fingerprint,
@@ -312,6 +333,8 @@ class NarrativeKnowledgeSynthesizer:
                         "themes": self._strings(result.get("style_guidance", []), 30, 240),
                         "scene_ids": self._scene_ids_from_payload(result, allowed_scene_ids),
                     })
+                except CancellationRequested:
+                    raise
                 except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                     warnings.append(f"global level {level} batch {ordinal}: {exc}")
                     next_nodes.append({
@@ -320,6 +343,7 @@ class NarrativeKnowledgeSynthesizer:
                         "themes": [],
                         "scene_ids": [],
                     })
+                self._advance_progress(f"Consolidated narrative batch {self.progress_done + 1}")
             if len(next_nodes) == len(nodes) and all(len(batch) == 1 for batch in self._batches_by_size(nodes, 30000)):
                 break
             nodes = next_nodes
@@ -331,6 +355,17 @@ class NarrativeKnowledgeSynthesizer:
             style.extend(self._strings(payload.get("style_guidance", []), 30, 240))
             global_facts.extend(self._facts_from_payload(payload, allowed_scene_ids))
         return str(final.get("summary", ""))[:5000], self._unique(style, 40), global_facts
+
+    def _advance_progress(self, message: str) -> None:
+        self.progress_done += 1
+        self.progress_total = max(self.progress_total, self.progress_done + 1)
+        if self.progress_callback:
+            self.progress_callback(self.progress_done, self.progress_total, message)
+
+    def _finish_progress(self, message: str) -> None:
+        self.progress_total = max(1, self.progress_done)
+        if self.progress_callback:
+            self.progress_callback(self.progress_total, self.progress_total, message)
 
     @staticmethod
     def _batches_by_size(nodes: list[dict[str, Any]], limit: int) -> list[list[dict[str, Any]]]:

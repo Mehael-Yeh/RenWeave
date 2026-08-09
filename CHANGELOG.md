@@ -2,6 +2,16 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.3.0 - 2026-08-10
+
+- Added weighted 0–100% progress with explicit preparation, understanding, translation, refinement, build, and completion phases.
+- Added current-operation and scene status, verified checkpoint counts, model/Token usage, and adaptive ETA.
+- Added safe GUI pause and CLI interrupt handling with automatic resume from the same workspace.
+- Added content-based project fingerprints and structural revalidation of every reused scene artifact.
+- Added cancellation points between analysis stages, narrative batches, scenes, and refinement batches.
+- Added persistent readable and JSONL diagnostic logs with tracebacks and checkpoint timing.
+- Added a concurrent-writer workspace lock and a repeated-scene-failure circuit breaker.
+
 ## 1.2.0 - 2026-08-10
 
 - Added verified quick-connect presets for OpenAI, Google Gemini, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom OpenAI-compatible endpoints.

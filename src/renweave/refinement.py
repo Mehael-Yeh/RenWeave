@@ -4,11 +4,12 @@ import json
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .models import ProjectIndex, TextChannel, TextUnit
 from .narrative import CachedKnowledgeCaller, KnowledgeUsage, NarrativeKnowledge
 from .provider import OpenAICompatibleGateway
+from .runtime import CancellationRequested
 from .validation import TranslationValidator
 
 
@@ -147,10 +148,13 @@ class GlobalTranslationRefiner:
         *,
         max_batch_characters: int = 24000,
         max_batch_items: int = 50,
+        cancel_check: Callable[[], bool] | None = None,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> None:
-        self.caller = CachedKnowledgeCaller(gateway, cache_dir)
+        self.caller = CachedKnowledgeCaller(gateway, cache_dir, cancel_check=cancel_check)
         self.max_batch_characters = max(4000, max_batch_characters)
         self.max_batch_items = max(5, max_batch_items)
+        self.progress_callback = progress_callback
 
     def refine(
         self,
@@ -181,7 +185,8 @@ class GlobalTranslationRefiner:
         proposals: dict[str, tuple[str, str]] = {}
         observations = []
         allowed_ids = {candidate.text_id for candidate in candidates}
-        for ordinal, batch in enumerate(self._batches(candidates)):
+        batches = self._batches(candidates)
+        for ordinal, batch in enumerate(batches):
             payload = {
                 "source_language": source_language,
                 "target_language": target_language,
@@ -192,8 +197,12 @@ class GlobalTranslationRefiner:
             }
             try:
                 response = self.caller.call("refinement", REFINEMENT_SYSTEM_PROMPT, payload)
+            except CancellationRequested:
+                raise
             except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                 observations.append(f"batch {ordinal} failed: {exc}")
+                if self.progress_callback:
+                    self.progress_callback(ordinal + 1, len(batches), f"Refinement batch {ordinal + 1} failed")
                 continue
             rows = response.get("corrections", [])
             if isinstance(rows, list):
@@ -208,6 +217,8 @@ class GlobalTranslationRefiner:
             raw_observations = response.get("observations", [])
             if isinstance(raw_observations, list):
                 observations.extend(str(item)[:500] for item in raw_observations[:30])
+            if self.progress_callback:
+                self.progress_callback(ordinal + 1, len(batches), f"Reviewed refinement batch {ordinal + 1}")
 
         refined = dict(translations)
         changes: list[RefinementChange] = []

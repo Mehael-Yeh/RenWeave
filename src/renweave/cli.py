@@ -15,7 +15,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 1.2.0")
+    parser.add_argument("--version", action="version", version="RenWeave 1.3.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     gui = commands.add_parser("gui", help="启动桌面一键翻译界面")
@@ -93,6 +93,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    pipeline: RenWeavePipeline | None = None
     try:
         if args.command == "gui":
             from .gui import launch_gui
@@ -184,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
         return 0 if state.stage == PipelineStage.COMPLETE else 2
+    except KeyboardInterrupt:
+        if pipeline is not None:
+            try:
+                pipeline.pause("Interrupted from the command line")
+            except (OSError, ValueError, TypeError):
+                pass
+        print("RenWeave paused. Re-run the same command and workspace to continue.", file=sys.stderr)
+        return 130
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print(f"RenWeave error: {exc}", file=sys.stderr)
         return 1

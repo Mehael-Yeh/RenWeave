@@ -83,6 +83,27 @@ renweave run "D:\Games\Example" `
 
 Add `--install` only when you want the verified output copied to `game/tl/<language>`. Use `renweave build --workspace <path>` to rebuild a package from validated checkpoints without another model call.
 
+## Progress, pause, and recovery
+
+The progress screen shows a weighted 0–100% pipeline bar, the active phase and scene, verified scene checkpoints, model calls and Token usage, and an adaptive remaining-time estimate. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it is an estimate because provider latency and scene size vary.
+
+**Pause safely** finishes the current network request or local atomic unit, saves the latest valid checkpoint, and stops before the next unit. Starting again with the same project, workspace, and languages resumes automatically. CLI users can press `Ctrl+C` and rerun the same command.
+
+Before reusing work, RenWeave verifies:
+
+- the content fingerprint of source scripts, compiled scripts, and archives;
+- the saved project and language settings;
+- every completed scene artifact against the current structural validator.
+
+Missing, damaged, or stale scene artifacts are translated again; valid scenes are not resent. A workspace lock prevents concurrent writers, and three consecutive scene failures open a circuit breaker instead of repeatedly calling an unavailable API.
+
+Diagnostics are always retained under the workspace:
+
+- `state.json` — resumable task state, progress, ETA, usage, and current operation;
+- `translations/` and `reports/` — atomic scene checkpoints and validation reports;
+- `logs/renweave.log` — readable chronological log;
+- `logs/events.jsonl` — structured events with exception type and traceback.
+
 ## Interface design
 
 RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow rail, a high-contrast light work canvas, compact provider tiles, and one restrained indigo accent. The same 8-point spacing rhythm, field treatment, status panels, dialog structure, and three-level button hierarchy are used throughout:

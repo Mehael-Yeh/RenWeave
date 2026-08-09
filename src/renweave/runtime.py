@@ -5,6 +5,7 @@ import os
 import threading
 import traceback
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,69 @@ class CancellationToken:
     @property
     def cancelled(self) -> bool:
         return self._event.is_set()
+
+
+class CancellationRequested(RuntimeError):
+    """Internal control-flow signal used only at durable cancellation points."""
+
+
+class WorkspaceLease:
+    """Cross-platform advisory lock preventing two writers in one workspace."""
+
+    def __init__(self, workspace: str | Path) -> None:
+        self.path = Path(workspace).expanduser().resolve() / ".renweave-run.lock"
+        self.handle = None
+
+    def __enter__(self) -> "WorkspaceLease":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = self.path.open("a+b")
+        self.handle.seek(0, os.SEEK_END)
+        if self.handle.tell() == 0:
+            self.handle.write(b"0")
+            self.handle.flush()
+        self.handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.handle.close()
+            self.handle = None
+            raise RuntimeError(
+                "Another RenWeave process is already writing to this workspace"
+            ) from exc
+        return self
+
+    def __exit__(self, *_args) -> None:
+        if self.handle is None:
+            return
+        try:
+            self.handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self.handle.close()
+            self.handle = None
+
+
+def exclusive_workspace_run(method):
+    @wraps(method)
+    def wrapped(self, *args, **kwargs):
+        with WorkspaceLease(self.workspace):
+            return method(self, *args, **kwargs)
+
+    return wrapped
 
 
 class RunLogger:
@@ -51,7 +115,7 @@ class RunLogger:
         if detail_text:
             human += f" | {detail_text}"
         with self._lock:
-            self._append(self.jsonl_path, json.dumps(record, ensure_ascii=False) + "\n")
+            self._append(self.jsonl_path, json.dumps(record, ensure_ascii=False, default=str) + "\n")
             self._append(self.text_path, human + "\n")
 
     def exception(self, event: str, exc: BaseException, **details: Any) -> None:

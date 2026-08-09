@@ -43,7 +43,7 @@ from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile, OpenAICompatibleCatalog
 from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
-from renweave.runtime import CancellationToken
+from renweave.runtime import CancellationToken, WorkspaceLease
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
@@ -127,7 +127,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.2.0")
+        self.assertEqual(renweave.__version__, "1.3.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -732,6 +732,84 @@ class CorePipelineTests(unittest.TestCase):
             "checkpoint_rejected",
             (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"),
         )
+
+    def test_workspace_lease_prevents_concurrent_writers_and_releases_cleanly(self) -> None:
+        workspace = Path(self.temp.name) / "locked-workspace"
+        with WorkspaceLease(workspace):
+            with self.assertRaisesRegex(RuntimeError, "already writing"):
+                with WorkspaceLease(workspace):
+                    self.fail("a second workspace writer must not acquire the lock")
+        with WorkspaceLease(workspace):
+            self.assertTrue((workspace / ".renweave-run.lock").is_file())
+
+    def test_cli_interrupt_marks_workspace_paused_and_returns_standard_exit_code(self) -> None:
+        from renweave.cli import main as cli_main
+
+        provider = Path(self.temp.name) / "interrupt-provider.json"
+        ModelProfile(
+            name="interrupt",
+            model="fake",
+            base_url="https://example.invalid",
+        ).save(provider)
+        fake_pipeline = mock.Mock()
+        fake_pipeline.translate.side_effect = KeyboardInterrupt()
+        with mock.patch("renweave.cli.RenWeavePipeline", return_value=fake_pipeline):
+            code = cli_main([
+                "run",
+                str(self.root),
+                "--workspace",
+                str(Path(self.temp.name) / "interrupt-workspace"),
+                "--provider",
+                str(provider),
+                "--target-language",
+                "fr",
+            ])
+        self.assertEqual(code, 130)
+        fake_pipeline.pause.assert_called_once_with("Interrupted from the command line")
+
+    def test_cancellation_is_observed_between_narrative_model_batches(self) -> None:
+        with (self.game / "many-scenes.rpy").open("w", encoding="utf-8", newline="\n") as writer:
+            for index in range(24):
+                writer.write(f'\nlabel extra_{index}:\n    "Story line {index}."\n')
+        token = CancellationToken()
+
+        class NarrativeCancellingGateway:
+            def __init__(self):
+                self.calls = 0
+                self.profile = ModelProfile(
+                    name="narrative-cancel",
+                    model="fake",
+                    base_url="https://example.invalid",
+                )
+
+            def chat(self, messages, *, temperature=0.2):
+                self.calls += 1
+                request = json.loads(messages[-1]["content"])
+                scene_ids = [str(item["id"]) for item in request.get("scenes", [])]
+                token.cancel()
+                payload = {
+                    "summary": "Partial cached narrative context.",
+                    "themes": [],
+                    "world_facts": [],
+                    "characters": [],
+                    "terms": [],
+                    "scene_ids": scene_ids,
+                }
+                return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+        gateway = NarrativeCancellingGateway()
+        state = RenWeavePipeline(Path(self.temp.name) / "narrative-cancel-workspace").translate(
+            self.root,
+            "en",
+            "fr",
+            gateway.profile,
+            gateway=gateway,
+            cancel_token=token,
+        )
+        self.assertEqual(state.stage, PipelineStage.PAUSED)
+        self.assertEqual(gateway.calls, 1)
+        self.assertEqual(state.completed_scene_ids, [])
+        self.assertGreaterEqual(state.phase_completed, 1)
 
     def test_scene_exception_is_reported_and_never_marked_complete(self) -> None:
         class FailingGateway:
