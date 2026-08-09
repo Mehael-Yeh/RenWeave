@@ -291,6 +291,35 @@ class CorePipelineTests(unittest.TestCase):
             app._continue()
             self.assertEqual(app.step, 3)
             self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
+
+            class ActiveWorker:
+                @staticmethod
+                def is_alive():
+                    return True
+
+            app.step = 4
+            app.worker = ActiveWorker()
+            app.cancel_token = CancellationToken()
+            app.last_stage = "translating"
+            app.progress_payload = {
+                "stage": "translating",
+                "progress_percent": 58.5,
+                "completed_scenes": 10,
+                "total_scenes": 20,
+                "eta_seconds": 600,
+                "total_model_calls": 12,
+                "total_prompt_tokens": 1000,
+                "total_completion_tokens": 250,
+                "current_scene_label": "chapter_two",
+            }
+            app.status.set("正在翻译")
+            app._render()
+            self.assertEqual(float(app.progress["maximum"]), 100)
+            self.assertEqual(float(app.progress["value"]), 58.5)
+            self.assertEqual(app.pause_button.cget("text"), "安全暂停")
+            app._request_pause()
+            self.assertTrue(app.cancel_token.cancelled)
+            self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")
         finally:
             root.destroy()
 
@@ -680,6 +709,29 @@ class CorePipelineTests(unittest.TestCase):
         self.assertGreaterEqual(completed.resumed_count, 1)
         self.assertEqual(completed.progress_percent, 100)
         self.assertEqual(completed.eta_seconds, 0)
+
+        damaged_scene = completed.completed_scene_ids[0]
+        (workspace / "translations" / f"{damaged_scene}.json").write_text(
+            '{"scene_id": "damaged", "translations": {}}\n',
+            encoding="utf-8",
+        )
+        repair_gateway = CancellingGateway()
+        repaired = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=repair_gateway,
+            cancel_token=CancellationToken(),
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(repaired.stage, PipelineStage.COMPLETE)
+        self.assertEqual(repair_gateway.calls, 1)
+        self.assertIn(
+            "checkpoint_rejected",
+            (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"),
+        )
 
     def test_scene_exception_is_reported_and_never_marked_complete(self) -> None:
         class FailingGateway:

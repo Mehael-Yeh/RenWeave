@@ -121,6 +121,29 @@ COPY["en"].update({
     "model_picker.empty": "No models match this filter.",
     "model.config": "Connection details",
     "model.validation": "Model validation",
+    "progress.overall": "Overall progress",
+    "progress.current": "Current operation",
+    "progress.scene_count": "Scene checkpoints",
+    "progress.eta": "Estimated remaining",
+    "progress.estimating": "Estimating after the first completed scene",
+    "progress.model_usage": "Model usage",
+    "progress.calls_tokens": "{calls} calls · {tokens} tokens",
+    "progress.pause": "Pause safely",
+    "progress.pausing": "Finishing the current safe unit and saving its checkpoint…",
+    "progress.paused": "Paused safely",
+    "progress.paused_body": "All completed checkpoints are preserved. Resume with the same project and workspace at any time.",
+    "progress.resume": "Resume translation",
+    "progress.retry": "Resume / retry",
+    "progress.log_path": "Persistent diagnostic log: {path}",
+    "progress.copy_log": "Copy log path",
+    "progress.phase.prepare": "Prepare",
+    "progress.phase.understand": "Understand",
+    "progress.phase.translate": "Translate",
+    "progress.phase.refine": "Refine",
+    "progress.phase.build": "Build",
+    "progress.phase.done": "Done",
+    "review.resume_found": "Recoverable work found",
+    "review.resume_body": "{completed} of {total} scene checkpoints are available. RenWeave will verify them before continuing.",
 })
 
 COPY["zh"].update({
@@ -143,6 +166,29 @@ COPY["zh"].update({
     "model_picker.empty": "没有符合筛选条件的模型。",
     "model.config": "连接信息",
     "model.validation": "模型验证",
+    "progress.overall": "总体进度",
+    "progress.current": "当前操作",
+    "progress.scene_count": "场景检查点",
+    "progress.eta": "预计剩余时间",
+    "progress.estimating": "完成首个场景后开始估算",
+    "progress.model_usage": "模型用量",
+    "progress.calls_tokens": "{calls} 次调用 · {tokens} Token",
+    "progress.pause": "安全暂停",
+    "progress.pausing": "正在完成当前安全单元并保存检查点……",
+    "progress.paused": "已安全暂停",
+    "progress.paused_body": "所有已完成检查点均已保留；以后使用相同项目和工作区即可继续。",
+    "progress.resume": "继续翻译",
+    "progress.retry": "继续 / 重试",
+    "progress.log_path": "持久诊断日志：{path}",
+    "progress.copy_log": "复制日志路径",
+    "progress.phase.prepare": "准备",
+    "progress.phase.understand": "理解",
+    "progress.phase.translate": "翻译",
+    "progress.phase.refine": "精修",
+    "progress.phase.build": "构建",
+    "progress.phase.done": "完成",
+    "review.resume_found": "发现可恢复任务",
+    "review.resume_body": "已有 {completed}/{total} 个场景检查点；继续前会自动核验其完整性。",
 })
 
 STAGE_LABELS_ZH = {
@@ -536,8 +582,12 @@ class RenWeaveDesktopApp:
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
+        self.cancel_token: CancellationToken | None = None
         self.step = 0
         self.last_stage = ""
+        self.last_state_updated_at = ""
+        self.progress_payload: dict[str, object] = {}
+        self.resume_candidate: dict[str, object] | None = None
         self.logs: list[str] = []
         self.connection_state = "idle"
         self.connection_detail: dict[str, object] = {}
@@ -578,6 +628,7 @@ class RenWeaveDesktopApp:
         if initial_project and not initial_workspace:
             self._suggest_workspace(initial_project)
         self._render()
+        self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.after(150, self._poll_events)
 
     def t(self, key: str, **values: object) -> str:
@@ -947,6 +998,7 @@ class RenWeaveDesktopApp:
 
     def _render_review(self) -> None:
         card = self._card()
+        self.resume_candidate = self._resume_state()
         summaries = (
             (self.t("review.model"), f"{self.provider_name.get()}  ·  {self.model.get()}\n{self.base_url.get()}"),
             (self.t("review.game"), f"{self.project.get()}\n{self.workspace.get()}"),
@@ -962,23 +1014,103 @@ class RenWeaveDesktopApp:
         self.ttk.Checkbutton(card, text=self.t("review.install"), variable=self.install, style="Material.TCheckbutton").grid(row=4, column=0, sticky="w", pady=(18, 0))
         self.ttk.Label(card, text=self.t("review.install_hint"), style="Hint.TLabel").grid(row=5, column=0, sticky="w", pady=(4, 0))
         self.ttk.Label(card, text=self.t("review.key_safe"), style="Hint.TLabel").grid(row=6, column=0, sticky="w", pady=(14, 0))
+        if self.resume_candidate:
+            resume = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
+            resume.grid(row=7, column=0, sticky="ew", pady=(14, 0))
+            self.ttk.Label(resume, text=self.t("review.resume_found"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
+            self.ttk.Label(
+                resume,
+                text=self.t(
+                    "review.resume_body",
+                    completed=len(self.resume_candidate.get("completed_scene_ids", [])),
+                    total=int(self.resume_candidate.get("total_scenes", 0)),
+                ),
+                style="StatusBody.TLabel",
+            ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
     def _render_progress(self) -> None:
-        card = self._card()
-        self.ttk.Label(card, textvariable=self.status, style="Section.TLabel", wraplength=690).grid(row=0, column=0, sticky="w")
-        self.progress = self.ttk.Progressbar(card, mode="determinate", maximum=max(1, len(STAGE_LABELS) - 1))
-        self.progress.grid(row=1, column=0, sticky="ew", pady=(12, 18))
-        if self.last_stage in STAGE_LABELS:
-            self.progress["value"] = list(STAGE_LABELS).index(self.last_stage)
-        self.ttk.Label(card, text=self.t("progress.log"), style="Field.TLabel").grid(row=2, column=0, sticky="w")
+        payload = self.progress_payload
+        percent = float(payload.get("progress_percent", 0.0) or 0.0)
+        card = self._card(padding=18)
+        card.columnconfigure(0, weight=1)
+        heading = self.ttk.Frame(card, style="Card.TFrame")
+        heading.grid(row=0, column=0, sticky="ew")
+        heading.columnconfigure(0, weight=1)
+        self.ttk.Label(heading, text=self.t("progress.overall"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
+        self.tk.Label(
+            heading,
+            text=f"{percent:.0f}%",
+            background=Colors.CARD,
+            foreground=Colors.PRIMARY,
+            font=("Segoe UI", 22, "bold"),
+        ).grid(row=0, column=1, rowspan=2, sticky="e")
+        self.ttk.Label(heading, textvariable=self.status, style="Section.TLabel", wraplength=650).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.progress = self.ttk.Progressbar(card, mode="determinate", maximum=100, value=percent)
+        self.progress.grid(row=1, column=0, sticky="ew", pady=(12, 12))
+
+        phases = (
+            ("prepare", 0), ("understand", 24), ("translate", 33),
+            ("refine", 86), ("build", 94), ("done", 100),
+        )
+        phase_row = self.tk.Frame(card, background=Colors.CARD)
+        phase_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        for column, (name, threshold) in enumerate(phases):
+            phase_row.columnconfigure(column, weight=1)
+            active = percent >= threshold or (threshold == 0 and self.last_stage)
+            self.tk.Label(
+                phase_row,
+                text=("●  " if active else "○  ") + self.t(f"progress.phase.{name}"),
+                background=Colors.CARD,
+                foreground=Colors.PRIMARY if active else Colors.OUTLINE,
+                font=("Segoe UI", 9, "bold" if active else "normal"),
+            ).grid(row=0, column=column, sticky="w")
+
+        stats = self.tk.Frame(card, background=Colors.CARD)
+        stats.grid(row=3, column=0, sticky="ew", pady=(0, 12))
+        for column in range(4):
+            stats.columnconfigure(column, weight=1, uniform="progress_stat")
+        completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
+        total = int(payload.get("total_scenes", 0) or 0)
+        raw_eta = payload.get("eta_seconds", -1)
+        eta = self._format_duration(int(raw_eta) if isinstance(raw_eta, (int, float)) else -1)
+        calls = int(payload.get("total_model_calls", 0) or 0)
+        tokens = int(payload.get("total_prompt_tokens", 0) or 0) + int(payload.get("total_completion_tokens", 0) or 0)
+        stage_labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
+        scene_label = str(payload.get("current_scene_label", "") or "")
+        current = scene_label or stage_labels.get(self.last_stage, str(payload.get("current_operation", "") or "—"))
+        values = (
+            (self.t("progress.current"), current),
+            (self.t("progress.scene_count"), f"{completed} / {total or '—'}"),
+            (self.t("progress.eta"), eta),
+            (self.t("progress.model_usage"), self.t("progress.calls_tokens", calls=calls, tokens=f"{tokens:,}")),
+        )
+        for column, (label, value) in enumerate(values):
+            tile = self.tk.Frame(stats, background=Colors.SURFACE_CONTAINER, padx=12, pady=10)
+            tile.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 5, 0))
+            self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
+            self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"), anchor="w", wraplength=175, justify="left").pack(fill="x", pady=(5, 0))
+
+        if self.last_stage == "paused":
+            notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
+            notice.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+            self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=("Segoe UI", 9, "bold")).pack(side="left")
+            self.tk.Label(notice, text=self.t("progress.paused_body"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
+
+        log_header = self.ttk.Frame(card, style="Card.TFrame")
+        log_header.grid(row=5, column=0, sticky="ew")
+        log_header.columnconfigure(0, weight=1)
+        self.ttk.Label(log_header, text=self.t("progress.log"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
+        log_path = str(payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
+        self.ttk.Button(log_header, text=self.t("progress.copy_log"), style="Ghost.TButton", command=lambda: self._copy_text(log_path)).grid(row=0, column=1, sticky="e")
+        self.ttk.Label(card, text=self.t("progress.log_path", path=log_path), style="Hint.TLabel", wraplength=760).grid(row=6, column=0, sticky="w", pady=(2, 5))
         log_frame = self.ttk.Frame(card, style="Card.TFrame")
-        log_frame.grid(row=3, column=0, sticky="nsew", pady=(6, 0))
+        log_frame.grid(row=7, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-        card.rowconfigure(3, weight=1)
+        card.rowconfigure(7, weight=1)
         self.log = self.tk.Text(
             log_frame,
-            height=13,
+            height=7,
             wrap="word",
             state="normal",
             borderwidth=1,
@@ -1002,7 +1134,7 @@ class RenWeaveDesktopApp:
         if self.step > 0 and self.step < 4:
             self.back_button = self.ttk.Button(self.footer, text=self.t("back"), style="Ghost.TButton", command=lambda: self._go_to_step(self.step - 1))
             self.back_button.grid(row=0, column=0, sticky="w")
-        action_text = self.t("start") if self.step == 3 else self.t("continue")
+        action_text = self.t("progress.resume") if self.step == 3 and self.resume_candidate else (self.t("start") if self.step == 3 else self.t("continue"))
         if self.step < 4:
             command = self._start if self.step == 3 else self._continue
             self.next_button = self.ttk.Button(self.footer, text=action_text, style="Primary.TButton", command=command)
@@ -1011,6 +1143,16 @@ class RenWeaveDesktopApp:
                 self.start_button = self.next_button
             if self.step == 0 and self.connection_state != "verified":
                 self.next_button.configure(state="disabled")
+        elif self.step == 4:
+            running = bool(self.worker and self.worker.is_alive())
+            if running:
+                self.pause_button = self.ttk.Button(self.footer, text=self.t("progress.pause"), style="Secondary.TButton", command=self._request_pause)
+                self.pause_button.grid(row=0, column=2, sticky="e")
+            elif self.last_stage in {"paused", "failed"}:
+                label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
+                self.ttk.Button(self.footer, text=label, style="Primary.TButton", command=self._start).grid(row=0, column=2, sticky="e")
+            else:
+                self.ttk.Button(self.footer, text=self.t("close"), style="Primary.TButton", command=self._close_window).grid(row=0, column=2, sticky="e")
 
     def _bind_provider_changes(self) -> None:
         for variable in (self.provider_name, self.base_url, self.api_key, self.model):
@@ -1199,6 +1341,62 @@ class RenWeaveDesktopApp:
             require_engine_validation=self.require_engine.get(),
         )
 
+    def _resume_state(self) -> dict[str, object] | None:
+        workspace = self.workspace.get().strip()
+        project = self.project.get().strip()
+        if not workspace or not project:
+            return None
+        state_path = Path(workspace).expanduser() / "state.json"
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8-sig"))
+            same_project = str(Path(project).expanduser().resolve()) == str(payload.get("project_target", ""))
+            same_languages = (
+                str(payload.get("source_language", "auto")) == (self.source_language.get().strip() or "auto")
+                and str(payload.get("target_language", "")) == self.target_language.get().strip()
+            )
+            recoverable_stage = str(payload.get("stage", "")) not in {"", "complete"}
+            if same_project and same_languages and recoverable_stage and payload.get("completed_scene_ids"):
+                return payload
+        except (OSError, ValueError, TypeError):
+            return None
+        return None
+
+    def _load_existing_log(self) -> list[str]:
+        path = Path(self.workspace.get().strip()).expanduser() / "logs" / "renweave.log"
+        try:
+            return path.read_text(encoding="utf-8-sig", errors="replace").splitlines()[-120:]
+        except OSError:
+            return []
+
+    def _copy_text(self, value: str) -> None:
+        self.root.clipboard_clear()
+        self.root.clipboard_append(value)
+
+    def _format_duration(self, seconds: int) -> str:
+        if seconds < 0:
+            return self.t("progress.estimating")
+        if seconds < 60:
+            return "< 1 min" if self.locale.get() == "en" else "少于 1 分钟"
+        hours, remainder = divmod(seconds, 3600)
+        minutes = max(1, remainder // 60)
+        if hours:
+            return f"{hours} h {minutes} min" if self.locale.get() == "en" else f"{hours} 小时 {minutes} 分钟"
+        return f"{minutes} min" if self.locale.get() == "en" else f"{minutes} 分钟"
+
+    def _request_pause(self) -> None:
+        if self.cancel_token is None or self.cancel_token.cancelled:
+            return
+        self.cancel_token.cancel()
+        self.status.set(self.t("progress.pausing"))
+        if hasattr(self, "pause_button"):
+            self.pause_button.configure(state="disabled")
+        self._append_log(self.t("progress.pausing"))
+
+    def _close_window(self) -> None:
+        if self.worker and self.worker.is_alive() and self.cancel_token is not None:
+            self.cancel_token.cancel()
+        self.root.destroy()
+
     def _start(self) -> None:
         if self.worker and self.worker.is_alive():
             return
@@ -1210,18 +1408,27 @@ class RenWeaveDesktopApp:
         except (OSError, ValueError, TypeError) as exc:
             self._dialog(self.t("dialog.cannot_start"), str(exc), error=True)
             return
+        existing = self._resume_state()
         self.step = 4
         self.status.set(self.t("progress.ready"))
-        self.last_stage = ""
-        self.logs = []
+        self.last_stage = str(existing.get("stage", "")) if existing else ""
+        self.last_state_updated_at = ""
+        self.progress_payload = existing or {}
+        self.logs = self._load_existing_log() if existing else []
         self._append_log(self.t("progress.started"))
-        self._render()
+        self.cancel_token = CancellationToken()
         self.worker = threading.Thread(target=self._run_worker, args=(request,), daemon=True)
         self.worker.start()
+        self._render()
 
     def _run_worker(self, request: TranslationRequest) -> None:
         try:
-            self.events.put(("complete", execute_translation(request)))
+            state = execute_translation(
+                request,
+                cancel_token=self.cancel_token,
+                progress_callback=lambda current: self.events.put(("progress", current.to_dict())),
+            )
+            self.events.put(("paused" if state.stage == PipelineStage.PAUSED else "complete", state))
         except BaseException as exc:
             self.events.put(("translation_error", exc))
 
@@ -1263,8 +1470,13 @@ class RenWeaveDesktopApp:
                 self.connection_state = "failed"
                 self.connection_detail = {"message": str(value)}
                 self._render()
+            elif kind == "progress":
+                assert isinstance(value, dict)
+                self._apply_progress_payload(value)
             elif kind == "complete":
                 state = value
+                self.worker = None
+                self.progress_payload = state.to_dict()
                 self.last_stage = "complete"
                 self.status.set(self.t("progress.complete"))
                 self._append_log(f"Package: {state.package_path}")
@@ -1272,7 +1484,17 @@ class RenWeaveDesktopApp:
                     self._append_log(f"Installed: {state.installed_dir}")
                 self._render()
                 self._dialog(self.t("dialog.complete"), f"{self.t('progress.complete_body')}\n\n{state.package_path}")
+            elif kind == "paused":
+                state = value
+                self.worker = None
+                self.progress_payload = state.to_dict()
+                self.last_stage = "paused"
+                self.status.set(self.t("progress.paused"))
+                self._append_log(self.t("progress.paused_body"))
+                self._render()
             elif kind == "translation_error":
+                self.worker = None
+                self._read_pipeline_state()
                 self.last_stage = "failed"
                 self.status.set(self.t("progress.failed"))
                 self._append_log(f"Error: {value}")
@@ -1290,22 +1512,41 @@ class RenWeaveDesktopApp:
             return
         try:
             payload = json.loads(state_path.read_text(encoding="utf-8-sig"))
-            stage = str(payload.get("stage", ""))
-            if not stage or stage == self.last_stage:
+            updated_at = str(payload.get("updated_at", ""))
+            if not updated_at or updated_at == self.last_state_updated_at:
                 return
-            self.last_stage = stage
-            labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
-            label = labels.get(stage, stage)
-            completed = len(payload.get("completed_scene_ids", []))
-            self.status.set(f"{label} · {self.t('progress.scenes', count=completed)}")
-            self._append_log(label)
-            if self.progress is not None and stage in STAGE_LABELS:
-                self.progress["value"] = list(STAGE_LABELS).index(stage)
+            self.last_state_updated_at = updated_at
+            self._apply_progress_payload(payload)
         except (OSError, ValueError, TypeError):
             pass
 
+    def _apply_progress_payload(self, payload: dict[str, object]) -> None:
+        stage = str(payload.get("stage", ""))
+        if not stage:
+            return
+        previous_stage = self.last_stage
+        previous_completed = int(self.progress_payload.get("completed_scenes", 0) or 0)
+        completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
+        self.progress_payload = payload
+        self.last_state_updated_at = str(payload.get("updated_at", self.last_state_updated_at))
+        self.last_stage = stage
+        labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
+        label = labels.get(stage, stage)
+        operation = str(payload.get("current_operation", "") or label)
+        scene_label = str(payload.get("current_scene_label", "") or "")
+        display_operation = f"{label} · {scene_label}" if scene_label else label
+        self.status.set(display_operation if self.locale.get() == "zh" else operation)
+        if stage != previous_stage or completed != previous_completed:
+            total = int(payload.get("total_scenes", 0) or 0)
+            suffix = f" · {completed}/{total}" if total else ""
+            self._append_log(f"{label}{suffix} — {operation}")
+        if self.step == 4:
+            self._render()
+
     def _append_log(self, text: str) -> None:
         self.logs.append(text.rstrip())
+        if len(self.logs) > 500:
+            self.logs = self.logs[-500:]
         if self.log is not None and self.log.winfo_exists():
             self.log.configure(state="normal")
             self.log.insert("end", text.rstrip() + "\n")
