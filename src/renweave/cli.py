@@ -15,8 +15,12 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.7.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.8.0")
     commands = parser.add_subparsers(dest="command", required=True)
+
+    gui = commands.add_parser("gui", help="启动桌面一键翻译界面")
+    gui.add_argument("--project", default="", help="预填游戏目录")
+    gui.add_argument("--workspace", default="", help="预填工作目录")
 
     analyze = commands.add_parser("analyze", help="识别并分析一个 Ren'Py 项目，不调用 AI")
     analyze.add_argument("target", help="游戏根目录、game 目录或游戏程序")
@@ -90,6 +94,14 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "gui":
+            from .gui import launch_gui
+
+            return launch_gui(
+                initial_project=args.project,
+                initial_workspace=args.workspace,
+            )
+
         if args.command == "provider-check":
             profile = ModelProfile.load(args.config)
             profile.validate()

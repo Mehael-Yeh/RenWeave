@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "renweave"
-version = "0.7.0"
+version = "0.8.0"
 description = "Context-aware, one-click Ren'Py localization pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,9 @@ dependencies = []
 
 [project.scripts]
 renweave = "renweave.cli:main"
+
+[project.gui-scripts]
+renweave-gui = "renweave.gui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/renweave"]

@@ -26,6 +26,12 @@ from renweave.decompiler import (
     UnrpycToolManager,
 )
 from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
+from renweave.gui import (
+    STAGE_LABELS,
+    RenWeaveDesktopApp,
+    TranslationRequest,
+    execute_translation,
+)
 from renweave.indexer import ProjectIndexer
 from renweave.installer import TranslationInstaller
 from renweave.knowledge import DeterministicKnowledgeBuilder
@@ -148,6 +154,70 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue((workspace / "knowledge.json").is_file())
         state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(state["stage"], str(PipelineStage.KNOWLEDGE_READY))
+
+    def test_desktop_request_uses_any_target_language_and_keeps_key_in_memory(self) -> None:
+        provider = Path(self.temp.name) / "desktop-provider.json"
+        provider.write_text(json.dumps({
+            "kind": "openai_compatible",
+            "name": "Desktop Model",
+            "model": "translation-model",
+            "base_url": "https://example.invalid/v1",
+        }), encoding="utf-8")
+        workspace = Path(self.temp.name) / "desktop-workspace"
+        captured = {}
+
+        class FakePipeline:
+            def __init__(self, selected_workspace):
+                captured["workspace"] = selected_workspace
+
+            def translate(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return "completed"
+
+        request = TranslationRequest(
+            project=str(self.root),
+            workspace=str(workspace),
+            provider=str(provider),
+            source_language="English",
+            target_language="Português do Brasil",
+            api_key="memory-only-secret",
+            install=True,
+        )
+        result = execute_translation(request, pipeline_factory=FakePipeline)
+        self.assertEqual(result, "completed")
+        self.assertEqual(captured["args"][2], "Português do Brasil")
+        self.assertEqual(captured["args"][3].api_key, "memory-only-secret")
+        self.assertTrue(captured["kwargs"]["install"])
+        self.assertNotIn("memory-only-secret", provider.read_text(encoding="utf-8"))
+        self.assertFalse(workspace.exists())
+
+    def test_desktop_progress_labels_cover_every_pipeline_stage(self) -> None:
+        self.assertEqual({str(stage) for stage in PipelineStage} - set(STAGE_LABELS), set())
+
+    def test_desktop_window_constructs_with_one_click_controls(self) -> None:
+        try:
+            import tkinter as tk
+        except ImportError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+        try:
+            root.withdraw()
+            app = RenWeaveDesktopApp(
+                root,
+                initial_project=str(self.root),
+                initial_workspace=str(Path(self.temp.name) / "visual-workspace"),
+            )
+            root.update_idletasks()
+            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
+            self.assertGreaterEqual(root.minsize()[0], 760)
+            self.assertEqual(app.source_language.get(), "auto")
+            self.assertEqual(app.status.get(), "就绪：选择项目与模型后即可开始")
+        finally:
+            root.destroy()
 
     def test_analysis_cache_invalidates_when_project_scripts_change(self) -> None:
         workspace = Path(self.temp.name) / "fingerprint-workspace"

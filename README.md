@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.7.0 Isolated Ren'Py Validation
+## 当前里程碑：0.8.0 One-click Desktop
 
 首个可运行核心已经实现：
 
@@ -46,8 +46,13 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 自动从显式路径、`RENWEAVE_RENPY_SDK` 或项目相邻目录发现 Ren'Py SDK；支持 Windows SDK 自带 Python 和 Linux/macOS `renpy.sh`。
 - 将最小启动脚本与译文复制到带内容指纹的工作区隔离项目，再执行 Ren'Py 官方 `compile`，不在原游戏目录生成 `.rpyc` 或运行游戏脚本。
 - 将静态结果、引擎状态、命令、返回码和受限长度日志写入 `build-validation.json`；可选择把缺少 SDK 视为硬失败。
+- 提供标准库 Tk 桌面界面和 Windows 无控制台入口 `renweave-gui`，不引入大型 GUI 运行依赖。
+- 单页界面只要求游戏、工作区、模型配置和源/目标语言；世界观、角色定位、术语与全局精修全部由流水线自动完成。
+- API 密钥输入只注入当前内存中的模型配置，不写回 JSON、工作区状态、日志或翻译产物。
+- 翻译在后台线程运行，界面轮询断点状态并显示从解包、理解剧情、翻译、精修到验证打包的阶段进度。
+- 一键任务完成后直接显示 RPA 位置；失败时保留工作区状态，用户可修复网络或配置后原地重试。
 
-当前版本尚未接入精细剧情时间线、运行时截图/界面校验和桌面一键界面。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
+当前版本尚未接入精细剧情时间线和运行时截图/界面校验。这些属于后续质量增强，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -59,6 +64,16 @@ python -m renweave analyze "D:\Games\Example" --workspace "D:\RenWeaveWork\Examp
 python -m renweave unpack "D:\Games\Example\game\scripts.rpa" --output "D:\UnpackedScripts" --scripts-only
 python -m renweave decompile "D:\Games\Example" --workspace "D:\RenWeaveWork\Example"
 ```
+
+桌面一键界面：
+
+```powershell
+renweave-gui
+# 或
+python -m renweave gui
+```
+
+桌面版允许直接导入 `examples/provider.openai-compatible.json` 这类模型配置，并在界面中输入本次使用的 API 密钥。界面不会要求手工填写角色、世界观或固定词；这些知识由项目分析和分层 AI 提炼自动生成。
 
 使用源码目录直接运行时：
 
