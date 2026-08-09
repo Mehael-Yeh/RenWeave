@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "renweave"
+version = "0.1.0"
+description = "Context-aware, one-click Ren'Py localization pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "RenWeave contributors" }]
+dependencies = []
+
+[project.scripts]
+renweave = "renweave.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/renweave"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
