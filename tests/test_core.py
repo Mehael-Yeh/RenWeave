@@ -23,10 +23,11 @@ from renweave.indexer import ProjectIndexer
 from renweave.installer import TranslationInstaller
 from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.narrative import NarrativeKnowledgeSynthesizer
+from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile
 from renweave.refinement import GlobalTranslationRefiner
-from renweave.rpa import RpaArchive, UnsafeArchivePath, script_member
+from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
 
 
@@ -173,6 +174,20 @@ class CorePipelineTests(unittest.TestCase):
         with self.assertRaises(UnsafeArchivePath):
             RpaArchive(archive_path).open()
 
+    def test_rpa_writer_is_deterministic_and_round_trips(self) -> None:
+        first = Path(self.temp.name) / "first.rpa"
+        second = Path(self.temp.name) / "second.rpa"
+        members = {
+            "tl/de/strings.rpy": b"translate de strings:\n",
+            "tl/de/story.rpy": b"translate de start_deadbeef:\n    pass\n",
+        }
+        RpaWriter().write(first, members)
+        RpaWriter().write(second, dict(reversed(list(members.items()))))
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+        with RpaArchive(first) as archive:
+            self.assertEqual(archive.names(), tuple(sorted(members)))
+            self.assertEqual({name: archive.read(name) for name in archive.names()}, members)
+
     def test_pipeline_indexes_rpy_source_from_archive(self) -> None:
         archive_game = Path(self.temp.name) / "ArchiveOnly" / "game"
         archive_game.mkdir(parents=True)
@@ -219,6 +234,15 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(manifest.translated_units, len(index.text_units))
         self.assertTrue((output / "build.json").is_file())
 
+        packaged = TranslationPackager().package(manifest, output / "packages")
+        self.assertTrue(Path(packaged.archive_path).is_file())
+        self.assertEqual(len(packaged.archive_sha256), 64)
+        with RpaArchive(packaged.archive_path) as archive:
+            self.assertEqual(
+                archive.names(),
+                ("tl/es_es/script.rpy", "tl/es_es/strings.rpy"),
+            )
+
     def test_emitter_rejects_conflicting_global_string_translations(self) -> None:
         (self.game / "duplicate.rpy").write_text(
             'label duplicate:\n    menu:\n        "Go outside":\n            return\n',
@@ -237,6 +261,16 @@ class CorePipelineTests(unittest.TestCase):
                 "es",
                 Path(self.temp.name) / "conflicting-output",
             )
+
+    def test_packager_rejects_script_changed_after_build(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "tampered-package-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "pt-BR", output)
+        script = output / "game" / "tl" / "pt_br" / "script.rpy"
+        script.write_text("# tampered after validation\n", encoding="utf-8")
+        with self.assertRaises(RpaError):
+            TranslationPackager().package(manifest, output / "packages")
 
     def test_installer_preflights_all_files_before_writing(self) -> None:
         index = ProjectIndexer().build(self.root)
@@ -319,6 +353,9 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.failed_scene_ids, [])
         self.assertTrue(Path(state.output_dir, "script.rpy").is_file())
         self.assertTrue(Path(state.output_dir, "strings.rpy").is_file())
+        self.assertTrue(Path(state.package_path).is_file())
+        self.assertEqual(len(state.package_sha256), 64)
+        self.assertTrue((workspace / "package.json").is_file())
         self.assertEqual(Path(state.installed_dir), (self.game / "tl" / "es_es").resolve())
         self.assertTrue((self.game / "tl" / "es_es" / "script.rpy").is_file())
         self.assertTrue((workspace / "install.json").is_file())

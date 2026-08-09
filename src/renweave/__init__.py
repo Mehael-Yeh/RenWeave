@@ -3,4 +3,4 @@
 from .models import ProjectIndex, Scene, TextUnit
 
 __all__ = ["ProjectIndex", "Scene", "TextUnit"]
-__version__ = "0.5.0"
+__version__ = "0.6.0"

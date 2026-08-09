@@ -15,7 +15,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.5.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.6.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     analyze = commands.add_parser("analyze", help="识别并分析一个 Ren'Py 项目，不调用 AI")

@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.5.0 Global Refinement
+## 当前里程碑：0.6.0 Reproducible RPA Packages
 
 首个可运行核心已经实现：
 
@@ -38,8 +38,12 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 精修请求按模型、提示词和实际候选内容缓存；相同项目重复运行可直接复用结果。
 - 对模型提出的修改按场景再次校验 Ren'Py 标签、插值变量、占位符和文本 ID；批量修改失败时自动逐条隔离并拒绝不安全修改。
 - 将精修候选数、实际修改、拒绝项、模型调用数和缓存命中数写入独立报告及断点状态。
+- 在一键翻译或离线重建结束时自动生成标准 RPA 3.0 语言包，成员路径可直接映射到游戏的 `game/tl/<language>`。
+- RPA 成员按稳定路径排序、索引使用稳定序列化参数；相同脚本输入可生成字节完全一致的归档。
+- 归档前验证每个脚本仍与构建清单哈希一致，归档后再通过独立读取器逐成员回读并校验大小与 SHA-256。
+- 在 `package.json`、`build.json` 和 `state.json` 记录归档位置及摘要，可用于发布、复核和断点重建。
 
-当前版本尚未接入精细剧情时间线、Ren'Py 编译校验、最终 RPA 构建和桌面一键界面。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
+当前版本尚未接入精细剧情时间线、Ren'Py 编译/运行时校验和桌面一键界面。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -73,7 +77,7 @@ python -m renweave run "D:\Games\Example" `
   --install
 ```
 
-不使用 `--install` 时，完整语言包只会生成到工作区，不修改游戏。之后可以从已有的验证结果重新构建或安装，无需再次消耗模型 Token：
+不使用 `--install` 时，完整语言包目录与 RPA 归档只会生成到工作区，不修改游戏。之后可以从已有的验证结果重新构建、归档或安装，无需再次消耗模型 Token：
 
 ```powershell
 python -m renweave build --workspace "D:\RenWeaveWork\Example" --install
@@ -106,6 +110,9 @@ workspace/
 ├── reports/
 │   └── scene_<id>.json
 ├── build.json
+├── package.json
+├── packages/
+│   └── renweave-<language>.rpa
 ├── install.json              # 仅使用 --install 时生成
 └── output/game/tl/<language>/
     ├── <source-script>.rpy

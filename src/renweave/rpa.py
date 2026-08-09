@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import hashlib
+import os
 import pickle
 import zlib
 from dataclasses import asdict, dataclass
@@ -259,6 +260,62 @@ class RpaArchive:
         if len(output) > self.max_index_bytes or not decoder.eof:
             raise RpaError("RPA 解压后索引无效或超过安全大小限制")
         return output
+
+
+class RpaWriter:
+    """Write deterministic RPA 3.0 archives from already validated bytes."""
+
+    VERSION = "RPA-3.0"
+
+    def write(self, path: str | Path, members: dict[str, bytes]) -> Path:
+        if not members:
+            raise RpaError("不能创建空 RPA 归档")
+        normalized: list[tuple[str, bytes]] = []
+        casefolded: set[str] = set()
+        for raw_name, payload in members.items():
+            name = RpaArchive.safe_member_path(raw_name).as_posix()
+            if name.casefold() in casefolded:
+                raise RpaError(f"RPA 成员路径大小写冲突：{name}")
+            if not isinstance(payload, bytes):
+                raise TypeError(f"RPA 成员必须是 bytes：{name}")
+            casefolded.add(name.casefold())
+            normalized.append((name, payload))
+        normalized.sort(key=lambda item: (item[0].casefold(), item[0]))
+
+        key_material = b"\0".join(
+            name.encode("utf-8") + b"\0" + hashlib.sha256(payload).digest()
+            for name, payload in normalized
+        )
+        key = int.from_bytes(hashlib.sha256(key_material).digest()[:4], "big")
+        header_template = f"{self.VERSION} {{:016x}} {key:08x}\n"
+        header_size = len(header_template.format(0).encode("ascii"))
+        offset = header_size
+        index: dict[str, list[tuple[int, int]]] = {}
+        for name, payload in normalized:
+            index[name] = [(offset ^ key, len(payload) ^ key)]
+            offset += len(payload)
+        serialized = pickle.dumps(index, protocol=2)
+        compressed_index = zlib.compress(serialized, level=9)
+        header = header_template.format(offset).encode("ascii")
+        if len(header) != header_size:
+            raise RpaError("RPA 头长度发生变化")
+
+        destination = Path(path).expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.tmp")
+        try:
+            with temporary.open("wb") as writer:
+                writer.write(header)
+                for _name, payload in normalized:
+                    writer.write(payload)
+                writer.write(compressed_index)
+                writer.flush()
+                os.fsync(writer.fileno())
+            os.replace(temporary, destination)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        return destination
 
 
 def script_member(name: str) -> bool:

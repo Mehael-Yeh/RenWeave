@@ -66,6 +66,8 @@ class BuildManifest:
     output_dir: str
     translated_units: int
     files: list[EmittedFile]
+    archive_path: str = ""
+    archive_sha256: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -167,7 +169,7 @@ class RenpyTranslationEmitter:
                 stale.unlink()
 
         manifest = BuildManifest(
-            schema_version=1,
+            schema_version=2,
             requested_language=requested_language,
             renpy_language=language,
             output_dir=str(language_dir),

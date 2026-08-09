@@ -10,13 +10,14 @@ from .acquisition import ArchiveAcquirer
 from .context import ContextPlanner
 from .decompiler import DecompilationError, DecompilationManifest, UnrpycDecompiler, UnrpycToolManager
 from .discovery import ProjectDiscovery
-from .emitter import RenpyTranslationEmitter, normalize_renpy_language
+from .emitter import BuildManifest, RenpyTranslationEmitter, normalize_renpy_language
 from .indexer import ProjectIndexer
 from .installer import TranslationInstaller
 from .io import atomic_write_json, read_json
 from .knowledge import DeterministicKnowledgeBuilder, KnowledgeBase
 from .models import ProjectIndex, TextChannel, TextUnit
 from .narrative import NarrativeKnowledge, NarrativeKnowledgeSynthesizer
+from .packaging import PackageManifest, TranslationPackager
 from .provider import ModelProfile, OpenAICompatibleGateway
 from .refinement import GlobalTranslationRefiner
 from .translation import SceneTranslator
@@ -58,6 +59,8 @@ class PipelineState:
     renpy_language: str = ""
     output_dir: str = ""
     installed_dir: str = ""
+    package_path: str = ""
+    package_sha256: str = ""
     project_fingerprint: str = ""
     knowledge_model_calls: int = 0
     knowledge_cache_hits: int = 0
@@ -91,6 +94,8 @@ class RenWeavePipeline:
         self.translations_dir = self.workspace / "translations"
         self.reports_dir = self.workspace / "reports"
         self.output_dir = self.workspace / "output"
+        self.packages_dir = self.workspace / "packages"
+        self.package_path = self.workspace / "package.json"
 
     def analyze(
         self,
@@ -365,8 +370,11 @@ class RenWeavePipeline:
                     target_language,
                     self.output_dir,
                 )
+                package = self._package(manifest)
                 state.renpy_language = manifest.renpy_language
                 state.output_dir = manifest.output_dir
+                state.package_path = package.archive_path
+                state.package_sha256 = package.archive_sha256
                 if install:
                     installed = TranslationInstaller().install(
                         manifest,
@@ -408,8 +416,11 @@ class RenWeavePipeline:
             language,
             self.output_dir,
         )
+        package = self._package(manifest)
         state.renpy_language = manifest.renpy_language
         state.output_dir = manifest.output_dir
+        state.package_path = package.archive_path
+        state.package_sha256 = package.archive_sha256
         if install:
             installed = TranslationInstaller().install(
                 manifest,
@@ -421,6 +432,14 @@ class RenWeavePipeline:
         state.stage = PipelineStage.COMPLETE
         self._save_state(state)
         return manifest
+
+    def _package(self, manifest: BuildManifest) -> PackageManifest:
+        package = TranslationPackager().package(manifest, self.packages_dir)
+        manifest.archive_path = package.archive_path
+        manifest.archive_sha256 = package.archive_sha256
+        atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
+        atomic_write_json(self.package_path, package.to_dict())
+        return package
 
     def _collect_translations(self, scene_ids: list[str]) -> dict[str, str]:
         translations: dict[str, str] = {}
@@ -511,6 +530,8 @@ class RenWeavePipeline:
             if target_language.casefold() != "und"
             else "",
             installed_dir="",
+            package_path="",
+            package_sha256="",
             project_fingerprint=project_fingerprint,
             knowledge_model_calls=0,
             knowledge_cache_hits=0,
@@ -529,6 +550,8 @@ class RenWeavePipeline:
         payload.setdefault("renpy_language", "")
         payload.setdefault("output_dir", "")
         payload.setdefault("installed_dir", "")
+        payload.setdefault("package_path", "")
+        payload.setdefault("package_sha256", "")
         payload.setdefault("project_fingerprint", "")
         payload.setdefault("knowledge_model_calls", 0)
         payload.setdefault("knowledge_cache_hits", 0)
