@@ -72,6 +72,10 @@ class PipelineState:
     refinement_model_calls: int = 0
     refinement_cache_hits: int = 0
     refinement_changes: int = 0
+    total_model_calls: int = 0
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    model_requests_attempted: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -249,6 +253,12 @@ class RenWeavePipeline:
         )
         state = self._load_state()
         gateway = gateway or OpenAICompatibleGateway(profile)
+        usage_base = (
+            state.total_model_calls,
+            state.total_prompt_tokens,
+            state.total_completion_tokens,
+            state.model_requests_attempted,
+        )
         narrative: NarrativeKnowledge | None = None
         text_scene_count = sum(1 for scene in index.scenes if scene.text_units)
         if synthesize_knowledge and text_scene_count >= 4:
@@ -272,6 +282,7 @@ class RenWeavePipeline:
             state.knowledge_cache_hits = narrative.usage.cache_hits
             state.knowledge_warnings = len(narrative.warnings)
             state.stage = PipelineStage.NARRATIVE_READY
+            self._sync_gateway_usage(state, gateway, usage_base)
             self._save_state(state)
         state.stage = PipelineStage.TRANSLATING
         self._save_state(state)
@@ -334,11 +345,23 @@ class RenWeavePipeline:
                         state.completed_scene_ids.remove(scene.id)
                     if scene.id not in state.failed_scene_ids:
                         state.failed_scene_ids.append(scene.id)
-            except BaseException:
+            except BaseException as exc:
                 if scene.id in state.completed_scene_ids:
                     state.completed_scene_ids.remove(scene.id)
                 if scene.id not in state.failed_scene_ids:
                     state.failed_scene_ids.append(scene.id)
+                atomic_write_json(self.reports_dir / f"{scene.id}.json", {
+                    "expected": len(scene.text_units),
+                    "received": 0,
+                    "passed": False,
+                    "issues": [{
+                        "code": "SCENE_EXCEPTION",
+                        "text_id": "",
+                        "message": f"{type(exc).__name__}: {exc}"[:2000],
+                    }],
+                })
+                state.error = f"场景 {scene.label} 翻译失败：{exc}"[:2000]
+            self._sync_gateway_usage(state, gateway, usage_base)
             self._save_state(state)
 
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
@@ -368,6 +391,7 @@ class RenWeavePipeline:
                 state.refinement_cache_hits = refinement.usage.cache_hits
                 state.refinement_changes = len(refinement.changes)
                 state.stage = PipelineStage.REFINED
+                self._sync_gateway_usage(state, gateway, usage_base)
                 self._save_state(state)
             state.stage = PipelineStage.BUILDING
             self._save_state(state)
@@ -412,6 +436,15 @@ class RenWeavePipeline:
                 raise
         else:
             state.stage = PipelineStage.VALIDATED
+            remaining = len(expected_scene_ids - completed_scene_ids)
+            if state.failed_scene_ids:
+                state.error = (
+                    f"{len(state.failed_scene_ids)} 个场景翻译失败，"
+                    f"仍有 {remaining} 个场景未完成；详见 reports 目录"
+                )
+            elif remaining:
+                state.error = f"仍有 {remaining} 个场景未完成"
+        self._sync_gateway_usage(state, gateway, usage_base)
         self._save_state(state)
         return state
 
@@ -596,6 +629,10 @@ class RenWeavePipeline:
             refinement_model_calls=0,
             refinement_cache_hits=0,
             refinement_changes=0,
+            total_model_calls=0,
+            total_prompt_tokens=0,
+            total_completion_tokens=0,
+            model_requests_attempted=0,
         )
         self._save_state(state)
         return state
@@ -618,11 +655,26 @@ class RenWeavePipeline:
         payload.setdefault("refinement_model_calls", 0)
         payload.setdefault("refinement_cache_hits", 0)
         payload.setdefault("refinement_changes", 0)
+        payload.setdefault("total_model_calls", 0)
+        payload.setdefault("total_prompt_tokens", 0)
+        payload.setdefault("total_completion_tokens", 0)
+        payload.setdefault("model_requests_attempted", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
         state.updated_at = self._now()
         atomic_write_json(self.state_path, state.to_dict())
+
+    @staticmethod
+    def _sync_gateway_usage(state: PipelineState, gateway, base: tuple[int, int, int, int]) -> None:
+        state.total_model_calls = base[0] + max(0, int(getattr(gateway, "model_calls", 0)))
+        state.total_prompt_tokens = base[1] + max(0, int(getattr(gateway, "prompt_tokens", 0)))
+        state.total_completion_tokens = base[2] + max(
+            0, int(getattr(gateway, "completion_tokens", 0))
+        )
+        state.model_requests_attempted = base[3] + max(
+            0, int(getattr(gateway, "requests_attempted", 0))
+        )
 
     @staticmethod
     def _now() -> str:

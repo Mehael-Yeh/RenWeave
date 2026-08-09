@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 
-from .pipeline import RenWeavePipeline
+from .pipeline import PipelineStage, RenWeavePipeline
 from .provider import ModelProfile
 from .rpa import RpaArchive, script_member
 
@@ -15,7 +15,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.8.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.9.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     gui = commands.add_parser("gui", help="启动桌面一键翻译界面")
@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             require_engine_validation=args.require_renpy_validation,
         )
         print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
-        return 0 if not state.failed_scene_ids else 2
+        return 0 if state.stage == PipelineStage.COMPLETE else 2
     except (OSError, RuntimeError, ValueError, KeyError) as exc:
         print(f"RenWeave error: {exc}", file=sys.stderr)
         return 1

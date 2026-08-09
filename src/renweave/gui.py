@@ -51,7 +51,7 @@ def execute_translation(
         profile.api_key = request.api_key
     profile.validate()
     pipeline = pipeline_factory(request.workspace)
-    return pipeline.translate(
+    state = pipeline.translate(
         request.project,
         request.source_language.strip() or "auto",
         request.target_language.strip(),
@@ -61,6 +61,10 @@ def execute_translation(
         renpy_sdk_path=request.renpy_sdk or None,
         require_engine_validation=request.require_engine_validation,
     )
+    if state.stage != "complete" or state.failed_scene_ids:
+        detail = state.error or f"{len(state.failed_scene_ids)} 个场景未完成"
+        raise RuntimeError(detail)
+    return state
 
 
 STAGE_LABELS = {

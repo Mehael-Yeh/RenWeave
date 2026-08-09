@@ -10,6 +10,9 @@ import unittest
 import zlib
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+import urllib.error
 
 from renweave.context import ContextPlanner
 from renweave.build_validation import (
@@ -130,6 +133,24 @@ class CorePipelineTests(unittest.TestCase):
         self.assertIn("Hello", context.previous_summary)
         self.assertIn("Need any help", context.next_summary)
 
+    def test_context_uses_control_flow_and_does_not_cross_unrelated_files(self) -> None:
+        (self.game / "isolated_a.rpy").write_text(
+            'label isolated_a:\n    "Alpha only."\n', encoding="utf-8"
+        )
+        (self.game / "isolated_b.rpy").write_text(
+            'label isolated_b:\n    "Beta only."\n', encoding="utf-8"
+        )
+        index = ProjectIndexer().build(self.root)
+        knowledge = DeterministicKnowledgeBuilder().build(index)
+        isolated = next(scene for scene in index.scenes if scene.label == "isolated_a")
+        context = ContextPlanner().build(index, knowledge, isolated.id)
+        self.assertNotIn("Beta only", context.next_summary)
+
+        start = next(scene for scene in index.scenes if scene.label == "start")
+        start_context = ContextPlanner().build(index, knowledge, start.id)
+        self.assertIn("We made it", start_context.next_summary)
+        self.assertIn("Need any help", start_context.next_summary)
+
     def test_validation_protects_tags_and_placeholders(self) -> None:
         index = ProjectIndexer().build(self.root)
         scene = index.scenes[0]
@@ -173,7 +194,11 @@ class CorePipelineTests(unittest.TestCase):
             def translate(self, *args, **kwargs):
                 captured["args"] = args
                 captured["kwargs"] = kwargs
-                return "completed"
+                return SimpleNamespace(
+                    stage=PipelineStage.COMPLETE,
+                    failed_scene_ids=[],
+                    error="",
+                )
 
         request = TranslationRequest(
             project=str(self.root),
@@ -185,7 +210,7 @@ class CorePipelineTests(unittest.TestCase):
             install=True,
         )
         result = execute_translation(request, pipeline_factory=FakePipeline)
-        self.assertEqual(result, "completed")
+        self.assertEqual(result.stage, PipelineStage.COMPLETE)
         self.assertEqual(captured["args"][2], "Português do Brasil")
         self.assertEqual(captured["args"][3].api_key, "memory-only-secret")
         self.assertTrue(captured["kwargs"]["install"])
@@ -459,7 +484,17 @@ class CorePipelineTests(unittest.TestCase):
 
     def test_one_click_pipeline_translates_validates_and_builds(self) -> None:
         class FakeGateway:
+            def __init__(self):
+                self.model_calls = 0
+                self.prompt_tokens = 0
+                self.completion_tokens = 0
+                self.requests_attempted = 0
+
             def chat(self, messages, *, temperature=0.2):
+                self.model_calls += 1
+                self.prompt_tokens += 10
+                self.completion_tokens += 5
+                self.requests_attempted += 1
                 request = json.loads(messages[-1]["content"])
                 rows = [
                     {"id": line["id"], "text": f"ES: {line['source']}"}
@@ -471,12 +506,13 @@ class CorePipelineTests(unittest.TestCase):
 
         workspace = Path(self.temp.name) / "one-click-workspace"
         profile = ModelProfile(name="test", model="fake", base_url="https://example.invalid")
+        gateway = FakeGateway()
         state = RenWeavePipeline(workspace).translate(
             self.root,
             "en",
             "es-ES",
             profile,
-            gateway=FakeGateway(),
+            gateway=gateway,
             install=True,
         )
         self.assertEqual(state.stage, PipelineStage.COMPLETE)
@@ -491,6 +527,9 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.build_validation_status, "passed")
         self.assertEqual(state.engine_validation_status, "skipped")
         self.assertTrue((workspace / "build-validation.json").is_file())
+        self.assertEqual(state.total_model_calls, 3)
+        self.assertEqual(state.total_prompt_tokens, 30)
+        self.assertEqual(state.total_completion_tokens, 15)
         self.assertEqual(Path(state.installed_dir), (self.game / "tl" / "es_es").resolve())
         self.assertTrue((self.game / "tl" / "es_es" / "script.rpy").is_file())
         self.assertTrue((workspace / "install.json").is_file())
@@ -534,6 +573,79 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.stage, PipelineStage.COMPLETE)
         self.assertEqual(gateway.initial_calls, 3)
         self.assertEqual(gateway.repair_calls, 1)
+
+    def test_scene_exception_is_reported_and_never_marked_complete(self) -> None:
+        class FailingGateway:
+            def chat(self, messages, *, temperature=0.2):
+                raise RuntimeError("temporary model outage")
+
+        workspace = Path(self.temp.name) / "failure-workspace"
+        state = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            ModelProfile(name="failure", model="fake", base_url="https://example.invalid"),
+            gateway=FailingGateway(),
+        )
+        self.assertEqual(state.stage, PipelineStage.VALIDATED)
+        self.assertEqual(len(state.failed_scene_ids), 3)
+        self.assertIn("3 个场景翻译失败", state.error)
+        report = json.loads(
+            (workspace / "reports" / f"{state.failed_scene_ids[0]}.json").read_text(encoding="utf-8")
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["issues"][0]["code"], "SCENE_EXCEPTION")
+
+    def test_model_gateway_retries_transient_http_and_limits_response_size(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, limit=-1):
+                return self.payload if limit < 0 else self.payload[:limit]
+
+        from renweave.provider import OpenAICompatibleGateway
+
+        response = json.dumps({
+            "choices": [{"message": {"content": "{}"}}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+        }).encode("utf-8")
+        throttled = urllib.error.HTTPError(
+            "https://example.invalid", 429, "rate limited", {}, io.BytesIO(b"retry")
+        )
+        profile = ModelProfile(
+            name="retry",
+            model="retry-model",
+            base_url="https://example.invalid/v1",
+            max_retries=1,
+            retry_base_seconds=0,
+            max_response_bytes=1024,
+        )
+        gateway = OpenAICompatibleGateway(profile)
+        with mock.patch(
+            "renweave.provider.urllib.request.urlopen",
+            side_effect=[throttled, FakeResponse(response)],
+        ) as urlopen:
+            gateway.chat([{"role": "user", "content": "test"}])
+        self.assertEqual(urlopen.call_count, 2)
+        self.assertEqual(gateway.requests_attempted, 2)
+        self.assertEqual(gateway.model_calls, 1)
+        self.assertEqual(gateway.prompt_tokens, 12)
+        self.assertEqual(gateway.completion_tokens, 3)
+
+        oversized = OpenAICompatibleGateway(profile)
+        with mock.patch(
+            "renweave.provider.urllib.request.urlopen",
+            return_value=FakeResponse(b"x" * 1025),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "max_response_bytes"):
+                oversized.chat([{"role": "user", "content": "test"}])
 
     def test_run_automatically_synthesizes_narrative_knowledge(self) -> None:
         with (self.game / "script.rpy").open("a", encoding="utf-8", newline="\n") as writer:

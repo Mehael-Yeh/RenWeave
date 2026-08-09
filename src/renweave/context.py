@@ -39,8 +39,7 @@ class ContextPlanner:
         if position is None:
             raise KeyError(f"未知场景：{scene_id}")
         scene = index.scenes[position]
-        previous = index.scenes[position - 1] if position > 0 else None
-        following = index.scenes[position + 1] if position + 1 < len(index.scenes) else None
+        previous, following = self._neighbors(index, position)
         character_map = {character.name: character for character in knowledge.characters}
         evidence = [
             asdict(character_map[name])
@@ -96,8 +95,8 @@ class ContextPlanner:
             label=scene.label,
             relative_path=scene.relative_path,
             speakers=scene.speakers,
-            previous_summary=self._summary(knowledge, previous),
-            next_summary=self._summary(knowledge, following),
+            previous_summary=self._summaries(knowledge, previous),
+            next_summary=self._summaries(knowledge, following),
             related_character_evidence=evidence,
             lines=[{
                 "id": unit.id,
@@ -116,5 +115,46 @@ class ContextPlanner:
         )
 
     @staticmethod
-    def _summary(knowledge: KnowledgeBase, scene: Scene | None) -> str:
-        return knowledge.scene_summaries.get(scene.id, "") if scene else ""
+    def _neighbors(index: ProjectIndex, position: int) -> tuple[list[Scene], list[Scene]]:
+        scene = index.scenes[position]
+        label_map: dict[str, list[Scene]] = {}
+        for item in index.scenes:
+            label_map.setdefault(item.label, []).append(item)
+        incoming = []
+        for candidate in index.scenes:
+            if candidate.id == scene.id:
+                continue
+            if any(edge.target_label == scene.label for edge in candidate.edges):
+                incoming.append(candidate)
+        outgoing = []
+        for edge in scene.edges:
+            outgoing.extend(label_map.get(edge.target_label, []))
+
+        if not incoming and position > 0:
+            candidate = index.scenes[position - 1]
+            if candidate.relative_path == scene.relative_path:
+                incoming.append(candidate)
+        if not outgoing and position + 1 < len(index.scenes):
+            candidate = index.scenes[position + 1]
+            if candidate.relative_path == scene.relative_path:
+                outgoing.append(candidate)
+        return ContextPlanner._unique_scenes(incoming), ContextPlanner._unique_scenes(outgoing)
+
+    @staticmethod
+    def _unique_scenes(scenes: list[Scene]) -> list[Scene]:
+        seen = set()
+        result = []
+        for scene in scenes:
+            if scene.id not in seen:
+                seen.add(scene.id)
+                result.append(scene)
+        return result[:4]
+
+    @staticmethod
+    def _summaries(knowledge: KnowledgeBase, scenes: list[Scene]) -> str:
+        rows = []
+        for scene in scenes:
+            summary = knowledge.scene_summaries.get(scene.id, "")
+            if summary:
+                rows.append(f"[{scene.label}] {summary}")
+        return " | ".join(rows)[:3000]
