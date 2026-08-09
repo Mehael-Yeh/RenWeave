@@ -2,6 +2,17 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.1.0 - 2026-08-10
+
+- Replaced the single-page form with a guided five-step Material-inspired desktop flow.
+- Made AI model connection the first step and blocked translation until the selected model is verified.
+- Added API endpoint validation, `/models` discovery, editable model selection, and a minimal chat health check.
+- Added English-default interface copy with immediate Simplified Chinese switching across screens and dialogs.
+- Added a semantic color, typography, spacing, focus, disabled-state, card, and modal design system for the Tk interface.
+- Kept desktop API keys memory-only while automatically saving reusable provider profiles without secrets.
+- Rewrote the main README in concise English and added complete Simplified Chinese documentation.
+- Added a manually dispatched GitHub release workflow with version checks, tests, package validation, checksums, and draft/prerelease options.
+
 ## 1.0.0 - 2026-08-10
 
 - Added arbitrary source-to-target language translation through importable OpenAI-compatible model profiles.

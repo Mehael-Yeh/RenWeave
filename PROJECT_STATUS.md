@@ -2,28 +2,28 @@
 
 ## Release target
 
-RenWeave 1.0 provides a complete context-aware Ren'Py localization path from a game directory to an installable directory and verified RPA language pack. It accepts arbitrary source and target languages supported by the selected OpenAI-compatible model.
+RenWeave 1.1 provides a complete, context-aware Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected OpenAI-compatible model.
 
 ## Requirement coverage
 
 | Requirement | Status | Implementation |
 | --- | --- | --- |
-| Import an AI model | Complete | JSON profiles for OpenAI-compatible endpoints, environment or memory-only API keys, provider validation, retry and response limits |
+| Guided one-click UI | Complete | English-default, Chinese-switchable five-step desktop flow with unified Material-inspired screens and dialogs |
+| Complete model setup | Complete | Endpoint validation, authenticated model discovery, editable selection, minimal model health check, secret-free profile persistence |
 | Unpack Ren'Py games | Complete | Safe RPA 2.0/3.0/3.2 reader and selective script acquisition |
-| Decompile compiled scripts | Complete | Pinned and hash-verified unrpyc 2.0.2, isolated subprocess and workspace copies |
-| Understand the complete game | Complete | Scene graph, deterministic evidence, storyline chunks, hierarchical narrative synthesis, character/relationship/term profiles |
-| Avoid line-by-line translation | Complete | Whole-scene translation payloads with control-flow neighbors and relevant compact narrative context |
-| Minimize additional Token use | Complete | Zero-Token pre-analysis, content-addressed knowledge/refinement caches, bounded relevant context, risk-only global refinement and usage counters |
-| Fully automatic translation | Complete | Analyze → acquire → decompile → index → synthesize → translate → repair → refine → emit → validate → package → optional install |
-| Preserve Ren'Py semantics | Complete | Stable text IDs plus validation of coverage, tags, interpolation and placeholders |
-| Global quality optimization | Complete | Cross-scene inconsistency/term/voice risk audit, cached AI corrections and per-change structural validation |
-| Build and distribute | Complete | Standard `game/tl/<language>` scripts, deterministic verified RPA 3.0 and safe installer |
-| One-click user interface | Complete | Single-page Tk desktop UI with background progress and no manual lore/character/term forms |
-| Recover from failures | Complete | Atomic workspace artifacts, completed-scene checkpoints, targeted repair, request retries and scene diagnostics |
+| Decompile compiled scripts | Complete | Pinned and hash-verified unrpyc, isolated subprocess, and workspace copies |
+| Understand the complete game | Complete | Scene graph, deterministic evidence, storyline chunks, hierarchical narrative synthesis, character, relationship, and term profiles |
+| Avoid line-by-line translation | Complete | Whole-scene translation with control-flow neighbors and compact relevant narrative context |
+| Minimize additional token use | Complete | Zero-token pre-analysis, content-addressed caches, bounded context, targeted repair, risk-only refinement, and usage counters |
+| Fully automatic translation | Complete | Discover → acquire → decompile → index → synthesize → translate → repair → refine → emit → validate → package → optional install |
+| Preserve Ren'Py semantics | Complete | Stable text IDs and validation of coverage, tags, interpolation, placeholders, and generated scripts |
+| Build and distribute | Complete | Standard `game/tl/<language>` scripts, deterministic verified RPA 3.0, safe installer, CI, and manual release automation |
+| Recover from failures | Complete | Atomic workspace artifacts, completed-scene checkpoints, request retries, targeted repair, and persistent diagnostics |
 
 ## Deliberate boundaries
 
-- RenWeave does not redistribute Ren'Py, unrpyc or any game assets. unrpyc is downloaded only when required and is pinned by commit and archive hash.
-- Official Ren'Py engine compilation runs when an SDK is discovered or specified. Static generated-script validation always runs; `--require-renpy-validation` makes an SDK mandatory.
-- Visual overflow, font coverage and screenshot comparison require running the translated game and remain a post-build QA activity. They do not weaken the translation or package validation guarantees above.
-- Translation quality still depends on the selected model. RenWeave minimizes hallucination with evidence-bound prompts, structural checks and selective refinement, but cannot guarantee literary judgment from an incapable model.
+- RenWeave does not redistribute Ren'Py, unrpyc, or game assets. unrpyc is downloaded only when needed and is pinned by commit and archive hash.
+- Static generated-script validation always runs. Official Ren'Py engine compilation runs when an SDK is discovered or specified; `--require-renpy-validation` makes it mandatory.
+- Visual overflow, font coverage, and in-game screenshot comparison require launching the translated game and remain post-build QA.
+- Translation quality depends on the selected model. Evidence-bound prompts and validation limit failures but cannot replace literary judgment in an incapable model.
+- Users must have the legal right to process and translate the selected game.

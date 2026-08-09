@@ -384,6 +384,7 @@ class RenWeaveDesktopApp:
         self.provider = tk.StringVar()
         self.provider_name = tk.StringVar(value="OpenAI-compatible")
         self.base_url = tk.StringVar(value="https://api.openai.com/v1")
+        self.api_key_env = tk.StringVar()
         self.model = tk.StringVar()
         self.model_choices: tuple[str, ...] = ()
         self.api_key = tk.StringVar()
@@ -733,6 +734,7 @@ class RenWeaveDesktopApp:
             model=self.model.get().strip(),
             base_url=self.base_url.get().strip(),
             api_key=self.api_key.get(),
+            api_key_env=self.api_key_env.get().strip(),
             max_retries=2,
             retry_base_seconds=0.5,
         )
@@ -802,6 +804,7 @@ class RenWeaveDesktopApp:
             self.provider_name.set(profile.name)
             self.base_url.set(profile.base_url)
             self.model.set(profile.model)
+            self.api_key_env.set(profile.api_key_env)
             if profile.api_key:
                 self.api_key.set(profile.api_key)
         finally:
