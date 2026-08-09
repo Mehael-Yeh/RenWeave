@@ -43,6 +43,7 @@ from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile, OpenAICompatibleCatalog
 from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
+from renweave.runtime import CancellationToken
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
@@ -622,6 +623,63 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.stage, PipelineStage.COMPLETE)
         self.assertEqual(gateway.initial_calls, 3)
         self.assertEqual(gateway.repair_calls, 1)
+
+    def test_translation_can_pause_after_checkpoint_and_resume_without_repeating_work(self) -> None:
+        token = CancellationToken()
+
+        class CancellingGateway:
+            def __init__(self, cancel_after_first=False):
+                self.calls = 0
+                self.cancel_after_first = cancel_after_first
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                self.calls += 1
+                rows = [
+                    {"id": line["id"], "text": f"FR: {line['source']}"}
+                    for line in request["scene"]["lines"]
+                ]
+                if self.cancel_after_first and self.calls == 1:
+                    token.cancel()
+                return {"choices": [{"message": {"content": json.dumps({"translations": rows})}}]}
+
+        workspace = Path(self.temp.name) / "resume-workspace"
+        profile = ModelProfile(name="resume", model="fake", base_url="https://example.invalid")
+        first_gateway = CancellingGateway(cancel_after_first=True)
+        paused = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=first_gateway,
+            cancel_token=token,
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(paused.stage, PipelineStage.PAUSED)
+        self.assertEqual(paused.run_status, "paused")
+        self.assertEqual(len(paused.completed_scene_ids), 1)
+        self.assertGreater(paused.progress_percent, 32)
+        self.assertTrue((workspace / "logs" / "events.jsonl").is_file())
+        self.assertIn("run_paused", (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"))
+
+        second_gateway = CancellingGateway()
+        completed = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=second_gateway,
+            cancel_token=CancellationToken(),
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(completed.stage, PipelineStage.COMPLETE)
+        self.assertEqual(second_gateway.calls, 2)
+        self.assertEqual(len(completed.completed_scene_ids), 3)
+        self.assertGreaterEqual(completed.resumed_count, 1)
+        self.assertEqual(completed.progress_percent, 100)
+        self.assertEqual(completed.eta_seconds, 0)
 
     def test_scene_exception_is_reported_and_never_marked_complete(self) -> None:
         class FailingGateway:

@@ -4,9 +4,11 @@ from .models import ProjectIndex, Scene, TextUnit
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelProfile
 from .provider_presets import PROVIDER_PRESETS, ProviderPreset
+from .runtime import CancellationToken
 
 __all__ = [
     "ModelProfile",
+    "CancellationToken",
     "PROVIDER_PRESETS",
     "PipelineStage",
     "PipelineState",

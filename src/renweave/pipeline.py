@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 from pathlib import Path
+import time
+from typing import Callable
 
 from .acquisition import ArchiveAcquirer
 from .build_validation import RenpyBuildValidator
@@ -21,6 +23,7 @@ from .narrative import NarrativeKnowledge, NarrativeKnowledgeSynthesizer
 from .packaging import PackageManifest, TranslationPackager
 from .provider import ModelProfile, OpenAICompatibleGateway
 from .refinement import GlobalTranslationRefiner
+from .runtime import CancellationToken, RunLogger
 from .translation import SceneTranslator
 from .validation import TranslationValidator
 
@@ -44,6 +47,7 @@ class PipelineStage(str, Enum):
     BUILDING = "building"
     VALIDATING_BUILD = "validating_build"
     COMPLETE = "complete"
+    PAUSED = "paused"
     FAILED = "failed"
 
 
@@ -76,6 +80,22 @@ class PipelineState:
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
     model_requests_attempted: int = 0
+    run_status: str = "idle"
+    started_at: str = ""
+    current_operation: str = ""
+    current_scene_id: str = ""
+    current_scene_label: str = ""
+    total_scenes: int = 0
+    completed_scenes: int = 0
+    total_text_units: int = 0
+    completed_text_units: int = 0
+    progress_percent: float = 0.0
+    eta_seconds: int = -1
+    translation_seconds: float = 0.0
+    scene_attempts: int = 0
+    resumed_count: int = 0
+    pause_reason: str = ""
+    log_path: str = ""
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -106,6 +126,9 @@ class RenWeavePipeline:
         self.package_path = self.workspace / "package.json"
         self.validation_dir = self.workspace / "validation"
         self.build_validation_path = self.workspace / "build-validation.json"
+        self.logger = RunLogger(self.workspace)
+        self._progress_callback: Callable[[PipelineState], None] | None = None
+        self._last_logged_stage = ""
 
     def analyze(
         self,
@@ -120,19 +143,37 @@ class RenWeavePipeline:
         project = ProjectDiscovery().discover(target)
         project_fingerprint = self._project_fingerprint(project)
         if self.state_path.is_file() and self.index_path.is_file() and self.knowledge_path.is_file():
-            existing = self._load_state()
-            if (
-                existing.schema_version >= 2
-                and existing.project_target == resolved_target
-                and existing.project_fingerprint == project_fingerprint
-                and existing.source_language == source_language
-                and existing.target_language == target_language
-                and existing.stage not in {PipelineStage.CREATED, PipelineStage.DISCOVERED, PipelineStage.FAILED}
-            ):
-                return (
-                    ProjectIndex.from_dict(read_json(self.index_path)),
-                    KnowledgeBase.from_dict(read_json(self.knowledge_path)),
+            try:
+                existing = self._load_state()
+                cached_index = ProjectIndex.from_dict(read_json(self.index_path))
+                cached_knowledge = KnowledgeBase.from_dict(read_json(self.knowledge_path))
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                self.logger.event(
+                    "WARNING",
+                    "analysis_cache_rejected",
+                    str(exc),
+                    state_path=str(self.state_path),
                 )
+            else:
+                if (
+                    existing.schema_version >= 2
+                    and existing.project_target == resolved_target
+                    and existing.project_fingerprint == project_fingerprint
+                    and existing.source_language == source_language
+                    and existing.target_language == target_language
+                ):
+                    existing.resumed_count += 1
+                    existing.run_status = "running"
+                    existing.pause_reason = ""
+                    self.logger.event(
+                        "INFO",
+                        "analysis_resumed",
+                        "Reused unchanged project analysis",
+                        stage=str(existing.stage),
+                        completed_scenes=len(existing.completed_scene_ids),
+                    )
+                    self._save_state(existing)
+                    return cached_index, cached_knowledge
         state = self._new_state(
             target,
             source_language,
@@ -141,10 +182,12 @@ class RenWeavePipeline:
         )
         try:
             state.stage = PipelineStage.DISCOVERED
+            state.current_operation = "Discovering the Ren'Py project"
             self._save_state(state)
             acquisition = ArchiveAcquirer().acquire(project, self.acquired_dir, scripts_only=True)
             atomic_write_json(self.acquisition_path, acquisition.to_dict())
             state.stage = PipelineStage.ACQUIRED
+            state.current_operation = "Collecting scripts from game files and archives"
             self._save_state(state)
             decompilation = self._decompile_roots(
                 [Path(project.game_dir), *acquisition.source_roots],
@@ -152,6 +195,7 @@ class RenWeavePipeline:
                 allow_tool_download=allow_tool_download,
             )
             state.stage = PipelineStage.DECOMPILED
+            state.current_operation = "Decompiling compiled Ren'Py scripts"
             self._save_state(state)
             index = ProjectIndexer().build(
                 target,
@@ -162,15 +206,19 @@ class RenWeavePipeline:
             )
             atomic_write_json(self.index_path, index.to_dict())
             state.stage = PipelineStage.INDEXED
+            state.current_operation = "Building the scene and control-flow index"
             self._save_state(state)
             knowledge = DeterministicKnowledgeBuilder().build(index)
             atomic_write_json(self.knowledge_path, knowledge.to_dict())
             state.stage = PipelineStage.KNOWLEDGE_READY
+            state.current_operation = "Deterministic game knowledge is ready"
             self._save_state(state)
             return index, knowledge
         except BaseException as exc:
             state.stage = PipelineStage.FAILED
+            state.run_status = "failed"
             state.error = str(exc)
+            self.logger.exception("analysis_failed", exc, stage=str(state.stage))
             self._save_state(state)
             raise
 
@@ -241,7 +289,10 @@ class RenWeavePipeline:
         refine_translations: bool = True,
         renpy_sdk_path: str | Path | None = None,
         require_engine_validation: bool = False,
+        cancel_token: CancellationToken | None = None,
+        progress_callback: Callable[[PipelineState], None] | None = None,
     ) -> PipelineState:
+        self._progress_callback = progress_callback
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
         index, knowledge = self.analyze(
@@ -252,6 +303,11 @@ class RenWeavePipeline:
             allow_tool_download=allow_tool_download,
         )
         state = self._load_state()
+        state.run_status = "running"
+        state.pause_reason = ""
+        state.error = ""
+        if not state.started_at:
+            state.started_at = self._now()
         gateway = gateway or OpenAICompatibleGateway(profile)
         usage_base = (
             state.total_model_calls,
@@ -260,9 +316,33 @@ class RenWeavePipeline:
             state.model_requests_attempted,
         )
         narrative: NarrativeKnowledge | None = None
-        text_scene_count = sum(1 for scene in index.scenes if scene.text_units)
+        candidates = [scene for scene in index.scenes if scene.text_units]
+        if limit > 0:
+            candidates = candidates[:limit]
+        state.total_scenes = len(candidates)
+        state.total_text_units = sum(len(scene.text_units) for scene in candidates)
+        validator = TranslationValidator()
+        self._reconcile_completed_scenes(index, candidates, state, validator)
+        state.completed_text_units = sum(
+            len(scene.text_units) for scene in candidates if scene.id in state.completed_scene_ids
+        )
+        state.current_operation = "Preparing or restoring project context"
+        self.logger.event(
+            "INFO",
+            "run_started",
+            "Translation run started",
+            resumed=bool(state.completed_scene_ids),
+            completed_scenes=len(state.completed_scene_ids),
+            total_scenes=state.total_scenes,
+            project_fingerprint=state.project_fingerprint,
+        )
+        self._save_state(state)
+        if self._cancelled(cancel_token):
+            return self._pause(state, "Cancellation requested before model work")
+        text_scene_count = len(candidates)
         if synthesize_knowledge and text_scene_count >= 4:
             state.stage = PipelineStage.SYNTHESIZING
+            state.current_operation = "Understanding storylines, characters, and terminology"
             self._save_state(state)
             chunk_characters = 24000
             if profile.context_window > 0:
@@ -282,22 +362,29 @@ class RenWeavePipeline:
             state.knowledge_cache_hits = narrative.usage.cache_hits
             state.knowledge_warnings = len(narrative.warnings)
             state.stage = PipelineStage.NARRATIVE_READY
+            state.current_operation = "Narrative context is ready"
             self._sync_gateway_usage(state, gateway, usage_base)
             self._save_state(state)
+            if self._cancelled(cancel_token):
+                return self._pause(state, "Cancellation requested after narrative analysis")
         state.stage = PipelineStage.TRANSLATING
+        state.current_operation = "Translating scenes with narrative context"
         self._save_state(state)
         translator = SceneTranslator(gateway)
         planner = ContextPlanner()
-        validator = TranslationValidator()
         string_memory = self._load_string_memory(index, state.completed_scene_ids)
-        candidates = [scene for scene in index.scenes if scene.text_units]
-        if limit > 0:
-            candidates = candidates[:limit]
         self.translations_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         for scene in candidates:
             if scene.id in state.completed_scene_ids:
                 continue
+            if self._cancelled(cancel_token):
+                return self._pause(state, "Cancellation requested before the next scene")
+            scene_started = time.perf_counter()
+            state.current_scene_id = scene.id
+            state.current_scene_label = scene.label
+            state.current_operation = f"Translating scene: {scene.label}"
+            self._save_state(state)
             try:
                 context = planner.build(index, knowledge, scene.id, narrative)
                 result = translator.translate(
@@ -361,15 +448,49 @@ class RenWeavePipeline:
                     }],
                 })
                 state.error = f"场景 {scene.label} 翻译失败：{exc}"[:2000]
+                self.logger.exception(
+                    "scene_failed",
+                    exc,
+                    scene_id=scene.id,
+                    scene_label=scene.label,
+                )
+            duration = max(0.0, time.perf_counter() - scene_started)
+            state.translation_seconds += duration
+            state.scene_attempts += 1
+            state.completed_text_units = sum(
+                len(item.text_units)
+                for item in candidates
+                if item.id in state.completed_scene_ids
+            )
+            remaining = max(0, state.total_scenes - len(state.completed_scene_ids))
+            average = state.translation_seconds / max(1, state.scene_attempts)
+            state.eta_seconds = max(0, round(average * remaining + min(120.0, average * 2)))
             self._sync_gateway_usage(state, gateway, usage_base)
             self._save_state(state)
+            self.logger.event(
+                "INFO",
+                "scene_checkpoint",
+                "Scene checkpoint saved",
+                scene_id=scene.id,
+                scene_label=scene.label,
+                duration_seconds=round(duration, 2),
+                passed=scene.id in state.completed_scene_ids,
+                completed_scenes=len(state.completed_scene_ids),
+                total_scenes=state.total_scenes,
+                eta_seconds=state.eta_seconds,
+            )
+            if self._cancelled(cancel_token):
+                return self._pause(state, "Cancellation requested after the latest scene checkpoint")
 
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
         completed_scene_ids = set(state.completed_scene_ids)
         if expected_scene_ids <= completed_scene_ids and not state.failed_scene_ids:
             collected = self._collect_translations(state.completed_scene_ids)
             if refine_translations:
+                if self._cancelled(cancel_token):
+                    return self._pause(state, "Cancellation requested before global refinement")
                 state.stage = PipelineStage.REFINING
+                state.current_operation = "Reviewing terminology and voice consistency"
                 self._save_state(state)
                 batch_characters = 24000
                 if profile.context_window > 0:
@@ -391,9 +512,13 @@ class RenWeavePipeline:
                 state.refinement_cache_hits = refinement.usage.cache_hits
                 state.refinement_changes = len(refinement.changes)
                 state.stage = PipelineStage.REFINED
+                state.current_operation = "Global refinement is complete"
                 self._sync_gateway_usage(state, gateway, usage_base)
                 self._save_state(state)
+                if self._cancelled(cancel_token):
+                    return self._pause(state, "Cancellation requested after global refinement")
             state.stage = PipelineStage.BUILDING
+            state.current_operation = "Building the Ren'Py language package"
             self._save_state(state)
             try:
                 manifest = RenpyTranslationEmitter().emit(
@@ -403,6 +528,7 @@ class RenWeavePipeline:
                     self.output_dir,
                 )
                 state.stage = PipelineStage.VALIDATING_BUILD
+                state.current_operation = "Validating generated scripts and package integrity"
                 self._save_state(state)
                 validation = self._validate_build(
                     manifest,
@@ -428,14 +554,24 @@ class RenWeavePipeline:
                     atomic_write_json(self.workspace / "install.json", installed.to_dict())
                     state.installed_dir = installed.destination
                 state.stage = PipelineStage.COMPLETE
+                state.run_status = "complete"
+                state.current_operation = "Translation package is ready"
+                state.current_scene_id = ""
+                state.current_scene_label = ""
+                state.eta_seconds = 0
                 state.error = ""
             except BaseException as exc:
                 state.stage = PipelineStage.FAILED
+                state.run_status = "failed"
+                state.current_operation = "Build or package validation failed"
                 state.error = str(exc)
+                self.logger.exception("build_failed", exc, stage=str(state.stage))
                 self._save_state(state)
                 raise
         else:
             state.stage = PipelineStage.VALIDATED
+            state.run_status = "failed"
+            state.current_operation = "Some scenes require attention before packaging"
             remaining = len(expected_scene_ids - completed_scene_ids)
             if state.failed_scene_ids:
                 state.error = (
@@ -542,6 +678,49 @@ class RenWeavePipeline:
                 translations[str(text_id)] = str(translated)
         return translations
 
+    def _reconcile_completed_scenes(
+        self,
+        index: ProjectIndex,
+        candidates,
+        state: PipelineState,
+        validator: TranslationValidator,
+    ) -> None:
+        """Trust a checkpoint only when its artifact still exists and validates."""
+        candidate_ids = {scene.id for scene in candidates}
+        valid: list[str] = []
+        invalid: list[str] = []
+        for scene_id in dict.fromkeys(state.completed_scene_ids):
+            if scene_id not in candidate_ids:
+                invalid.append(scene_id)
+                continue
+            path = self.translations_dir / f"{scene_id}.json"
+            try:
+                payload = read_json(path)
+                translations = payload.get("translations", {})
+                if not isinstance(translations, dict):
+                    raise ValueError("translations must be an object")
+                report = validator.validate_scene(index, scene_id, translations)
+                if not report.passed:
+                    raise ValueError("saved translation no longer passes structural validation")
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                invalid.append(scene_id)
+                self.logger.event(
+                    "WARNING",
+                    "checkpoint_rejected",
+                    str(exc),
+                    scene_id=scene_id,
+                    artifact=str(path),
+                )
+                continue
+            valid.append(scene_id)
+        state.completed_scene_ids = valid
+        state.failed_scene_ids = [
+            scene_id for scene_id in dict.fromkeys(state.failed_scene_ids) if scene_id in candidate_ids
+        ]
+        for scene_id in invalid:
+            if scene_id in candidate_ids and scene_id not in state.failed_scene_ids:
+                state.failed_scene_ids.append(scene_id)
+
     def _persist_translations(
         self,
         index: ProjectIndex,
@@ -606,7 +785,7 @@ class RenWeavePipeline:
         project_fingerprint: str,
     ) -> PipelineState:
         state = PipelineState(
-            schema_version=2,
+            schema_version=3,
             project_target=str(Path(target).expanduser().resolve()),
             source_language=source_language,
             target_language=target_language,
@@ -633,6 +812,10 @@ class RenWeavePipeline:
             total_prompt_tokens=0,
             total_completion_tokens=0,
             model_requests_attempted=0,
+            run_status="idle",
+            started_at=self._now(),
+            current_operation="Preparing the translation workspace",
+            log_path=str(self.logger.text_path),
         )
         self._save_state(state)
         return state
@@ -659,11 +842,88 @@ class RenWeavePipeline:
         payload.setdefault("total_prompt_tokens", 0)
         payload.setdefault("total_completion_tokens", 0)
         payload.setdefault("model_requests_attempted", 0)
+        payload.setdefault("run_status", "idle")
+        payload.setdefault("started_at", "")
+        payload.setdefault("current_operation", "")
+        payload.setdefault("current_scene_id", "")
+        payload.setdefault("current_scene_label", "")
+        payload.setdefault("total_scenes", 0)
+        payload.setdefault("completed_scenes", len(payload.get("completed_scene_ids", [])))
+        payload.setdefault("total_text_units", 0)
+        payload.setdefault("completed_text_units", 0)
+        payload.setdefault("progress_percent", 0.0)
+        payload.setdefault("eta_seconds", -1)
+        payload.setdefault("translation_seconds", 0.0)
+        payload.setdefault("scene_attempts", 0)
+        payload.setdefault("resumed_count", 0)
+        payload.setdefault("pause_reason", "")
+        payload.setdefault("log_path", str(self.logger.text_path))
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
         state.updated_at = self._now()
+        state.completed_scenes = len(state.completed_scene_ids)
+        state.progress_percent = self._progress_percent(state)
+        state.log_path = str(self.logger.text_path)
         atomic_write_json(self.state_path, state.to_dict())
+        stage = str(state.stage)
+        if stage != self._last_logged_stage:
+            self._last_logged_stage = stage
+            self.logger.event(
+                "INFO",
+                "stage_changed",
+                state.current_operation or stage,
+                stage=stage,
+                progress_percent=state.progress_percent,
+                completed_scenes=state.completed_scenes,
+                total_scenes=state.total_scenes,
+            )
+        if self._progress_callback is not None:
+            self._progress_callback(state)
+
+    @staticmethod
+    def _progress_percent(state: PipelineState) -> float:
+        fixed = {
+            PipelineStage.CREATED: 0.0,
+            PipelineStage.DISCOVERED: 3.0,
+            PipelineStage.ACQUIRED: 8.0,
+            PipelineStage.DECOMPILED: 13.0,
+            PipelineStage.INDEXED: 18.0,
+            PipelineStage.KNOWLEDGE_READY: 23.0,
+            PipelineStage.SYNTHESIZING: 26.0,
+            PipelineStage.NARRATIVE_READY: 32.0,
+            PipelineStage.VALIDATED: 85.0,
+            PipelineStage.REFINING: 88.0,
+            PipelineStage.REFINED: 93.0,
+            PipelineStage.BUILDING: 95.0,
+            PipelineStage.VALIDATING_BUILD: 98.0,
+            PipelineStage.COMPLETE: 100.0,
+        }
+        if state.stage == PipelineStage.TRANSLATING:
+            ratio = state.completed_scenes / max(1, state.total_scenes)
+            return round(32.0 + 53.0 * min(1.0, ratio), 1)
+        if state.stage in {PipelineStage.PAUSED, PipelineStage.FAILED}:
+            return max(0.0, min(100.0, float(state.progress_percent)))
+        return fixed.get(state.stage, 0.0)
+
+    def _pause(self, state: PipelineState, reason: str) -> PipelineState:
+        state.stage = PipelineStage.PAUSED
+        state.run_status = "paused"
+        state.pause_reason = reason
+        state.current_operation = "Paused safely after saving the latest checkpoint"
+        self.logger.event(
+            "INFO",
+            "run_paused",
+            reason,
+            completed_scenes=len(state.completed_scene_ids),
+            total_scenes=state.total_scenes,
+        )
+        self._save_state(state)
+        return state
+
+    @staticmethod
+    def _cancelled(token: CancellationToken | None) -> bool:
+        return bool(token and token.cancelled)
 
     @staticmethod
     def _sync_gateway_usage(state: PipelineState, gateway, base: tuple[int, int, int, int]) -> None:
@@ -704,9 +964,9 @@ class RenWeavePipeline:
         ):
             for relative in paths:
                 path = game_dir / relative
-                stat = path.stat()
                 digest.update(kind.encode("ascii"))
                 digest.update(relative.encode("utf-8"))
-                digest.update(str(stat.st_size).encode("ascii"))
-                digest.update(str(stat.st_mtime_ns).encode("ascii"))
+                with path.open("rb") as reader:
+                    for chunk in iter(lambda: reader.read(1024 * 1024), b""):
+                        digest.update(chunk)
         return digest.hexdigest()

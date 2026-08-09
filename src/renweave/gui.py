@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .pipeline import PipelineState, RenWeavePipeline
+from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID, get_provider_preset
+from .runtime import CancellationToken
 
 
 @dataclass(slots=True)
@@ -44,6 +45,8 @@ def execute_translation(
     request: TranslationRequest,
     *,
     pipeline_factory: Callable[[str], RenWeavePipeline] = RenWeavePipeline,
+    cancel_token: CancellationToken | None = None,
+    progress_callback: Callable[[PipelineState], None] | None = None,
 ) -> PipelineState:
     """Execute the same pipeline as the CLI; the API key remains memory-only."""
     request.validate()
@@ -52,16 +55,24 @@ def execute_translation(
         profile.api_key = request.api_key
     profile.validate()
     pipeline = pipeline_factory(request.workspace)
-    state = pipeline.translate(
-        request.project,
-        request.source_language.strip() or "auto",
-        request.target_language.strip(),
-        profile,
-        install=request.install,
-        overwrite_existing=request.overwrite_existing,
-        renpy_sdk_path=request.renpy_sdk or None,
-        require_engine_validation=request.require_engine_validation,
-    )
+    try:
+        state = pipeline.translate(
+            request.project,
+            request.source_language.strip() or "auto",
+            request.target_language.strip(),
+            profile,
+            install=request.install,
+            overwrite_existing=request.overwrite_existing,
+            renpy_sdk_path=request.renpy_sdk or None,
+            require_engine_validation=request.require_engine_validation,
+            cancel_token=cancel_token,
+            progress_callback=progress_callback,
+        )
+    except BaseException as exc:
+        pipeline.logger.exception("run_failed", exc)
+        raise
+    if state.stage == PipelineStage.PAUSED:
+        return state
     if state.stage != "complete" or state.failed_scene_ids:
         detail = state.error or f"{len(state.failed_scene_ids)} scenes were not completed"
         raise RuntimeError(detail)
@@ -84,6 +95,7 @@ STAGE_LABELS = {
     "building": "Building Ren'Py language scripts",
     "validating_build": "Validating generated scripts in isolation",
     "complete": "Translation package is ready",
+    "paused": "Translation paused safely",
     "failed": "Translation failed",
 }
 
@@ -149,6 +161,7 @@ STAGE_LABELS_ZH = {
     "building": "生成 Ren'Py 语言脚本",
     "validating_build": "隔离验证生成脚本",
     "complete": "翻译包已就绪",
+    "paused": "翻译已安全暂停",
     "failed": "翻译失败",
 }
 
