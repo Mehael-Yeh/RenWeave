@@ -227,7 +227,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_desktop_progress_labels_cover_every_pipeline_stage(self) -> None:
         self.assertEqual({str(stage) for stage in PipelineStage} - set(STAGE_LABELS), set())
 
-    def test_desktop_window_constructs_with_one_click_controls(self) -> None:
+    def test_desktop_window_starts_with_model_setup_and_switches_language(self) -> None:
         try:
             import tkinter as tk
         except ImportError as exc:
@@ -244,10 +244,42 @@ class CorePipelineTests(unittest.TestCase):
                 initial_workspace=str(Path(self.temp.name) / "visual-workspace"),
             )
             root.update_idletasks()
-            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
-            self.assertGreaterEqual(root.minsize()[0], 760)
+            self.assertEqual(app.step, 0)
+            self.assertEqual(app.locale.get(), "en")
+            self.assertEqual(app.brand_title.cget("text"), "RenWeave")
+            self.assertEqual(app.connect_button.cget("text"), "Connect and load models")
+            self.assertEqual(app.next_button.cget("text"), "Continue")
+            self.assertTrue(app.next_button.instate(["disabled"]))
+            self.assertGreaterEqual(root.minsize()[0], 920)
             self.assertEqual(app.source_language.get(), "auto")
-            self.assertEqual(app.status.get(), "就绪：选择项目与模型后即可开始")
+            self.assertEqual(app.status.get(), "Enter an endpoint and API key, then load the available models.")
+
+            app.locale_display.set("简体中文")
+            app._change_locale()
+            root.update_idletasks()
+            self.assertEqual(app.locale.get(), "zh")
+            self.assertEqual(app.brand_title.cget("text"), "RenWeave / 织译")
+            self.assertEqual(app.connect_button.cget("text"), "连接并获取模型")
+
+            app.model.set("translation-model")
+            app.connection_state = "verified"
+            app.connection_detail = {"model": "translation-model", "latency": 25}
+            app._render()
+            self.assertFalse(app.next_button.instate(["disabled"]))
+            key_entry = app.api_key_entry
+            app.api_key.set("edited-in-place")
+            self.assertIs(app.api_key_entry, key_entry)
+            self.assertEqual(app.connection_state, "changed")
+            self.assertTrue(app.next_button.instate(["disabled"]))
+            app.connection_state = "verified"
+            app._continue()
+            self.assertEqual(app.step, 1)
+            app._continue()
+            self.assertEqual(app.step, 2)
+            app.target_language.set("Français")
+            app._continue()
+            self.assertEqual(app.step, 3)
+            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
         finally:
             root.destroy()
 
