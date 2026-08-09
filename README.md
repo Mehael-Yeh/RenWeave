@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.9.0 Reliable One-click Pipeline
+## 当前版本：1.0.0 Complete Pipeline
 
 首个可运行核心已经实现：
 
@@ -61,6 +61,14 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 ## 快速开始
 
 项目目前不依赖第三方运行库，要求 Python 3.10 或更高版本。
+
+从仓库安装后可直接使用两个入口：
+
+```powershell
+python -m pip install .
+renweave --version
+renweave-gui
+```
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -149,6 +157,8 @@ workspace/
 ```
 
 游戏原目录默认只读。所有 AI 结果必须通过结构校验后才能进入构建层；只有明确使用 `--install` 时才会写入 `game/tl/<language>`。安装器允许更新自己生成的文件，但默认拒绝覆盖用户或其他汉化项目已有的同名文件。
+
+完整需求覆盖和边界见 [PROJECT_STATUS.md](PROJECT_STATUS.md)，安全模型见 [SECURITY.md](SECURITY.md)，版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 核心原则
 

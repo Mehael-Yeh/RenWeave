@@ -122,6 +122,13 @@ class CorePipelineTests(unittest.TestCase):
             ("fallthrough", "outside"),
         ])
 
+    def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
+        import renweave
+
+        self.assertEqual(renweave.__version__, "1.0.0")
+        self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
+        self.assertIs(renweave.ModelProfile, ModelProfile)
+
     def test_knowledge_and_minimal_scene_context(self) -> None:
         index = ProjectIndexer().build(self.root)
         knowledge = DeterministicKnowledgeBuilder().build(index)

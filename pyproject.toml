@@ -4,13 +4,32 @@ build-backend = "hatchling.build"
 
 [project]
 name = "renweave"
-version = "0.9.0"
+version = "1.0.0"
 description = "Context-aware, one-click Ren'Py localization pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { file = "LICENSE" }
 authors = [{ name = "RenWeave contributors" }]
 dependencies = []
+keywords = ["renpy", "localization", "translation", "visual-novel", "ai"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Environment :: Win32 (MS Windows)",
+  "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Games/Entertainment",
+  "Topic :: Software Development :: Internationalization",
+]
+
+[project.urls]
+Homepage = "https://github.com/Mehael-Yeh/RenWeave"
+Repository = "https://github.com/Mehael-Yeh/RenWeave"
+Issues = "https://github.com/Mehael-Yeh/RenWeave/issues"
 
 [project.scripts]
 renweave = "renweave.cli:main"
