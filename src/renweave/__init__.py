@@ -5,6 +5,7 @@ from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelProfile
 from .provider_presets import PROVIDER_PRESETS, ProviderPreset
 from .runtime import CancellationToken
+from .usage import TokenBudget
 
 __all__ = [
     "ModelProfile",
@@ -17,5 +18,6 @@ __all__ = [
     "RenWeavePipeline",
     "Scene",
     "TextUnit",
+    "TokenBudget",
 ]
 __version__ = "1.3.0"

@@ -25,6 +25,7 @@ from .provider import ModelProfile, OpenAICompatibleGateway
 from .refinement import GlobalTranslationRefiner
 from .runtime import CancellationRequested, CancellationToken, RunLogger, exclusive_workspace_run
 from .translation import SceneTranslator
+from .usage import estimate_index_tokens
 from .validation import TranslationValidator
 
 
@@ -98,6 +99,19 @@ class PipelineState:
     log_path: str = ""
     phase_completed: int = 0
     phase_total: int = 0
+    estimated_input_tokens_low: int = 0
+    estimated_input_tokens_high: int = 0
+    estimated_output_tokens_low: int = 0
+    estimated_output_tokens_high: int = 0
+    estimated_total_tokens_low: int = 0
+    estimated_total_tokens_high: int = 0
+    source_token_equivalent: int = 0
+    token_estimate_confidence: str = ""
+    usage_reporting_status: str = "pending"
+    knowledge_prompt_tokens: int = 0
+    knowledge_completion_tokens: int = 0
+    refinement_prompt_tokens: int = 0
+    refinement_completion_tokens: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -128,6 +142,7 @@ class RenWeavePipeline:
         self.package_path = self.workspace / "package.json"
         self.validation_dir = self.workspace / "validation"
         self.build_validation_path = self.workspace / "build-validation.json"
+        self.usage_path = self.workspace / "usage.json"
         self.logger = RunLogger(self.workspace)
         self._progress_callback: Callable[[PipelineState], None] | None = None
         self._last_logged_stage = ""
@@ -340,6 +355,15 @@ class RenWeavePipeline:
             candidates = candidates[:limit]
         state.total_scenes = len(candidates)
         state.total_text_units = sum(len(scene.text_units) for scene in candidates)
+        budget = estimate_index_tokens(index)
+        state.estimated_input_tokens_low = budget.estimated_input_low
+        state.estimated_input_tokens_high = budget.estimated_input_high
+        state.estimated_output_tokens_low = budget.estimated_output_low
+        state.estimated_output_tokens_high = budget.estimated_output_high
+        state.estimated_total_tokens_low = budget.estimated_total_low
+        state.estimated_total_tokens_high = budget.estimated_total_high
+        state.source_token_equivalent = budget.source_token_equivalent
+        state.token_estimate_confidence = budget.confidence
         validator = TranslationValidator()
         self._reconcile_completed_scenes(index, candidates, state, validator)
         state.completed_text_units = sum(
@@ -386,8 +410,10 @@ class RenWeavePipeline:
             except CancellationRequested as exc:
                 return self._pause(state, str(exc))
             atomic_write_json(self.narrative_path, narrative.to_dict())
-            state.knowledge_model_calls = narrative.usage.model_calls
-            state.knowledge_cache_hits = narrative.usage.cache_hits
+            state.knowledge_model_calls += narrative.usage.model_calls
+            state.knowledge_cache_hits += narrative.usage.cache_hits
+            state.knowledge_prompt_tokens += narrative.usage.prompt_tokens
+            state.knowledge_completion_tokens += narrative.usage.completion_tokens
             state.knowledge_warnings = len(narrative.warnings)
             state.stage = PipelineStage.NARRATIVE_READY
             state.current_operation = "Narrative context is ready"
@@ -562,8 +588,10 @@ class RenWeavePipeline:
                     return self._pause(state, str(exc))
                 self._persist_translations(index, collected)
                 atomic_write_json(self.refinement_path, refinement.to_dict())
-                state.refinement_model_calls = refinement.usage.model_calls
-                state.refinement_cache_hits = refinement.usage.cache_hits
+                state.refinement_model_calls += refinement.usage.model_calls
+                state.refinement_cache_hits += refinement.usage.cache_hits
+                state.refinement_prompt_tokens += refinement.usage.prompt_tokens
+                state.refinement_completion_tokens += refinement.usage.completion_tokens
                 state.refinement_changes = len(refinement.changes)
                 state.stage = PipelineStage.REFINED
                 state.current_operation = "Global refinement is complete"
@@ -921,6 +949,19 @@ class RenWeavePipeline:
         payload.setdefault("log_path", str(self.logger.text_path))
         payload.setdefault("phase_completed", 0)
         payload.setdefault("phase_total", 0)
+        payload.setdefault("estimated_input_tokens_low", 0)
+        payload.setdefault("estimated_input_tokens_high", 0)
+        payload.setdefault("estimated_output_tokens_low", 0)
+        payload.setdefault("estimated_output_tokens_high", 0)
+        payload.setdefault("estimated_total_tokens_low", 0)
+        payload.setdefault("estimated_total_tokens_high", 0)
+        payload.setdefault("source_token_equivalent", 0)
+        payload.setdefault("token_estimate_confidence", "")
+        payload.setdefault("usage_reporting_status", "pending")
+        payload.setdefault("knowledge_prompt_tokens", 0)
+        payload.setdefault("knowledge_completion_tokens", 0)
+        payload.setdefault("refinement_prompt_tokens", 0)
+        payload.setdefault("refinement_completion_tokens", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
@@ -929,6 +970,7 @@ class RenWeavePipeline:
         state.progress_percent = self._progress_percent(state)
         state.log_path = str(self.logger.text_path)
         atomic_write_json(self.state_path, state.to_dict())
+        self._save_usage(state)
         stage = str(state.stage)
         if stage != self._last_logged_stage:
             self._last_logged_stage = stage
@@ -1033,6 +1075,61 @@ class RenWeavePipeline:
         state.model_requests_attempted = base[3] + max(
             0, int(getattr(gateway, "requests_attempted", 0))
         )
+        if state.total_prompt_tokens + state.total_completion_tokens > 0:
+            state.usage_reporting_status = "reported"
+        elif state.total_model_calls > 0:
+            state.usage_reporting_status = "unavailable"
+        else:
+            state.usage_reporting_status = "pending"
+
+    def _save_usage(self, state: PipelineState) -> None:
+        known_prompt = state.knowledge_prompt_tokens + state.refinement_prompt_tokens
+        known_completion = state.knowledge_completion_tokens + state.refinement_completion_tokens
+        atomic_write_json(self.usage_path, {
+            "schema_version": 1,
+            "updated_at": state.updated_at,
+            "reporting_status": state.usage_reporting_status,
+            "estimate": {
+                "confidence": state.token_estimate_confidence,
+                "source_token_equivalent": state.source_token_equivalent,
+                "input_low": state.estimated_input_tokens_low,
+                "input_high": state.estimated_input_tokens_high,
+                "output_low": state.estimated_output_tokens_low,
+                "output_high": state.estimated_output_tokens_high,
+                "total_low": state.estimated_total_tokens_low,
+                "total_high": state.estimated_total_tokens_high,
+                "excludes_provider_retries": True,
+            },
+            "actual": {
+                "requests_attempted": state.model_requests_attempted,
+                "successful_model_calls": state.total_model_calls,
+                "input_tokens": state.total_prompt_tokens,
+                "output_tokens": state.total_completion_tokens,
+                "total_tokens": state.total_prompt_tokens + state.total_completion_tokens,
+            },
+            "breakdown": {
+                "knowledge": {
+                    "model_calls": state.knowledge_model_calls,
+                    "input_tokens": state.knowledge_prompt_tokens,
+                    "output_tokens": state.knowledge_completion_tokens,
+                },
+                "scene_translation_and_repairs": {
+                    "model_calls": max(
+                        0,
+                        state.total_model_calls
+                        - state.knowledge_model_calls
+                        - state.refinement_model_calls,
+                    ),
+                    "input_tokens": max(0, state.total_prompt_tokens - known_prompt),
+                    "output_tokens": max(0, state.total_completion_tokens - known_completion),
+                },
+                "refinement": {
+                    "model_calls": state.refinement_model_calls,
+                    "input_tokens": state.refinement_prompt_tokens,
+                    "output_tokens": state.refinement_completion_tokens,
+                },
+            },
+        })
 
     @staticmethod
     def _now() -> str:

@@ -44,6 +44,7 @@ from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile, OpenAICompatibleCatalog
 from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
 from renweave.runtime import CancellationToken, WorkspaceLease
+from renweave.usage import estimate_index_tokens, estimate_project_tokens
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
@@ -612,6 +613,25 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(Path(state.installed_dir), (self.game / "tl" / "es_es").resolve())
         self.assertTrue((self.game / "tl" / "es_es" / "script.rpy").is_file())
         self.assertTrue((workspace / "install.json").is_file())
+        usage = json.loads((workspace / "usage.json").read_text(encoding="utf-8"))
+        self.assertEqual(usage["reporting_status"], "reported")
+        self.assertEqual(usage["actual"]["input_tokens"], 30)
+        self.assertEqual(usage["actual"]["output_tokens"], 15)
+        self.assertEqual(usage["actual"]["total_tokens"], 45)
+        self.assertGreater(usage["estimate"]["total_low"], 0)
+        self.assertGreaterEqual(usage["estimate"]["total_high"], usage["estimate"]["total_low"])
+
+    def test_token_budget_exposes_preflight_and_indexed_ranges(self) -> None:
+        preflight = estimate_project_tokens(self.root)
+        indexed = estimate_index_tokens(ProjectIndexer().build(self.root))
+        for budget in (preflight, indexed):
+            self.assertGreater(budget.source_token_equivalent, 0)
+            self.assertGreater(budget.estimated_total_low, 0)
+            self.assertGreaterEqual(budget.estimated_total_high, budget.estimated_total_low)
+            self.assertGreaterEqual(budget.estimated_input_high, budget.estimated_input_low)
+            self.assertGreaterEqual(budget.estimated_output_high, budget.estimated_output_low)
+        self.assertEqual(indexed.basis, "indexed_translatable_text")
+        self.assertEqual(indexed.confidence, "medium")
 
     def test_pipeline_repairs_only_invalid_texts(self) -> None:
         class RepairingGateway:
