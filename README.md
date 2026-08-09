@@ -16,6 +16,7 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 - Any source and target language; Simplified Chinese is not a hard-coded default.
 - Safe RPA unpacking and isolated RPYC/RPYMC decompilation.
 - Evidence-backed story and character understanding with compact, relevant prompts.
+- A preflight Token budget before starting and a persistent provider-reported usage ledger while running.
 - Structural validation for Ren'Py tags, interpolation, placeholders, IDs, and generated scripts.
 - Selective cross-scene refinement instead of paying to resend every translated line.
 - Deterministic language directories and verified RPA 3.0 packages.
@@ -37,8 +38,8 @@ The desktop app guides you through five steps:
 1. Choose a provider, enter its API key, load its model list, and verify the selected model.
 2. Choose the Ren'Py game and an isolated workspace.
 3. Choose any source and target languages.
-4. Review the automatically selected pipeline and output options.
-5. Start once and follow unpacking, analysis, translation, refinement, validation, and packaging.
+4. Review the automatically selected pipeline, output options, and estimated Token budget.
+5. Start once and follow unpacking, analysis, translation, refinement, validation, packaging, ETA, and Token usage.
 
 English is the default interface language. Choose **简体中文** from the top-right language menu to switch immediately. API keys entered in the app remain in memory; the generated provider profile never contains the key.
 
@@ -85,7 +86,11 @@ Add `--install` only when you want the verified output copied to `game/tl/<langu
 
 ## Progress, pause, and recovery
 
-The progress screen shows a weighted 0–100% pipeline bar, the active phase and scene, verified scene checkpoints, model calls and Token usage, and an adaptive remaining-time estimate. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it is an estimate because provider latency and scene size vary.
+The review screen estimates an input/output/total Token range before any translation call. Loose source scripts produce the strongest preflight estimate; compiled scripts and archives use a deliberately wider proxy until indexing reveals the exact translatable text. The range includes narrative synthesis, scene context, target output, likely repairs, and risk-only refinement. It excludes provider retries and currency pricing because prices differ by model and provider.
+
+During translation, the progress screen shows a weighted 0–100% pipeline bar, the active phase and scene, verified scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and an adaptive remaining-time estimate. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
+
+`usage.json` is updated atomically in the workspace after every state save. It records the estimate, successful calls, attempted requests, reported input/output totals, and separate knowledge, scene translation/repair, and refinement usage. This is a Token ledger, not a billing statement; the provider dashboard remains authoritative for money charged.
 
 **Pause safely** finishes the current network request or local atomic unit, saves the latest valid checkpoint, and stops before the next unit. Starting again with the same project, workspace, and languages resumes automatically. CLI users can press `Ctrl+C` and rerun the same command.
 
@@ -100,6 +105,7 @@ Missing, damaged, or stale scene artifacts are translated again; valid scenes ar
 Diagnostics are always retained under the workspace:
 
 - `state.json` — resumable task state, progress, ETA, usage, and current operation;
+- `usage.json` — preflight/indexed estimate and provider-reported Token ledger by phase;
 - `translations/` and `reports/` — atomic scene checkpoints and validation reports;
 - `logs/renweave.log` — readable chronological log;
 - `logs/events.jsonl` — structured events with exception type and traceback.
@@ -112,7 +118,7 @@ RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow 
 - **Secondary** for an important action that does not advance the workflow.
 - **Ghost** for navigation, browsing, importing, and cancellation.
 
-The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. The model-first setup stays visible, every endpoint remains editable, and all five screens and dialogs share the same interaction vocabulary.
+The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. The model-first setup stays visible, every endpoint remains editable, and all five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 
 ## How it works
 
@@ -127,7 +133,7 @@ flowchart LR
     G --> H[Build and verify package]
 ```
 
-RenWeave limits extra token use through deterministic pre-analysis, hierarchical evidence summaries, scene-specific context, content-addressed caches, targeted repairs, and risk-only global refinement. Model usage and cache hits are recorded in the workspace.
+RenWeave limits extra Token use through deterministic pre-analysis, hierarchical evidence summaries, scene-specific context, content-addressed caches, targeted repairs, and risk-only global refinement. Estimated and reported usage, request counts, phase breakdowns, and cache-aware resumability are recorded in the workspace.
 
 ## Compatibility and safety
 

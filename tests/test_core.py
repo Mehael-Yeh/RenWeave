@@ -128,7 +128,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.3.0")
+        self.assertEqual(renweave.__version__, "1.4.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -307,7 +307,7 @@ class CorePipelineTests(unittest.TestCase):
                 return texts
 
             review_text = "\n".join(visible_texts(app.content))
-            self.assertIn("预计 Token 预算", review_text)
+            self.assertIn("预计 TOKEN 预算", review_text)
             self.assertIn("Token", review_text)
 
             class ActiveWorker:
@@ -340,7 +340,7 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
             progress_text = "\n".join(visible_texts(app.content))
             self.assertIn("提供商已报告 1.2K", progress_text)
-            self.assertIn("预计项目总量 12.0K–18.0K", progress_text)
+            self.assertIn("预计项目总量 12K–18K", progress_text)
             self.assertIn("提供商已返回 Token 用量", progress_text)
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)

@@ -2,6 +2,16 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.4.0 - 2026-08-10
+
+- Added a read-only preflight Token budget with input, output, and total ranges before translation starts.
+- Added an atomically updated `usage.json` ledger with request counts, provider-reported totals, reporting availability, and per-phase breakdowns.
+- Added persistent knowledge and refinement usage counters that remain correct across pause and resume.
+- Added a live Token strip that compares provider-reported use with the current project estimate and warns when usage metadata is unavailable.
+- Added consistent delayed guidance tooltips and explicit action-consequence copy for model, path, language, workflow, pause, and resume controls.
+- Polished every workflow screen and modal, including a compact model-first setup, two-column review, budget card, diagnostic paths, and error-detail copying.
+- Added desktop assertions for preflight budget and live Token reporting while retaining arbitrary target-language support.
+
 ## 1.3.0 - 2026-08-10
 
 - Added weighted 0–100% progress with explicit preparation, understanding, translation, refinement, build, and completion phases.
