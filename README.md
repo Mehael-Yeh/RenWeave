@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.1.0 Core
+## 当前里程碑：0.2.0 Build
 
 首个可运行核心已经实现：
 
@@ -21,8 +21,14 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 使用结构化场景翻译协议，按稳定文本 ID 接收译文。
 - 校验缺失文本、未知 ID、Ren'Py 标签和变量/占位符。
 - 将索引、知识、翻译结果、质量报告和断点状态原子写入独立工作目录。
+- 根据 Ren'Py 的标准标识算法生成场景级 `translate` 对话块，而不是修改游戏源脚本。
+- 为菜单和 `_()` UI 文本生成全局 `old/new` 字符串翻译，并自动统一重复原文的译法。
+- 校验失败时只把问题文本及错误代码发送给模型修复，默认最多两次，不重复消耗整场景上下文 Token。
+- 将 `es-ES` 等目标代码规范化为合法的 Ren'Py 语言标识（例如 `es_es`）。
+- 在完整翻译通过校验后自动生成 `output/game/tl/<language>` 可安装目录。
+- 可选一键安装；默认拒绝覆盖非 RenWeave 创建的同名翻译文件。
 
-当前版本尚未把模型译文写回 `game/tl`，也尚未接入 RPYC 反编译、AI 剧情时间线分析、全局精修和最终 RPA 构建。这些是下一阶段，不会以不安全的字符串替换提前实现。
+当前版本尚未接入 RPYC 反编译、AI 剧情时间线分析、跨场景全局精修、Ren'Py 编译校验和最终 RPA 构建。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -51,10 +57,17 @@ python -m renweave run "D:\Games\Example" `
   --workspace "D:\RenWeaveWork\Example" `
   --provider examples/provider.openai-compatible.json `
   --source-language ja `
-  --target-language es-ES
+  --target-language es-ES `
+  --install
 ```
 
-目标语言没有内置白名单：可以使用 Ren'Py 目录标识、BCP 47 风格代码或模型能够理解的语言名称。`zh_hans` 只是简体中文项目可选的目标标识之一，不是产品默认值。
+不使用 `--install` 时，完整语言包只会生成到工作区，不修改游戏。之后可以从已有的验证结果重新构建或安装，无需再次消耗模型 Token：
+
+```powershell
+python -m renweave build --workspace "D:\RenWeaveWork\Example" --install
+```
+
+目标语言没有内置白名单：可以使用 Ren'Py 目录标识、BCP 47 风格代码或模型能够理解的语言名称。`zh_hans` 只是简体中文项目可选的目标标识之一，不是产品默认值。目标名称会被转换为可用作 Ren'Py 标识符的运行时语言名。
 
 ## 工作区产物
 
@@ -67,11 +80,16 @@ workspace/
 ├── knowledge.json
 ├── translations/
 │   └── scene_<id>.json
-└── reports/
-    └── scene_<id>.json
+├── reports/
+│   └── scene_<id>.json
+├── build.json
+├── install.json              # 仅使用 --install 时生成
+└── output/game/tl/<language>/
+    ├── <source-script>.rpy
+    └── strings.rpy
 ```
 
-游戏原目录在当前阶段始终只读。所有 AI 结果必须通过结构校验后，未来的写回层才会生成翻译目录或补丁包。
+游戏原目录默认只读。所有 AI 结果必须通过结构校验后才能进入构建层；只有明确使用 `--install` 时才会写入 `game/tl/<language>`。安装器允许更新自己生成的文件，但默认拒绝覆盖用户或其他汉化项目已有的同名文件。
 
 ## 核心原则
 

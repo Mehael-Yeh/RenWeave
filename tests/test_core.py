@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import pickle
 import tempfile
 import unittest
@@ -8,9 +9,12 @@ import zlib
 from pathlib import Path
 
 from renweave.context import ContextPlanner
+from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
 from renweave.indexer import ProjectIndexer
+from renweave.installer import TranslationInstaller
 from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.pipeline import PipelineStage, RenWeavePipeline
+from renweave.provider import ModelProfile
 from renweave.rpa import RpaArchive, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
 
@@ -171,6 +175,172 @@ class CorePipelineTests(unittest.TestCase):
                 with RpaArchive(archive_path) as archive:
                     self.assertEqual(archive.version, f"RPA-{version}")
                     self.assertEqual(archive.read("data/value.bin"), payload)
+
+    def test_emitter_builds_standard_renpy_translation_scripts(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ES: {unit.source}" for unit in index.text_units}
+        output = Path(self.temp.name) / "output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "es-ES", output)
+
+        self.assertEqual(manifest.renpy_language, "es_es")
+        dialogue = output / "game" / "tl" / "es_es" / "script.rpy"
+        strings = output / "game" / "tl" / "es_es" / "strings.rpy"
+        self.assertTrue(dialogue.is_file())
+        self.assertTrue(strings.is_file())
+        canonical = 'eve happy "Hello [player]{b}friend{/b}!"'
+        digest = hashlib.md5((canonical + "\r\n").encode("utf-8")).hexdigest()[:8]
+        dialogue_text = dialogue.read_text(encoding="utf-8")
+        self.assertIn(f"translate es_es start_{digest}:", dialogue_text)
+        self.assertIn('eve happy "ES: Hello [player]{b}friend{/b}!"', dialogue_text)
+        strings_text = strings.read_text(encoding="utf-8")
+        self.assertIn('old "Go outside"', strings_text)
+        self.assertIn('new "ES: Go outside"', strings_text)
+        self.assertEqual(manifest.translated_units, len(index.text_units))
+        self.assertTrue((output / "build.json").is_file())
+
+    def test_emitter_rejects_conflicting_global_string_translations(self) -> None:
+        (self.game / "duplicate.rpy").write_text(
+            'label duplicate:\n    menu:\n        "Go outside":\n            return\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        duplicate_units = [unit for unit in index.text_units if unit.source == "Go outside"]
+        self.assertEqual(len(duplicate_units), 2)
+        translations[duplicate_units[0].id] = "Salir"
+        translations[duplicate_units[1].id] = "Ir afuera"
+        with self.assertRaises(TranslationConflict):
+            RenpyTranslationEmitter().emit(
+                index,
+                translations,
+                "es",
+                Path(self.temp.name) / "conflicting-output",
+            )
+
+    def test_installer_preflights_all_files_before_writing(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "preflight-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "it", output)
+        destination = self.game / "tl" / "it"
+        destination.mkdir(parents=True)
+        (destination / "strings.rpy").write_text("# user-owned translation\n", encoding="utf-8")
+        with self.assertRaises(FileExistsError):
+            TranslationInstaller().install(manifest, self.game)
+        self.assertFalse((destination / "script.rpy").exists())
+
+    def test_parser_handles_string_expression_speaker(self) -> None:
+        (self.game / "named.rpy").write_text(
+            'label named:\n    "Eileen" "Welcome home."\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "Welcome home.")
+        self.assertEqual(unit.speaker, "Eileen")
+        self.assertEqual(unit.literal_ordinal, 1)
+        translations = {item.id: item.source for item in index.text_units}
+        translations[unit.id] = "Bienvenida a casa."
+        output = Path(self.temp.name) / "named-output"
+        RenpyTranslationEmitter().emit(index, translations, "es", output)
+        generated = (output / "game" / "tl" / "es" / "named.rpy").read_text(encoding="utf-8")
+        self.assertIn('"Eileen" "Bienvenida a casa."', generated)
+
+    def test_parser_does_not_confuse_quoted_menu_condition_with_speaker(self) -> None:
+        (self.game / "conditional.rpy").write_text(
+            'label conditional:\n    menu:\n        "Choose" if name == "Eileen":\n            return\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "Choose")
+        self.assertEqual(str(unit.channel), "menu")
+        self.assertEqual(unit.literal_ordinal, 0)
+        self.assertEqual(unit.condition, 'name == "Eileen"')
+
+    def test_emitter_canonicalizes_explicit_say_statement_identifier(self) -> None:
+        (self.game / "sayline.rpy").write_text(
+            'label sayline:\n    say eve "Explicit syntax."\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "sayline-output"
+        RenpyTranslationEmitter().emit(index, translations, "fr", output)
+        canonical = 'eve "Explicit syntax."'
+        digest = hashlib.md5((canonical + "\r\n").encode("utf-8")).hexdigest()[:8]
+        generated = (output / "game" / "tl" / "fr" / "sayline.rpy").read_text(encoding="utf-8")
+        self.assertIn(f"translate fr sayline_{digest}:", generated)
+
+    def test_one_click_pipeline_translates_validates_and_builds(self) -> None:
+        class FakeGateway:
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                rows = [
+                    {"id": line["id"], "text": f"ES: {line['source']}"}
+                    for line in request["scene"]["lines"]
+                ]
+                return {
+                    "choices": [{"message": {"content": json.dumps({"translations": rows})}}]
+                }
+
+        workspace = Path(self.temp.name) / "one-click-workspace"
+        profile = ModelProfile(name="test", model="fake", base_url="https://example.invalid")
+        state = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "es-ES",
+            profile,
+            gateway=FakeGateway(),
+            install=True,
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(state.renpy_language, "es_es")
+        self.assertEqual(len(state.completed_scene_ids), 3)
+        self.assertEqual(state.failed_scene_ids, [])
+        self.assertTrue(Path(state.output_dir, "script.rpy").is_file())
+        self.assertTrue(Path(state.output_dir, "strings.rpy").is_file())
+        self.assertEqual(Path(state.installed_dir), (self.game / "tl" / "es_es").resolve())
+        self.assertTrue((self.game / "tl" / "es_es" / "script.rpy").is_file())
+        self.assertTrue((workspace / "install.json").is_file())
+
+    def test_pipeline_repairs_only_invalid_texts(self) -> None:
+        class RepairingGateway:
+            def __init__(self):
+                self.initial_calls = 0
+                self.repair_calls = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                if "scene" in request:
+                    self.initial_calls += 1
+                    lines = request["scene"]["lines"]
+                    rows = [
+                        {"id": line["id"], "text": f"FR: {line['source']}"}
+                        for line in lines
+                    ]
+                    if self.initial_calls == 1:
+                        rows.pop()
+                else:
+                    self.repair_calls += 1
+                    rows = [
+                        {"id": line["id"], "text": f"FR: {line['source']}"}
+                        for line in request["lines"]
+                    ]
+                return {
+                    "choices": [{"message": {"content": json.dumps({"translations": rows})}}]
+                }
+
+        gateway = RepairingGateway()
+        state = RenWeavePipeline(Path(self.temp.name) / "repair-workspace").translate(
+            self.root,
+            "en",
+            "fr",
+            ModelProfile(name="test", model="fake", base_url="https://example.invalid"),
+            gateway=gateway,
+            repair_attempts=2,
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(gateway.initial_calls, 3)
+        self.assertEqual(gateway.repair_calls, 1)
 
 
 if __name__ == "__main__":

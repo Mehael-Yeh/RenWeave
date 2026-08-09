@@ -148,6 +148,7 @@ class RenpyParser:
         if not segments:
             return self._parse_ui_strings(stripped, relative, line_number, scene)
 
+        literal_ordinal = 0
         start, end, _literal, source = segments[0]
         before = stripped[:start].strip()
         after = stripped[end:].strip()
@@ -159,7 +160,20 @@ class RenpyParser:
         attributes: tuple[str, ...] = ()
         condition = ""
 
-        if after.startswith("if ") and after.endswith(":"):
+        between_first_literals = (
+            stripped[segments[0][1]:segments[1][0]].strip()
+            if len(segments) >= 2
+            else ""
+        )
+        if before == "" and len(segments) >= 2 and not between_first_literals:
+            # Ren'Py accepts a string expression as the speaker, for example
+            # ``"Eileen" "Hello."``. The second literal is the dialogue.
+            speaker = source
+            literal_ordinal = 1
+            start, end, _literal, source = segments[1]
+            after = stripped[end:].strip()
+            channel = TextChannel.DIALOGUE
+        elif after.startswith("if ") and after.endswith(":"):
             channel = TextChannel.MENU
             condition = after[3:-1].strip()
         elif after == ":":
@@ -187,6 +201,7 @@ class RenpyParser:
             line_number=line_number,
             scene=scene,
             ordinal=0,
+            literal_ordinal=literal_ordinal,
         )]
 
     def _parse_ui_strings(
@@ -197,10 +212,15 @@ class RenpyParser:
         scene: Scene,
     ) -> list[TextUnit]:
         results = []
+        segments = _quoted_segments(stripped)
         for ordinal, match in enumerate(UI_STRING_RE.finditer(stripped)):
             source = _decode_literal(match.group("literal"))
             if source is None:
                 continue
+            literal_ordinal = next(
+                (index for index, segment in enumerate(segments) if segment[0] == match.start("literal")),
+                0,
+            )
             results.append(self._unit(
                 source=source,
                 channel=TextChannel.UI,
@@ -212,6 +232,7 @@ class RenpyParser:
                 line_number=line_number,
                 scene=scene,
                 ordinal=ordinal,
+                literal_ordinal=literal_ordinal,
             ))
         return results
 
@@ -228,6 +249,7 @@ class RenpyParser:
         line_number: int,
         scene: Scene,
         ordinal: int,
+        literal_ordinal: int = 0,
     ) -> TextUnit:
         return TextUnit(
             id=stable_id(relative, line_number, ordinal, source, prefix="text_"),
@@ -241,6 +263,7 @@ class RenpyParser:
             raw_statement=raw,
             tags=tuple(TAG_RE.findall(source)),
             placeholders=tuple(PLACEHOLDER_RE.findall(source)),
+            literal_ordinal=literal_ordinal,
         )
 
     @staticmethod

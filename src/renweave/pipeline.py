@@ -8,10 +8,12 @@ from pathlib import Path
 from .acquisition import ArchiveAcquirer
 from .context import ContextPlanner
 from .discovery import ProjectDiscovery
+from .emitter import RenpyTranslationEmitter, normalize_renpy_language
 from .indexer import ProjectIndexer
+from .installer import TranslationInstaller
 from .io import atomic_write_json, read_json
 from .knowledge import DeterministicKnowledgeBuilder, KnowledgeBase
-from .models import ProjectIndex
+from .models import ProjectIndex, TextChannel, TextUnit
 from .provider import ModelProfile, OpenAICompatibleGateway
 from .translation import SceneTranslator
 from .validation import TranslationValidator
@@ -28,6 +30,7 @@ class PipelineStage(str, Enum):
     KNOWLEDGE_READY = "knowledge_ready"
     TRANSLATING = "translating"
     VALIDATED = "validated"
+    BUILDING = "building"
     COMPLETE = "complete"
     FAILED = "failed"
 
@@ -43,6 +46,9 @@ class PipelineState:
     failed_scene_ids: list[str]
     updated_at: str
     error: str = ""
+    renpy_language: str = ""
+    output_dir: str = ""
+    installed_dir: str = ""
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -61,6 +67,7 @@ class RenWeavePipeline:
         self.acquired_dir = self.workspace / "acquired"
         self.translations_dir = self.workspace / "translations"
         self.reports_dir = self.workspace / "reports"
+        self.output_dir = self.workspace / "output"
 
     def analyze(
         self,
@@ -117,6 +124,10 @@ class RenWeavePipeline:
         profile: ModelProfile,
         *,
         limit: int = 0,
+        gateway: OpenAICompatibleGateway | None = None,
+        install: bool = False,
+        overwrite_existing: bool = False,
+        repair_attempts: int = 2,
     ) -> PipelineState:
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
@@ -128,10 +139,11 @@ class RenWeavePipeline:
         state = self._load_state()
         state.stage = PipelineStage.TRANSLATING
         self._save_state(state)
-        gateway = OpenAICompatibleGateway(profile)
+        gateway = gateway or OpenAICompatibleGateway(profile)
         translator = SceneTranslator(gateway)
         planner = ContextPlanner()
         validator = TranslationValidator()
+        string_memory = self._load_string_memory(index, state.completed_scene_ids)
         candidates = [scene for scene in index.scenes if scene.text_units]
         if limit > 0:
             candidates = candidates[:limit]
@@ -147,6 +159,31 @@ class RenWeavePipeline:
                     target_language,
                     source_language=source_language,
                 )
+                self._apply_string_memory(scene.text_units, result.translations, string_memory)
+                report = validator.validate_scene(index, scene.id, result.translations)
+                expected_ids = {unit.id for unit in scene.text_units}
+                for _attempt in range(max(0, repair_attempts)):
+                    for text_id in list(result.translations):
+                        if text_id not in expected_ids:
+                            result.translations.pop(text_id)
+                    report = validator.validate_scene(index, scene.id, result.translations)
+                    if report.passed:
+                        break
+                    issues: dict[str, list[str]] = {}
+                    for issue in report.issues:
+                        if issue.text_id in expected_ids:
+                            issues.setdefault(issue.text_id, []).append(issue.code)
+                    repairs = translator.repair(
+                        context,
+                        target_language,
+                        result.translations,
+                        issues,
+                        source_language=source_language,
+                    )
+                    for text_id, translated in repairs.items():
+                        if text_id in expected_ids:
+                            result.translations[text_id] = translated
+                    self._apply_string_memory(scene.text_units, result.translations, string_memory)
                 report = validator.validate_scene(index, scene.id, result.translations)
                 atomic_write_json(self.translations_dir / f"{scene.id}.json", {
                     "scene_id": scene.id,
@@ -154,16 +191,139 @@ class RenWeavePipeline:
                 })
                 atomic_write_json(self.reports_dir / f"{scene.id}.json", report.to_dict())
                 if report.passed:
+                    if scene.id in state.failed_scene_ids:
+                        state.failed_scene_ids.remove(scene.id)
                     state.completed_scene_ids.append(scene.id)
                 else:
-                    state.failed_scene_ids.append(scene.id)
+                    if scene.id in state.completed_scene_ids:
+                        state.completed_scene_ids.remove(scene.id)
+                    if scene.id not in state.failed_scene_ids:
+                        state.failed_scene_ids.append(scene.id)
             except BaseException:
+                if scene.id in state.completed_scene_ids:
+                    state.completed_scene_ids.remove(scene.id)
                 if scene.id not in state.failed_scene_ids:
                     state.failed_scene_ids.append(scene.id)
             self._save_state(state)
-        state.stage = PipelineStage.COMPLETE if not state.failed_scene_ids else PipelineStage.VALIDATED
+
+        expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
+        completed_scene_ids = set(state.completed_scene_ids)
+        if expected_scene_ids <= completed_scene_ids and not state.failed_scene_ids:
+            state.stage = PipelineStage.BUILDING
+            self._save_state(state)
+            try:
+                manifest = RenpyTranslationEmitter().emit(
+                    index,
+                    self._collect_translations(state.completed_scene_ids),
+                    target_language,
+                    self.output_dir,
+                )
+                state.renpy_language = manifest.renpy_language
+                state.output_dir = manifest.output_dir
+                if install:
+                    installed = TranslationInstaller().install(
+                        manifest,
+                        index.project.game_dir,
+                        overwrite_existing=overwrite_existing,
+                    )
+                    atomic_write_json(self.workspace / "install.json", installed.to_dict())
+                    state.installed_dir = installed.destination
+                state.stage = PipelineStage.COMPLETE
+                state.error = ""
+            except BaseException as exc:
+                state.stage = PipelineStage.FAILED
+                state.error = str(exc)
+                self._save_state(state)
+                raise
+        else:
+            state.stage = PipelineStage.VALIDATED
         self._save_state(state)
         return state
+
+    def build(
+        self,
+        *,
+        requested_language: str | None = None,
+        install: bool = False,
+        overwrite_existing: bool = False,
+    ):
+        """Build translation scripts from all validated scene artifacts."""
+        state = self._load_state()
+        index = ProjectIndex.from_dict(read_json(self.index_path))
+        language = requested_language or state.target_language
+        expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
+        if not expected_scene_ids <= set(state.completed_scene_ids):
+            missing = len(expected_scene_ids - set(state.completed_scene_ids))
+            raise ValueError(f"仍有 {missing} 个场景没有通过验证，不能构建语言包")
+        manifest = RenpyTranslationEmitter().emit(
+            index,
+            self._collect_translations(state.completed_scene_ids),
+            language,
+            self.output_dir,
+        )
+        state.renpy_language = manifest.renpy_language
+        state.output_dir = manifest.output_dir
+        if install:
+            installed = TranslationInstaller().install(
+                manifest,
+                index.project.game_dir,
+                overwrite_existing=overwrite_existing,
+            )
+            atomic_write_json(self.workspace / "install.json", installed.to_dict())
+            state.installed_dir = installed.destination
+        state.stage = PipelineStage.COMPLETE
+        self._save_state(state)
+        return manifest
+
+    def _collect_translations(self, scene_ids: list[str]) -> dict[str, str]:
+        translations: dict[str, str] = {}
+        for scene_id in scene_ids:
+            path = self.translations_dir / f"{scene_id}.json"
+            if not path.is_file():
+                raise ValueError(f"缺少场景翻译产物：{scene_id}")
+            payload = read_json(path)
+            for text_id, translated in payload.get("translations", {}).items():
+                if text_id in translations and translations[text_id] != translated:
+                    raise ValueError(f"文本 ID 存在冲突译文：{text_id}")
+                translations[str(text_id)] = str(translated)
+        return translations
+
+    def _load_string_memory(
+        self,
+        index: ProjectIndex,
+        completed_scene_ids: list[str],
+    ) -> dict[str, str]:
+        completed = set(completed_scene_ids)
+        memory: dict[str, str] = {}
+        for scene in index.scenes:
+            if scene.id not in completed:
+                continue
+            path = self.translations_dir / f"{scene.id}.json"
+            if not path.is_file():
+                continue
+            translations = read_json(path).get("translations", {})
+            for unit in scene.text_units:
+                if unit.channel not in {TextChannel.MENU, TextChannel.UI, TextChannel.TRANSLATE_STRING}:
+                    continue
+                if unit.id in translations:
+                    memory.setdefault(unit.source, str(translations[unit.id]))
+        return memory
+
+    @staticmethod
+    def _apply_string_memory(
+        units: list[TextUnit],
+        translations: dict[str, str],
+        memory: dict[str, str],
+    ) -> None:
+        for unit in units:
+            if unit.channel not in {TextChannel.MENU, TextChannel.UI, TextChannel.TRANSLATE_STRING}:
+                continue
+            if unit.id not in translations:
+                continue
+            if unit.source in memory:
+                translations[unit.id] = memory[unit.source]
+            else:
+                memory[unit.source] = translations[unit.id]
 
     def _new_state(
         self,
@@ -180,6 +340,10 @@ class RenWeavePipeline:
             completed_scene_ids=[],
             failed_scene_ids=[],
             updated_at=self._now(),
+            renpy_language=normalize_renpy_language(target_language)
+            if target_language.casefold() != "und"
+            else "",
+            installed_dir="",
         )
         self._save_state(state)
         return state
@@ -188,6 +352,9 @@ class RenWeavePipeline:
         payload = read_json(self.state_path)
         payload["stage"] = PipelineStage(payload["stage"])
         payload.setdefault("source_language", "auto")
+        payload.setdefault("renpy_language", "")
+        payload.setdefault("output_dir", "")
+        payload.setdefault("installed_dir", "")
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:

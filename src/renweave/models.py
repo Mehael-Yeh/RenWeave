@@ -52,6 +52,7 @@ class TextUnit:
     raw_statement: str = ""
     tags: tuple[str, ...] = ()
     placeholders: tuple[str, ...] = ()
+    literal_ordinal: int = 0
 
 
 @dataclass(slots=True, frozen=True)
@@ -134,6 +135,7 @@ class ProjectIndex:
                 item["attributes"] = tuple(item.get("attributes", ()))
                 item["tags"] = tuple(item.get("tags", ()))
                 item["placeholders"] = tuple(item.get("placeholders", ()))
+                item.setdefault("literal_ordinal", 0)
                 units.append(TextUnit(**item))
             edges = []
             for raw_edge in raw_scene.get("edges", []):
