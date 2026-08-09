@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.6.0 Reproducible RPA Packages
+## 当前里程碑：0.7.0 Isolated Ren'Py Validation
 
 首个可运行核心已经实现：
 
@@ -42,8 +42,12 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - RPA 成员按稳定路径排序、索引使用稳定序列化参数；相同脚本输入可生成字节完全一致的归档。
 - 归档前验证每个脚本仍与构建清单哈希一致，归档后再通过独立读取器逐成员回读并校验大小与 SHA-256。
 - 在 `package.json`、`build.json` 和 `state.json` 记录归档位置及摘要，可用于发布、复核和断点重建。
+- 每次打包前对生成脚本执行零依赖静态预检：UTF-8、文件哈希、语言标识、缩进、翻译块结构、`old/new` 配对、有效字符串和跨文件重复 ID。
+- 自动从显式路径、`RENWEAVE_RENPY_SDK` 或项目相邻目录发现 Ren'Py SDK；支持 Windows SDK 自带 Python 和 Linux/macOS `renpy.sh`。
+- 将最小启动脚本与译文复制到带内容指纹的工作区隔离项目，再执行 Ren'Py 官方 `compile`，不在原游戏目录生成 `.rpyc` 或运行游戏脚本。
+- 将静态结果、引擎状态、命令、返回码和受限长度日志写入 `build-validation.json`；可选择把缺少 SDK 视为硬失败。
 
-当前版本尚未接入精细剧情时间线、Ren'Py 编译/运行时校验和桌面一键界面。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
+当前版本尚未接入精细剧情时间线、运行时截图/界面校验和桌面一键界面。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -83,6 +87,8 @@ python -m renweave run "D:\Games\Example" `
 python -m renweave build --workspace "D:\RenWeaveWork\Example" --install
 ```
 
+所有构建都会执行确定性静态验证。若本机已有 Ren'Py SDK，可用 `--renpy-sdk D:\Tools\renpy-8.x-sdk` 或环境变量 `RENWEAVE_RENPY_SDK` 启用官方引擎编译验证。发布前建议再加 `--require-renpy-validation`；此时 SDK 缺失或 `compile` 非零退出都会阻止归档和安装。相关命令语义参见 [Ren'Py 官方命令行文档](https://www.renpy.org/doc/html/cli.html)。
+
 目标语言没有内置白名单：可以使用 Ren'Py 目录标识、BCP 47 风格代码或模型能够理解的语言名称。`zh_hans` 只是简体中文项目可选的目标标识之一，不是产品默认值。目标名称会被转换为可用作 Ren'Py 标识符的运行时语言名。
 
 当项目只有编译脚本时，`analyze` 和 `run` 会自动获取并运行固定版本的 [unrpyc](https://github.com/CensoredUsername/unrpyc)。使用 `--no-tool-download` 可强制离线；也可用 `--unrpyc D:\Tools\unrpyc.py` 或环境变量 `RENWEAVE_UNRPYC` 指定已有工具。反编译在隔离子进程和工作区副本中执行，不会把 `.rpy` 写回原游戏。由于 RPYC 本质上包含序列化数据，仍应只处理来源可信的游戏文件。
@@ -111,6 +117,8 @@ workspace/
 │   └── scene_<id>.json
 ├── build.json
 ├── package.json
+├── build-validation.json
+├── validation/               # 带内容指纹的隔离 Ren'Py 验证项目
 ├── packages/
 │   └── renweave-<language>.rpa
 ├── install.json              # 仅使用 --install 时生成

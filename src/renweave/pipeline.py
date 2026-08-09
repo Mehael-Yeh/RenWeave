@@ -7,6 +7,7 @@ import hashlib
 from pathlib import Path
 
 from .acquisition import ArchiveAcquirer
+from .build_validation import RenpyBuildValidator
 from .context import ContextPlanner
 from .decompiler import DecompilationError, DecompilationManifest, UnrpycDecompiler, UnrpycToolManager
 from .discovery import ProjectDiscovery
@@ -41,6 +42,7 @@ class PipelineStage(str, Enum):
     REFINING = "refining"
     REFINED = "refined"
     BUILDING = "building"
+    VALIDATING_BUILD = "validating_build"
     COMPLETE = "complete"
     FAILED = "failed"
 
@@ -61,6 +63,8 @@ class PipelineState:
     installed_dir: str = ""
     package_path: str = ""
     package_sha256: str = ""
+    build_validation_status: str = ""
+    engine_validation_status: str = ""
     project_fingerprint: str = ""
     knowledge_model_calls: int = 0
     knowledge_cache_hits: int = 0
@@ -96,6 +100,8 @@ class RenWeavePipeline:
         self.output_dir = self.workspace / "output"
         self.packages_dir = self.workspace / "packages"
         self.package_path = self.workspace / "package.json"
+        self.validation_dir = self.workspace / "validation"
+        self.build_validation_path = self.workspace / "build-validation.json"
 
     def analyze(
         self,
@@ -229,6 +235,8 @@ class RenWeavePipeline:
         allow_tool_download: bool = True,
         synthesize_knowledge: bool = True,
         refine_translations: bool = True,
+        renpy_sdk_path: str | Path | None = None,
+        require_engine_validation: bool = False,
     ) -> PipelineState:
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
@@ -370,6 +378,18 @@ class RenWeavePipeline:
                     target_language,
                     self.output_dir,
                 )
+                state.stage = PipelineStage.VALIDATING_BUILD
+                self._save_state(state)
+                validation = self._validate_build(
+                    manifest,
+                    index,
+                    sdk_path=renpy_sdk_path,
+                    require_engine=require_engine_validation,
+                )
+                state.build_validation_status = "passed" if validation.static_passed else "failed"
+                state.engine_validation_status = validation.engine.status
+                if not validation.passed:
+                    raise ValueError("生成的语言包未通过构建验证，详见 build-validation.json")
                 package = self._package(manifest)
                 state.renpy_language = manifest.renpy_language
                 state.output_dir = manifest.output_dir
@@ -401,6 +421,8 @@ class RenWeavePipeline:
         requested_language: str | None = None,
         install: bool = False,
         overwrite_existing: bool = False,
+        renpy_sdk_path: str | Path | None = None,
+        require_engine_validation: bool = False,
     ):
         """Build translation scripts from all validated scene artifacts."""
         state = self._load_state()
@@ -416,6 +438,21 @@ class RenWeavePipeline:
             language,
             self.output_dir,
         )
+        state.stage = PipelineStage.VALIDATING_BUILD
+        self._save_state(state)
+        validation = self._validate_build(
+            manifest,
+            index,
+            sdk_path=renpy_sdk_path,
+            require_engine=require_engine_validation,
+        )
+        state.build_validation_status = "passed" if validation.static_passed else "failed"
+        state.engine_validation_status = validation.engine.status
+        if not validation.passed:
+            state.stage = PipelineStage.FAILED
+            state.error = "生成的语言包未通过构建验证，详见 build-validation.json"
+            self._save_state(state)
+            raise ValueError(state.error)
         package = self._package(manifest)
         state.renpy_language = manifest.renpy_language
         state.output_dir = manifest.output_dir
@@ -440,6 +477,24 @@ class RenWeavePipeline:
         atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
         atomic_write_json(self.package_path, package.to_dict())
         return package
+
+    def _validate_build(
+        self,
+        manifest: BuildManifest,
+        index: ProjectIndex,
+        *,
+        sdk_path: str | Path | None,
+        require_engine: bool,
+    ):
+        report = RenpyBuildValidator().validate(
+            manifest,
+            self.validation_dir,
+            sdk_path=sdk_path,
+            project_root=index.project.project_root,
+            require_engine=require_engine,
+        )
+        atomic_write_json(self.build_validation_path, report.to_dict())
+        return report
 
     def _collect_translations(self, scene_ids: list[str]) -> dict[str, str]:
         translations: dict[str, str] = {}
@@ -532,6 +587,8 @@ class RenWeavePipeline:
             installed_dir="",
             package_path="",
             package_sha256="",
+            build_validation_status="",
+            engine_validation_status="",
             project_fingerprint=project_fingerprint,
             knowledge_model_calls=0,
             knowledge_cache_hits=0,
@@ -552,6 +609,8 @@ class RenWeavePipeline:
         payload.setdefault("installed_dir", "")
         payload.setdefault("package_path", "")
         payload.setdefault("package_sha256", "")
+        payload.setdefault("build_validation_status", "")
+        payload.setdefault("engine_validation_status", "")
         payload.setdefault("project_fingerprint", "")
         payload.setdefault("knowledge_model_calls", 0)
         payload.setdefault("knowledge_cache_hits", 0)

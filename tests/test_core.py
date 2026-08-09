@@ -4,6 +4,7 @@ import json
 import hashlib
 import io
 import pickle
+import sys
 import tempfile
 import unittest
 import zlib
@@ -11,6 +12,12 @@ import zipfile
 from pathlib import Path
 
 from renweave.context import ContextPlanner
+from renweave.build_validation import (
+    GeneratedScriptValidator,
+    RenpyBuildValidator,
+    RenpyEngineValidator,
+    RenpySdk,
+)
 from renweave.decompiler import (
     UNRPYC_ARCHIVE_SHA256,
     UNRPYC_COMMIT,
@@ -272,6 +279,61 @@ class CorePipelineTests(unittest.TestCase):
         with self.assertRaises(RpaError):
             TranslationPackager().package(manifest, output / "packages")
 
+    def test_generated_script_validator_accepts_unicode_language_and_rejects_duplicate_ids(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "unicode-validation-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "日本語", output)
+        self.assertEqual(GeneratedScriptValidator().validate(manifest), [])
+
+        dialogue = output / "game" / "tl" / "日本語" / "script.rpy"
+        content = dialogue.read_text(encoding="utf-8")
+        header = next(line for line in content.splitlines() if line.startswith("translate "))
+        dialogue.write_text(content + f"\n{header}\n\n    \"duplicate\"\n", encoding="utf-8")
+        payload = dialogue.read_bytes()
+        record = next(item for item in manifest.files if item.relative_path.endswith("script.rpy"))
+        object.__setattr__(record, "sha256", hashlib.sha256(payload).hexdigest())
+        object.__setattr__(record, "dialogue_blocks", record.dialogue_blocks + 1)
+        issues = GeneratedScriptValidator().validate(manifest)
+        self.assertIn("DUPLICATE_TRANSLATION_ID", {issue.code for issue in issues})
+
+    def test_renpy_engine_adapter_uses_isolated_project_and_compile_command(self) -> None:
+        sdk_root = Path(self.temp.name) / "fake-sdk"
+        project = Path(self.temp.name) / "isolated-project"
+        (project / "game").mkdir(parents=True)
+        sdk_root.mkdir()
+        runner = sdk_root / "runner.py"
+        runner.write_text(
+            "import pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "assert '--savedir' in args and 'compile' in args and '--keep-orphan-rpyc' in args\n"
+            "project = pathlib.Path(args[args.index('compile') - 1])\n"
+            "assert (project / 'game').is_dir()\n",
+            encoding="utf-8",
+        )
+        report = RenpyEngineValidator().validate(
+            RenpySdk(sdk_root, (sys.executable, str(runner))),
+            project,
+        )
+        self.assertEqual(report.status, "passed")
+        self.assertEqual(report.return_code, 0)
+
+    def test_required_engine_validation_rejects_invalid_sdk_with_report(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "required-engine-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "ko", output)
+        report = RenpyBuildValidator().validate(
+            manifest,
+            Path(self.temp.name) / "required-engine-validation",
+            sdk_path=Path(self.temp.name) / "not-a-renpy-sdk",
+            require_engine=True,
+        )
+        self.assertFalse(report.passed)
+        self.assertTrue(report.static_passed)
+        self.assertEqual(report.engine.status, "failed")
+        self.assertIn("RENPY_SDK_INVALID", {issue.code for issue in report.issues})
+
     def test_installer_preflights_all_files_before_writing(self) -> None:
         index = ProjectIndexer().build(self.root)
         translations = {unit.id: unit.source for unit in index.text_units}
@@ -356,6 +418,9 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue(Path(state.package_path).is_file())
         self.assertEqual(len(state.package_sha256), 64)
         self.assertTrue((workspace / "package.json").is_file())
+        self.assertEqual(state.build_validation_status, "passed")
+        self.assertEqual(state.engine_validation_status, "skipped")
+        self.assertTrue((workspace / "build-validation.json").is_file())
         self.assertEqual(Path(state.installed_dir), (self.game / "tl" / "es_es").resolve())
         self.assertTrue((self.game / "tl" / "es_es" / "script.rpy").is_file())
         self.assertTrue((workspace / "install.json").is_file())

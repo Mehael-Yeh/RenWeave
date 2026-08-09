@@ -15,7 +15,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 0.6.0")
+    parser.add_argument("--version", action="version", version="RenWeave 0.7.0")
     commands = parser.add_subparsers(dest="command", required=True)
 
     analyze = commands.add_parser("analyze", help="识别并分析一个 Ren'Py 项目，不调用 AI")
@@ -35,6 +35,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
     run.add_argument("--no-ai-knowledge", action="store_true", help="跳过 AI 剧情知识提炼，仅使用零 Token 证据层")
     run.add_argument("--no-refine", action="store_true", help="跳过跨场景风险审计与 AI 精修")
+    run.add_argument("--renpy-sdk", help="用于隔离编译验证的 Ren'Py SDK 目录")
+    run.add_argument(
+        "--require-renpy-validation",
+        action="store_true",
+        help="未找到 SDK 或 compile 失败时终止构建",
+    )
     run.add_argument("--limit", type=int, default=0, help="开发时限制翻译场景数；0 表示全部")
     run.add_argument(
         "--repair-attempts",
@@ -52,6 +58,12 @@ def _parser() -> argparse.ArgumentParser:
     build = commands.add_parser("build", help="从工作区中已验证的译文重新生成 Ren'Py 语言包")
     build.add_argument("--workspace", required=True, help="已有的 RenWeave 工作目录")
     build.add_argument("--target-language", help="覆盖工作区记录的目标语言")
+    build.add_argument("--renpy-sdk", help="用于隔离编译验证的 Ren'Py SDK 目录")
+    build.add_argument(
+        "--require-renpy-validation",
+        action="store_true",
+        help="未找到 SDK 或 compile 失败时终止构建",
+    )
     build.add_argument("--install", action="store_true", help="构建成功后安装到原游戏目录")
     build.add_argument(
         "--overwrite-existing",
@@ -135,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
                 requested_language=args.target_language,
                 install=args.install,
                 overwrite_existing=args.overwrite_existing,
+                renpy_sdk_path=args.renpy_sdk,
+                require_engine_validation=args.require_renpy_validation,
             )
             print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
             return 0
@@ -153,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
             allow_tool_download=not args.no_tool_download,
             synthesize_knowledge=not args.no_ai_knowledge,
             refine_translations=not args.no_refine,
+            renpy_sdk_path=args.renpy_sdk,
+            require_engine_validation=args.require_renpy_validation,
         )
         print(json.dumps(state.to_dict(), ensure_ascii=False, indent=2))
         return 0 if not state.failed_scene_ids else 2
