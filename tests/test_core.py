@@ -22,6 +22,7 @@ from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
 from renweave.indexer import ProjectIndexer
 from renweave.installer import TranslationInstaller
 from renweave.knowledge import DeterministicKnowledgeBuilder
+from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.pipeline import PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile
 from renweave.rpa import RpaArchive, UnsafeArchivePath, script_member
@@ -361,6 +362,50 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(gateway.initial_calls, 3)
         self.assertEqual(gateway.repair_calls, 1)
 
+    def test_run_automatically_synthesizes_narrative_knowledge(self) -> None:
+        with (self.game / "script.rpy").open("a", encoding="utf-8", newline="\n") as writer:
+            writer.write('\nlabel epilogue:\n    eve "We understand the whole story now."\n')
+
+        class CombinedGateway:
+            def __init__(self):
+                self.profile = ModelProfile(
+                    name="combined",
+                    model="fake-combined",
+                    base_url="https://example.invalid",
+                )
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                if "scene" in request:
+                    payload = {"translations": [
+                        {"id": line["id"], "text": f"DE: {line['source']}"}
+                        for line in request["scene"]["lines"]
+                    ]}
+                elif "scenes" in request:
+                    scene_ids = [item["id"] for item in request["scenes"]]
+                    payload = {
+                        "summary": "A connected story.",
+                        "themes": ["trust"],
+                        "world_facts": [{"text": "Events are connected.", "scene_ids": scene_ids}],
+                        "characters": [],
+                        "terms": [],
+                    }
+                else:
+                    payload = {"world_summary": "A connected story.", "style_guidance": [], "world_facts": []}
+                return {"choices": [{"message": {"content": json.dumps(payload)}}]}
+
+        workspace = Path(self.temp.name) / "narrative-run-workspace"
+        state = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "de",
+            ModelProfile(name="combined", model="fake-combined", base_url="https://example.invalid"),
+            gateway=CombinedGateway(),
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertGreaterEqual(state.knowledge_model_calls, 1)
+        self.assertTrue((workspace / "narrative-knowledge.json").is_file())
+
     def test_unrpyc_adapter_stages_and_decompiles_without_touching_source(self) -> None:
         compiled_root = Path(self.temp.name) / "compiled"
         compiled_root.mkdir()
@@ -374,6 +419,93 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue(recovered.is_file())
         self.assertIn("label recovered", recovered.read_text(encoding="utf-8"))
         self.assertFalse((compiled_root / "route.rpy").exists())
+
+    def test_narrative_knowledge_is_hierarchical_evidenced_and_cached(self) -> None:
+        (self.game / "route.rpy").write_text(
+            'label route_start:\n    eve "The Moon Key opens North Tower."\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        deterministic = DeterministicKnowledgeBuilder().build(index)
+
+        class KnowledgeGateway:
+            def __init__(self):
+                self.profile = ModelProfile(
+                    name="knowledge-test",
+                    model="fake-knowledge",
+                    base_url="https://example.invalid",
+                )
+                self.calls = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                self.calls += 1
+                request = json.loads(messages[-1]["content"])
+                if "storylines" in request:
+                    scene_ids = [
+                        scene_id
+                        for item in request["storylines"]
+                        for scene_id in item.get("scene_ids", [])
+                    ]
+                    payload = {
+                        "world_summary": "A grounded mystery involving the North Tower.",
+                        "style_guidance": ["Dialogue is concise."],
+                        "world_facts": [{"text": "The North Tower is locked.", "scene_ids": scene_ids}],
+                    }
+                else:
+                    scene_ids = [item["id"] for item in request["scenes"]]
+                    payload = {
+                        "summary": f"Storyline {request['storyline']} summary.",
+                        "themes": ["mystery"],
+                        "world_facts": [
+                            {"text": "The Moon Key opens North Tower.", "scene_ids": scene_ids},
+                            {"text": "Unsupported invention.", "scene_ids": ["unknown_scene"]},
+                        ],
+                        "characters": [{
+                            "name": "eve",
+                            "role": "Investigator",
+                            "traits": ["observant"],
+                            "voice": ["concise"],
+                            "relationships": {"anon": "Offers help"},
+                            "scene_ids": scene_ids,
+                        }],
+                        "terms": [{
+                            "source": "Moon Key",
+                            "meaning": "A key for North Tower",
+                            "guidance": "Translate consistently",
+                            "scene_ids": scene_ids,
+                        }],
+                    }
+                return {
+                    "choices": [{"message": {"content": json.dumps(payload)}}],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 40},
+                }
+
+        gateway = KnowledgeGateway()
+        cache = Path(self.temp.name) / "knowledge-cache"
+        first = NarrativeKnowledgeSynthesizer(gateway, cache).synthesize(
+            index,
+            deterministic,
+            project_fingerprint="fingerprint",
+            source_language="en",
+        )
+        calls_after_first = gateway.calls
+        second = NarrativeKnowledgeSynthesizer(gateway, cache).synthesize(
+            index,
+            deterministic,
+            project_fingerprint="fingerprint",
+            source_language="en",
+        )
+        self.assertGreaterEqual(calls_after_first, 3)
+        self.assertEqual(gateway.calls, calls_after_first)
+        self.assertGreaterEqual(second.usage.cache_hits, 3)
+        self.assertEqual(first.world_summary, "A grounded mystery involving the North Tower.")
+        self.assertNotIn("Unsupported invention", {fact.text for fact in first.world_facts})
+        self.assertEqual(next(item for item in first.characters if item.name == "eve").role, "Investigator")
+        route_scene = next(scene for scene in index.scenes if scene.label == "route_start")
+        context = ContextPlanner().build(index, deterministic, route_scene.id, first)
+        self.assertIn("North Tower", context.world_context)
+        self.assertEqual(context.character_profiles[0]["role"], "Investigator")
+        self.assertEqual(context.term_hints[0]["source"], "Moon Key")
 
     def test_pipeline_automatically_indexes_decompiled_rpyc(self) -> None:
         project = Path(self.temp.name) / "CompiledGame"

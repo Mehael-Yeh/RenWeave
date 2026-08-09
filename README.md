@@ -4,7 +4,7 @@
 
 RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎，可将任意源语言翻译为用户指定的任意目标语言。它以完整场景、剧情控制流和角色证据为核心，而不是将脚本拆成彼此无关的单行文本。
 
-## 当前里程碑：0.3.0 Decompile
+## 当前里程碑：0.4.0 Narrative Knowledge
 
 首个可运行核心已经实现：
 
@@ -18,7 +18,11 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 将 `.rpy` 解析为稳定的场景与文本中间表示：对白、旁白、菜单和 `_()` UI 文本。
 - 建立 `call`、`jump` 和文件内自然延续剧情边。
 - 零 Token 生成角色出场证据、共现关系、剧情文件簇、场景摘要和重复专名候选。
+- 按剧情文件簇分块提炼带场景证据的世界事实、角色定位、说话风格、关系和术语含义。
+- 对剧情簇摘要做层级合并，避免把整部游戏一次性塞进模型上下文。
+- 以请求内容、模型和提示词哈希缓存知识结果；换目标语言时可直接复用，不重复消耗 Token。
 - 为单个场景构建最小必要上下文，而不是注入整个世界观。
+- 每场只注入相关剧情、出场角色、命中术语和短全局摘要，并限制证据数量与字段长度。
 - 导入 OpenAI-compatible 模型配置，并通过环境变量读取密钥。
 - 使用结构化场景翻译协议，按稳定文本 ID 接收译文。
 - 校验缺失文本、未知 ID、Ren'Py 标签和变量/占位符。
@@ -30,7 +34,7 @@ RenWeave 是一个面向 Ren'Py 游戏的上下文感知多语言本地化引擎
 - 在完整翻译通过校验后自动生成 `output/game/tl/<language>` 可安装目录。
 - 可选一键安装；默认拒绝覆盖非 RenWeave 创建的同名翻译文件。
 
-当前版本尚未接入 AI 剧情时间线分析、跨场景全局精修、Ren'Py 编译校验和最终 RPA 构建。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
+当前版本尚未接入精细剧情时间线、跨场景全局精修、Ren'Py 编译校验和最终 RPA 构建。这些是下一阶段，不会以不安全的源文件字符串替换提前实现。
 
 ## 快速开始
 
@@ -74,6 +78,8 @@ python -m renweave build --workspace "D:\RenWeaveWork\Example" --install
 
 当项目只有编译脚本时，`analyze` 和 `run` 会自动获取并运行固定版本的 [unrpyc](https://github.com/CensoredUsername/unrpyc)。使用 `--no-tool-download` 可强制离线；也可用 `--unrpyc D:\Tools\unrpyc.py` 或环境变量 `RENWEAVE_UNRPYC` 指定已有工具。反编译在隔离子进程和工作区副本中执行，不会把 `.rpy` 写回原游戏。由于 RPYC 本质上包含序列化数据，仍应只处理来源可信的游戏文件。
 
+`run` 默认自动建立 AI 剧情知识层。知识调用按内容缓存，并在 `state.json` 记录实际调用数、缓存命中数和警告数。若只需要确定性分析，可使用 `--no-ai-knowledge`；这不会影响 RPA/RPYC 采集和基础角色、剧情证据生成。
+
 ## 工作区产物
 
 ```text
@@ -86,6 +92,8 @@ workspace/
 ├── tools/                    # 仅在按需获取 unrpyc 后生成
 ├── project-index.json
 ├── knowledge.json
+├── narrative-knowledge.json
+├── knowledge-cache/
 ├── translations/
 │   └── scene_<id>.json
 ├── reports/

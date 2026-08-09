@@ -16,6 +16,7 @@ from .installer import TranslationInstaller
 from .io import atomic_write_json, read_json
 from .knowledge import DeterministicKnowledgeBuilder, KnowledgeBase
 from .models import ProjectIndex, TextChannel, TextUnit
+from .narrative import NarrativeKnowledge, NarrativeKnowledgeSynthesizer
 from .provider import ModelProfile, OpenAICompatibleGateway
 from .translation import SceneTranslator
 from .validation import TranslationValidator
@@ -31,6 +32,8 @@ class PipelineStage(str, Enum):
     DECOMPILED = "decompiled"
     INDEXED = "indexed"
     KNOWLEDGE_READY = "knowledge_ready"
+    SYNTHESIZING = "synthesizing"
+    NARRATIVE_READY = "narrative_ready"
     TRANSLATING = "translating"
     VALIDATED = "validated"
     BUILDING = "building"
@@ -53,6 +56,9 @@ class PipelineState:
     output_dir: str = ""
     installed_dir: str = ""
     project_fingerprint: str = ""
+    knowledge_model_calls: int = 0
+    knowledge_cache_hits: int = 0
+    knowledge_warnings: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -67,6 +73,8 @@ class RenWeavePipeline:
         self.state_path = self.workspace / "state.json"
         self.index_path = self.workspace / "project-index.json"
         self.knowledge_path = self.workspace / "knowledge.json"
+        self.narrative_path = self.workspace / "narrative-knowledge.json"
+        self.knowledge_cache_dir = self.workspace / "knowledge-cache"
         self.acquisition_path = self.workspace / "acquisition.json"
         self.decompilation_path = self.workspace / "decompilation.json"
         self.acquired_dir = self.workspace / "acquired"
@@ -206,6 +214,7 @@ class RenWeavePipeline:
         repair_attempts: int = 2,
         unrpyc_path: str | Path | None = None,
         allow_tool_download: bool = True,
+        synthesize_knowledge: bool = True,
     ) -> PipelineState:
         if not target_language.strip() or target_language.casefold() == "und":
             raise ValueError("翻译任务必须指定明确的目标语言")
@@ -217,9 +226,33 @@ class RenWeavePipeline:
             allow_tool_download=allow_tool_download,
         )
         state = self._load_state()
+        gateway = gateway or OpenAICompatibleGateway(profile)
+        narrative: NarrativeKnowledge | None = None
+        text_scene_count = sum(1 for scene in index.scenes if scene.text_units)
+        if synthesize_knowledge and text_scene_count >= 4:
+            state.stage = PipelineStage.SYNTHESIZING
+            self._save_state(state)
+            chunk_characters = 24000
+            if profile.context_window > 0:
+                chunk_characters = max(4000, min(36000, profile.context_window // 2))
+            narrative = NarrativeKnowledgeSynthesizer(
+                gateway,
+                self.knowledge_cache_dir,
+                max_chunk_characters=chunk_characters,
+            ).synthesize(
+                index,
+                knowledge,
+                project_fingerprint=state.project_fingerprint,
+                source_language=source_language,
+            )
+            atomic_write_json(self.narrative_path, narrative.to_dict())
+            state.knowledge_model_calls = narrative.usage.model_calls
+            state.knowledge_cache_hits = narrative.usage.cache_hits
+            state.knowledge_warnings = len(narrative.warnings)
+            state.stage = PipelineStage.NARRATIVE_READY
+            self._save_state(state)
         state.stage = PipelineStage.TRANSLATING
         self._save_state(state)
-        gateway = gateway or OpenAICompatibleGateway(profile)
         translator = SceneTranslator(gateway)
         planner = ContextPlanner()
         validator = TranslationValidator()
@@ -233,7 +266,7 @@ class RenWeavePipeline:
             if scene.id in state.completed_scene_ids:
                 continue
             try:
-                context = planner.build(index, knowledge, scene.id)
+                context = planner.build(index, knowledge, scene.id, narrative)
                 result = translator.translate(
                     context,
                     target_language,
@@ -427,6 +460,9 @@ class RenWeavePipeline:
             else "",
             installed_dir="",
             project_fingerprint=project_fingerprint,
+            knowledge_model_calls=0,
+            knowledge_cache_hits=0,
+            knowledge_warnings=0,
         )
         self._save_state(state)
         return state
@@ -439,6 +475,9 @@ class RenWeavePipeline:
         payload.setdefault("output_dir", "")
         payload.setdefault("installed_dir", "")
         payload.setdefault("project_fingerprint", "")
+        payload.setdefault("knowledge_model_calls", 0)
+        payload.setdefault("knowledge_cache_hits", 0)
+        payload.setdefault("knowledge_warnings", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:

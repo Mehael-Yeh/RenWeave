@@ -11,6 +11,28 @@ from typing import Any
 from .io import read_json
 
 
+def response_json(response: dict[str, Any]) -> dict[str, Any]:
+    try:
+        content = response["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("模型响应缺少 choices[0].message.content") from exc
+    if isinstance(content, dict):
+        return content
+    if not isinstance(content, str):
+        raise ValueError("模型响应 content 不是 JSON 对象或字符串")
+    cleaned = content.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+        if cleaned.lstrip().lower().startswith("json"):
+            cleaned = cleaned.lstrip()[4:]
+        if cleaned.rstrip().endswith("```"):
+            cleaned = cleaned.rstrip()[:-3]
+    payload = json.loads(cleaned.strip())
+    if not isinstance(payload, dict):
+        raise ValueError("模型响应 JSON 顶层必须是对象")
+    return payload
+
+
 @dataclass(slots=True)
 class ModelProfile:
     name: str
