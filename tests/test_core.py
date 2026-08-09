@@ -41,7 +41,7 @@ from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
-from renweave.provider import ModelProfile
+from renweave.provider import ModelProfile, OpenAICompatibleCatalog
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
@@ -653,6 +653,85 @@ class CorePipelineTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "max_response_bytes"):
                 oversized.chat([{"role": "user", "content": "test"}])
+
+    def test_provider_catalog_loads_models_and_verifies_selected_model(self) -> None:
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, limit=-1):
+                return self.payload if limit < 0 else self.payload[:limit]
+
+        model_list = json.dumps({
+            "data": [{"id": "translator-pro"}, {"id": "translator-mini"}, {"id": "translator-pro"}],
+        }).encode("utf-8")
+        verification = json.dumps({
+            "choices": [{"message": {"content": '{"ok":true}'}}],
+        }).encode("utf-8")
+        profile = ModelProfile(
+            name="Local provider",
+            model="",
+            base_url="https://models.example/v1/chat/completions",
+            api_key="memory-secret",
+            max_retries=0,
+        )
+        catalog = OpenAICompatibleCatalog(profile)
+        with mock.patch(
+            "renweave.provider.urllib.request.urlopen",
+            side_effect=[FakeResponse(model_list), FakeResponse(verification)],
+        ) as urlopen:
+            result = catalog.list_models()
+            checked = catalog.verify_model("translator-pro")
+
+        self.assertEqual(result.models, ("translator-mini", "translator-pro"))
+        self.assertEqual(result.endpoint, "https://models.example/v1/models")
+        self.assertEqual(checked.model, "translator-pro")
+        list_request = urlopen.call_args_list[0].args[0]
+        verify_request = urlopen.call_args_list[1].args[0]
+        self.assertEqual(list_request.get_method(), "GET")
+        self.assertEqual(list_request.get_header("Authorization"), "Bearer memory-secret")
+        self.assertEqual(verify_request.get_method(), "POST")
+        self.assertEqual(verify_request.full_url, "https://models.example/v1/chat/completions")
+        self.assertEqual(json.loads(verify_request.data)["model"], "translator-pro")
+
+    def test_provider_profile_save_excludes_api_key_by_default(self) -> None:
+        target = Path(self.temp.name) / "profiles" / "provider.json"
+        profile = ModelProfile(
+            name="Secure provider",
+            model="translation-model",
+            base_url="https://models.example/v1/",
+            api_key="never-write-this",
+        )
+        profile.save(target)
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        self.assertEqual(payload["kind"], "openai_compatible")
+        self.assertEqual(payload["base_url"], "https://models.example/v1")
+        self.assertNotIn("api_key", payload)
+        self.assertNotIn("never-write-this", target.read_text(encoding="utf-8"))
+
+    def test_provider_catalog_reports_authentication_failure_with_hint(self) -> None:
+        denied = urllib.error.HTTPError(
+            "https://models.example/v1/models",
+            401,
+            "unauthorized",
+            {},
+            io.BytesIO(b"invalid token"),
+        )
+        profile = ModelProfile(
+            name="Protected provider",
+            model="",
+            base_url="https://models.example/v1",
+            max_retries=0,
+        )
+        with mock.patch("renweave.provider.urllib.request.urlopen", side_effect=denied):
+            with self.assertRaisesRegex(RuntimeError, "Check the API key and endpoint"):
+                OpenAICompatibleCatalog(profile).list_models()
 
     def test_run_automatically_synthesizes_narrative_knowledge(self) -> None:
         with (self.game / "script.rpy").open("a", encoding="utf-8", newline="\n") as writer:
