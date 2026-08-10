@@ -337,7 +337,7 @@ _BASE_COPY = {
         "model.model_hint": "Choose a discovered model or enter an exact model ID.",
         "model.verify": "Verify selected model",
         "model.idle": "Not connected",
-        "model.idle_body": "Enter an endpoint and API key, then load the available models.",
+        "model.idle_body": "Enter an API key, then load available models.",
         "model.connecting": "Connecting",
         "model.connecting_body": "Checking the models endpoint…",
         "model.connected": "API connected",

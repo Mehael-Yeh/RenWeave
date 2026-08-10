@@ -267,7 +267,12 @@ class CorePipelineTests(unittest.TestCase):
             self.assertTrue(app.next_button.instate(["disabled"]))
             self.assertGreaterEqual(root.minsize()[0], 920)
             self.assertEqual(app.source_language.get(), "auto")
-            self.assertEqual(app.status.get(), "Enter an endpoint and API key, then load the available models.")
+            self.assertEqual(app.status.get(), "Enter an API key, then load available models.")
+            root.deiconify()
+            root.geometry("1180x820")
+            root.update()
+            self.assertFalse(app.content_scrollbar.winfo_ismapped())
+            root.withdraw()
 
             app.locale_display.set("简体中文")
             app._change_locale()
