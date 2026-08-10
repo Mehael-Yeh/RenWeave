@@ -10,6 +10,8 @@ All notable changes to RenWeave are documented here.
 - Added a shared Settings dialog with encrypted OS credential storage by default, a memory-only option, and per-provider/endpoint key isolation.
 - Added opt-in GitHub release checks, disabled by default, with a manual check action and no automatic installation.
 - Replaced dotted button focus rings with solid semantic focus borders and corrected provider-grid padding alignment.
+- Corrected the JSON-mode connection check prompt after live DeepSeek validation exposed a provider-side rejection.
+- Added a zero-model-call completion fast path that reuses verified outputs while rebuilding and validating local artifacts.
 
 ## 1.6.0 - 2026-08-10
 

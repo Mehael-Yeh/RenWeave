@@ -337,6 +337,7 @@ class RenWeavePipeline:
         except CancellationRequested:
             return self._load_state()
         state = self._load_state()
+        completed_run_before_resume = state.stage == PipelineStage.COMPLETE
         state.run_status = "running"
         state.pause_reason = ""
         state.error = ""
@@ -366,6 +367,12 @@ class RenWeavePipeline:
         state.token_estimate_confidence = budget.confidence
         validator = TranslationValidator()
         self._reconcile_completed_scenes(index, candidates, state, validator)
+        expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
+        reuse_completed_model_outputs = (
+            completed_run_before_resume
+            and expected_scene_ids <= set(state.completed_scene_ids)
+            and not state.failed_scene_ids
+        )
         state.completed_text_units = sum(
             len(scene.text_units) for scene in candidates if scene.id in state.completed_scene_ids
         )
@@ -383,7 +390,7 @@ class RenWeavePipeline:
         if self._cancelled(cancel_token):
             return self._pause(state, "Cancellation requested before model work")
         text_scene_count = len(candidates)
-        if synthesize_knowledge and text_scene_count >= 4:
+        if synthesize_knowledge and text_scene_count >= 4 and not reuse_completed_model_outputs:
             state.stage = PipelineStage.SYNTHESIZING
             state.current_operation = "Understanding storylines, characters, and terminology"
             state.phase_completed = 0
@@ -553,11 +560,18 @@ class RenWeavePipeline:
                 self._save_state(state)
                 break
 
-        expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
         completed_scene_ids = set(state.completed_scene_ids)
         if expected_scene_ids <= completed_scene_ids and not state.failed_scene_ids:
             collected = self._collect_translations(state.completed_scene_ids)
-            if refine_translations:
+            if reuse_completed_model_outputs:
+                self.logger.event(
+                    "INFO",
+                    "completed_model_outputs_reused",
+                    "Reused all model outputs from the unchanged completed run",
+                    completed_scenes=len(state.completed_scene_ids),
+                    total_model_calls=state.total_model_calls,
+                )
+            if refine_translations and not reuse_completed_model_outputs:
                 if self._cancelled(cancel_token):
                     return self._pause(state, "Cancellation requested before global refinement")
                 state.stage = PipelineStage.REFINING

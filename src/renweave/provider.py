@@ -181,8 +181,8 @@ class OpenAICompatibleCatalog:
         started = time.perf_counter()
         response = OpenAICompatibleGateway(verified_profile).chat(
             [
-                {"role": "system", "content": "You are an API health check."},
-                {"role": "user", "content": 'Return only {"ok":true}.'},
+                {"role": "system", "content": "You are an API health check that returns JSON."},
+                {"role": "user", "content": 'Return only this JSON object: {"ok":true}.'},
             ],
             # MiniMax and several compatible providers reject a literal zero.
             temperature=0.1,

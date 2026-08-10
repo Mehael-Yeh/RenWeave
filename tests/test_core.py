@@ -830,6 +830,32 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(completed.progress_percent, 100)
         self.assertEqual(completed.eta_seconds, 0)
 
+        class NoCallGateway:
+            model_calls = 0
+            prompt_tokens = 0
+            completion_tokens = 0
+            requests_attempted = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                raise AssertionError("An unchanged completed workspace must not call the model")
+
+        calls_before_rerun = completed.total_model_calls
+        refinement_calls_before_rerun = completed.refinement_model_calls
+        rerun = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=NoCallGateway(),
+        )
+        self.assertEqual(rerun.stage, PipelineStage.COMPLETE)
+        self.assertEqual(rerun.total_model_calls, calls_before_rerun)
+        self.assertEqual(rerun.refinement_model_calls, refinement_calls_before_rerun)
+        self.assertIn(
+            "completed_model_outputs_reused",
+            (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"),
+        )
+
         damaged_scene = completed.completed_scene_ids[0]
         (workspace / "translations" / f"{damaged_scene}.json").write_text(
             '{"scene_id": "damaged", "translations": {}}\n',
@@ -1048,7 +1074,12 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(list_request.get_header("Authorization"), "Bearer memory-secret")
         self.assertEqual(verify_request.get_method(), "POST")
         self.assertEqual(verify_request.full_url, "https://models.example/v1/chat/completions")
-        self.assertEqual(json.loads(verify_request.data)["model"], "translator-pro")
+        verification_payload = json.loads(verify_request.data)
+        self.assertEqual(verification_payload["model"], "translator-pro")
+        verification_text = " ".join(
+            message["content"] for message in verification_payload["messages"]
+        ).casefold()
+        self.assertIn("json", verification_text)
 
     def test_provider_profile_save_excludes_api_key_by_default(self) -> None:
         target = Path(self.temp.name) / "profiles" / "provider.json"
