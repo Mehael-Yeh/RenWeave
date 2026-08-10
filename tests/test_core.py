@@ -30,6 +30,7 @@ from renweave.decompiler import (
 )
 from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
 from renweave.gui import (
+    Metrics,
     STAGE_LABELS,
     RenWeaveDesktopApp,
     TranslationRequest,
@@ -261,6 +262,8 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.api_key.get(), "")
             self.assertFalse(app.supports_json.get())
             self.assertEqual(app.next_button.cget("text"), "Continue")
+            self.assertEqual(int(app.next_button.cget("width")), Metrics.BUTTON_WIDTH)
+            self.assertTrue(all(child.winfo_class() == "TButton" for child in app.nav.winfo_children()))
             self.assertTrue(app.next_button.instate(["disabled"]))
             self.assertGreaterEqual(root.minsize()[0], 920)
             self.assertEqual(app.source_language.get(), "auto")
@@ -338,6 +341,17 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(float(app.progress["maximum"]), 100)
             self.assertEqual(float(app.progress["value"]), 58.5)
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
+            scrollbars = []
+
+            def collect_scrollbars(widget):
+                for child in widget.winfo_children():
+                    if child.winfo_class() == "TScrollbar":
+                        scrollbars.append(child)
+                    collect_scrollbars(child)
+
+            collect_scrollbars(app.content)
+            self.assertTrue(scrollbars)
+            self.assertTrue(all(bar.cget("style") == "Workspace.Vertical.TScrollbar" for bar in scrollbars))
             progress_text = "\n".join(visible_texts(app.content))
             self.assertIn("提供商已报告 1.2K", progress_text)
             self.assertIn("预计项目总量 12K–18K", progress_text)

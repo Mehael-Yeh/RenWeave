@@ -1,0 +1,72 @@
+# RenWeave desktop design system
+
+RenWeave uses a Material 3–informed **Calm Technical Workspace** system for a focused desktop workflow. This document is normative: new UI code must use these tokens and component roles rather than creating page-specific widget styling.
+
+## Layout grid
+
+- Default window: `1180 × 820`; minimum: `1020 × 720`.
+- Workflow rail: fixed `268 px`.
+- Main canvas horizontal inset: `36 px` on the top bar, page content, and footer.
+- Card inset: `18 px`; standard field gap: `6 px`.
+- Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
+- Page titles, body copy, cards, fields, and activity content share one left edge.
+- Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
+
+## Action placement
+
+| Context | Placement |
+| --- | --- |
+| Global settings | Top-right of the application bar |
+| Section-wide auxiliary action | Top-right of that section |
+| Field-specific action | Attached to the right of its field, equal control height |
+| Form action | Left edge of its form column |
+| Dialog actions | Bottom-right, secondary before primary |
+| Workflow footer | Fixed `180 px` back slot, left-aligned consequence text, fixed `180 px` primary slot |
+
+The workflow footer never changes its column geometry between pages. Empty slots remain reserved so explanatory text and the main action do not jump when navigating.
+
+## Components
+
+All interactive widgets come from `RenWeaveDesktopApp` component factories or one of the two documented navigation/provider styles.
+
+| Component | Required implementation | Rules |
+| --- | --- | --- |
+| Primary button | `_button(..., kind="primary")` | One per action region; fixed height and standard width |
+| Secondary button | `_button(..., kind="secondary")` | Back, import, cancel, pause, and non-destructive alternatives |
+| Field action | `_button(..., kind="field")` | Browse, choose, copy, and attached field actions |
+| Text field | `_entry(...)` | Shared padding, border, focus, disabled, selection, and typography |
+| Combo box | `_combobox(...)` | Same visual height as text fields; editable unless explicitly read-only |
+| Checkbox | `Material.TCheckbutton` | Left-aligned with the form text column |
+| Model list | `ModelList.Treeview` | `38 px` rows, single selection, consistent selected state |
+| Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
+| Diagnostic text | styled `tk.Text` | Same border/focus/selection colors as form controls |
+| Outer card | `Card.TFrame` | The only bordered content container |
+| Inner layout | `CardBody.TFrame` | No nested pseudo-card borders |
+
+## Interaction states
+
+- Every clickable control has hover, pressed, disabled, and keyboard-focus states.
+- Disabled controls use both reduced contrast and native disabled semantics.
+- Important controls include concise inline consequences and delayed guidance tooltips.
+- API-contacting actions state whether they normally consume Tokens.
+- Keyboard focus follows the visual order; dialogs support `Escape`, and confirmation supports `Return` where safe.
+- Text contrast targets WCAG AA. Color is never the only status signal.
+
+## Prohibited patterns
+
+- Do not instantiate page-specific `tk.Button`, `ttk.Entry`, `ttk.Combobox`, `Listbox`, or default `Scrollbar` controls.
+- Do not center form labels, instructions, lists, or arbitrary page sections.
+- Do not move the primary workflow action between pages.
+- Do not apply `Card.TFrame` to an internal layout row.
+- Do not add one-off colors, padding values, fonts, or control heights outside `Colors`, `Metrics`, and `_configure_styles`.
+- Do not use decorative emoji as interface icons.
+
+## Visual QA checklist
+
+Before merging UI changes, render all five workflow pages plus the model picker and error dialog at default and minimum window sizes. Verify:
+
+1. Left edges, field heights, button heights, and footer slots do not move between pages.
+2. English and Simplified Chinese copy does not clip.
+3. Hover, focus, selected, disabled, paused, failed, and unavailable-usage states remain legible.
+4. Text fields, list rows, diagnostic text, and scrollbars use the documented styles.
+5. No control is hidden behind the fixed footer and no horizontal scrollbar is required.
