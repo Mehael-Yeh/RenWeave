@@ -15,6 +15,7 @@ from unittest import mock
 import urllib.error
 
 from renweave.context import ContextPlanner
+from renweave.credentials import SecureCredentialStore, credential_account
 from renweave.build_validation import (
     GeneratedScriptValidator,
     RenpyBuildValidator,
@@ -42,13 +43,14 @@ from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
-from renweave.provider import ModelProfile, OpenAICompatibleCatalog
+from renweave.provider import ModelProfile, OpenAICompatibleCatalog, OpenAICompatibleGateway
 from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
 from renweave.runtime import CancellationToken, WorkspaceLease
 from renweave.usage import estimate_index_tokens, estimate_project_tokens
 from renweave.refinement import GlobalTranslationRefiner
 from renweave.rpa import RpaArchive, RpaError, RpaWriter, UnsafeArchivePath, script_member
 from renweave.validation import TranslationValidator
+from renweave.update_check import check_for_updates
 
 
 SAMPLE_SCRIPT = '''label start:
@@ -129,7 +131,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.6.0")
+        self.assertEqual(renweave.__version__, "1.7.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -243,11 +245,25 @@ class CorePipelineTests(unittest.TestCase):
         try:
             root.withdraw()
             settings_path = Path(self.temp.name) / "desktop-settings.json"
+            class DesktopCredentialBackend:
+                def __init__(self) -> None:
+                    self.values = {}
+
+                def get_password(self, service, username):
+                    return self.values.get((service, username))
+
+                def set_password(self, service, username, password):
+                    self.values[(service, username)] = password
+
+                def delete_password(self, service, username):
+                    self.values.pop((service, username), None)
+
             app = RenWeaveDesktopApp(
                 root,
                 initial_project=str(self.root),
                 initial_workspace=str(Path(self.temp.name) / "visual-workspace"),
                 settings_path=settings_path,
+                credential_store=SecureCredentialStore(backend=DesktopCredentialBackend()),
             )
             root.update_idletasks()
             self.assertEqual(app.step, 0)
@@ -255,6 +271,19 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.brand_title.cget("text"), "RenWeave")
             self.assertEqual(app.connect_button.cget("text"), "Load available models")
             self.assertEqual(app.selected_provider_id.get(), "openai")
+            self.assertEqual(app.key_storage.get(), "secure")
+            self.assertFalse(app.update_checks_enabled.get())
+            self.assertEqual(app.reasoning_level.get(), "auto")
+            self.assertEqual(
+                tuple(app.reasoning_box.cget("values")),
+                ("Automatic (provider default)", "Low", "High", "Maximum"),
+            )
+            self.assertIn("Button.border", str(app.ttk.Style(root).layout("Primary.TButton")))
+            self.assertNotIn("Button.focus", str(app.ttk.Style(root).layout("Primary.TButton")))
+            settings_dialog = app._open_settings()
+            root.update_idletasks()
+            self.assertEqual(settings_dialog.window.title(), "Settings")
+            settings_dialog._close()
             endpoint_box = app.endpoint_box
             page = app.page
             scroll_position = app.content_canvas.yview()
@@ -1037,7 +1066,10 @@ class CorePipelineTests(unittest.TestCase):
         self.assertNotIn("never-write-this", target.read_text(encoding="utf-8"))
 
     def test_provider_presets_cover_required_official_and_aggregator_apis(self) -> None:
-        required = {"openai", "google", "anthropic", "deepseek", "minimax", "openrouter", "custom"}
+        required = {
+            "openai", "google", "anthropic", "deepseek", "minimax", "alibaba",
+            "zhipu", "moonshot", "siliconflow", "openrouter", "custom",
+        }
         self.assertTrue(required.issubset(PROVIDER_PRESETS_BY_ID))
         self.assertEqual(get_provider_preset("openai").base_url, "https://api.openai.com/v1")
         self.assertEqual(
@@ -1047,10 +1079,97 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(get_provider_preset("anthropic").base_url, "https://api.anthropic.com/v1")
         self.assertEqual(get_provider_preset("deepseek").base_url, "https://api.deepseek.com")
         self.assertIn("https://api.minimaxi.com/v1", get_provider_preset("minimax").base_urls)
+        self.assertEqual(get_provider_preset("alibaba").api_key_env, "DASHSCOPE_API_KEY")
+        self.assertEqual(get_provider_preset("zhipu").base_url, "https://open.bigmodel.cn/api/paas/v4")
+        self.assertEqual(get_provider_preset("moonshot").base_url, "https://api.moonshot.cn/v1")
+        self.assertEqual(get_provider_preset("siliconflow").base_url, "https://api.siliconflow.cn/v1")
+        self.assertTrue(all(not hasattr(preset, "default_models") for preset in PROVIDER_PRESETS_BY_ID.values()))
         self.assertEqual(get_provider_preset("openrouter").category, "aggregator")
         self.assertEqual(get_provider_preset("custom").category, "custom")
         with self.assertRaisesRegex(ValueError, "Unknown provider preset"):
             get_provider_preset("missing")
+
+    def test_reasoning_level_uses_provider_specific_payloads(self) -> None:
+        cases = {
+            "deepseek": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"},
+            "zhipu": {"thinking": {"type": "enabled"}, "reasoning_effort": "max"},
+            "alibaba": {"enable_thinking": True},
+            "siliconflow": {"enable_thinking": True, "thinking_budget": 16384},
+        }
+        for provider_id, expected in cases.items():
+            with self.subTest(provider_id=provider_id):
+                response = mock.MagicMock()
+                response.__enter__.return_value.read.return_value = json.dumps({
+                    "choices": [{"message": {"content": '{"ok":true}'}}]
+                }).encode("utf-8")
+                profile = ModelProfile(
+                    name=provider_id,
+                    model="live-model",
+                    base_url=get_provider_preset(provider_id).base_url,
+                    provider_id=provider_id,
+                    supports_json=False,
+                    reasoning_level="maximum",
+                    max_retries=0,
+                )
+                with mock.patch("renweave.provider.urllib.request.urlopen", return_value=response) as urlopen:
+                    OpenAICompatibleGateway(profile).chat([{"role": "user", "content": "test"}])
+                payload = json.loads(urlopen.call_args.args[0].data)
+                for key, value in expected.items():
+                    self.assertEqual(payload[key], value)
+
+    def test_secure_credential_store_uses_hashed_provider_identity(self) -> None:
+        class Backend:
+            def __init__(self) -> None:
+                self.values = {}
+
+            def get_password(self, service, username):
+                return self.values.get((service, username))
+
+            def set_password(self, service, username, password):
+                self.values[(service, username)] = password
+
+            def delete_password(self, service, username):
+                self.values.pop((service, username), None)
+
+        backend = Backend()
+        store = SecureCredentialStore(backend=backend)
+        store.set("deepseek", "https://api.deepseek.com", "one-time-secret")
+        self.assertEqual(store.get("deepseek", "https://api.deepseek.com"), "one-time-secret")
+        account = credential_account("deepseek", "https://api.deepseek.com")
+        self.assertNotIn("api.deepseek.com", account)
+        store.delete("deepseek", "https://api.deepseek.com")
+        self.assertEqual(store.get("deepseek", "https://api.deepseek.com"), "")
+
+    def test_update_check_parses_latest_github_release(self) -> None:
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps({
+            "tag_name": "v9.1.0",
+            "html_url": "https://github.com/Mehael-Yeh/RenWeave/releases/tag/v9.1.0",
+        }).encode("utf-8")
+        with mock.patch("renweave.update_check.urllib.request.urlopen", return_value=response):
+            result = check_for_updates("1.7.0")
+        self.assertTrue(result.update_available)
+        self.assertEqual(result.latest_version, "v9.1.0")
+
+    def test_update_check_falls_back_to_tags_when_no_release_exists(self) -> None:
+        missing_release = urllib.error.HTTPError(
+            "https://api.github.com/repos/Mehael-Yeh/RenWeave/releases/latest",
+            404,
+            "not found",
+            {},
+            io.BytesIO(b"{}"),
+        )
+        tags_response = mock.MagicMock()
+        tags_response.__enter__.return_value.read.return_value = json.dumps([
+            {"name": "v1.6.0"}
+        ]).encode("utf-8")
+        with mock.patch(
+            "renweave.update_check.urllib.request.urlopen",
+            side_effect=[missing_release, tags_response],
+        ):
+            result = check_for_updates("1.7.0")
+        self.assertFalse(result.update_available)
+        self.assertEqual(result.latest_version, "v1.6.0")
 
     def test_provider_profile_round_trips_selected_preset_without_secret(self) -> None:
         target = Path(self.temp.name) / "provider-preset.json"

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .io import atomic_write_json, read_json
+from .provider_presets import PROVIDER_PRESETS_BY_ID
 
 
 TRANSIENT_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
@@ -50,6 +51,7 @@ class ModelProfile:
     timeout_seconds: int = 120
     context_window: int = 0
     supports_json: bool = True
+    reasoning_level: str = "auto"
     max_response_bytes: int = 16 * 1024 * 1024
     max_retries: int = 3
     retry_base_seconds: float = 1.0
@@ -83,6 +85,8 @@ class ModelProfile:
             raise ValueError("max_retries must be between 0 and 10")
         if not isinstance(self.retry_base_seconds, (int, float)) or not 0 <= self.retry_base_seconds <= 60:
             raise ValueError("retry_base_seconds must be between 0 and 60 seconds")
+        if self.reasoning_level not in {"auto", "low", "high", "maximum"}:
+            raise ValueError("reasoning_level must be auto, low, high, or maximum")
 
     def validate(self) -> None:
         self.validate_connection()
@@ -108,6 +112,7 @@ class ModelProfile:
             "timeout_seconds": self.timeout_seconds,
             "context_window": self.context_window,
             "supports_json": self.supports_json,
+            "reasoning_level": self.reasoning_level,
             "max_response_bytes": self.max_response_bytes,
             "max_retries": self.max_retries,
             "retry_base_seconds": self.retry_base_seconds,
@@ -241,6 +246,7 @@ class OpenAICompatibleGateway:
         }
         if self.profile.supports_json:
             payload["response_format"] = {"type": "json_object"}
+        self._apply_reasoning_control(payload)
         headers = {"Content-Type": "application/json"}
         key = self.profile.resolved_api_key()
         if key:
@@ -272,6 +278,35 @@ class OpenAICompatibleGateway:
                     raise RuntimeError(f"Model network request failed: {exc.reason}") from exc
             self._retry_delay(attempt)
         raise RuntimeError("Model request retries were exhausted")
+
+    def _apply_reasoning_control(self, payload: dict[str, Any]) -> None:
+        """Translate the common UI level into each provider's documented request fields."""
+        level = self.profile.reasoning_level
+        if level == "auto":
+            return
+        preset = PROVIDER_PRESETS_BY_ID.get(self.profile.provider_id)
+        control = preset.reasoning_control if preset is not None else "effort"
+        if control == "none":
+            return
+        if control == "deepseek":
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = {"low": "low", "high": "high", "maximum": "max"}[level]
+            return
+        if control == "zhipu":
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = {"low": "low", "high": "high", "maximum": "max"}[level]
+            return
+        if control == "thinking":
+            payload["thinking"] = {"type": "enabled"}
+            return
+        if control == "toggle":
+            payload["enable_thinking"] = True
+            return
+        if control == "budget":
+            payload["enable_thinking"] = True
+            payload["thinking_budget"] = {"low": 1024, "high": 8192, "maximum": 16384}[level]
+            return
+        payload["reasoning_effort"] = {"low": "low", "high": "high", "maximum": "xhigh"}[level]
 
     def _retry_delay(self, attempt: int) -> None:
         delay = min(8.0, self.profile.retry_base_seconds * (2**attempt))

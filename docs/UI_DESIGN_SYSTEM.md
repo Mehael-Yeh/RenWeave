@@ -53,7 +53,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 
 ## Interaction states
 
-- Every clickable control has hover, pressed, disabled, and keyboard-focus states.
+- Every clickable control has hover, pressed, disabled, and keyboard-focus states. Focus is a solid accent border/state contrast; dotted focus rectangles are prohibited.
 - Disabled controls use both reduced contrast and native disabled semantics.
 - Important controls include concise inline consequences and delayed guidance tooltips.
 - API-contacting actions state whether they normally consume Tokens.
@@ -70,6 +70,9 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - Do not use decorative emoji as interface icons.
 - Do not add a profile-import control to the desktop model flow; built-in presets and automatic non-secret settings persistence are the supported path.
 - Do not rebuild the model page for provider selection, connection, or verification state changes; update existing widgets in place.
+- Provider grids use equal columns and equal outer/inter-item gutters; no column receives a wider clickable tile because of asymmetric padding.
+- Model catalogs must reflect the current API response only. Never merge hard-coded model IDs into a successful live response.
+- API keys use encrypted OS credential storage by default and may be changed to memory-only in the shared Settings dialog. They never enter JSON settings, profiles, logs, screenshots, or packages.
 
 ## Visual QA checklist
 

@@ -41,13 +41,13 @@ The desktop app guides you through five steps:
 4. Review the automatically selected pipeline, output options, and estimated Token budget.
 5. Start once and follow unpacking, analysis, translation, refinement, validation, packaging, ETA, and Token usage.
 
-English is the default interface language. Use the compact **English / 中文** switch in the top-right corner to change it immediately. Provider, endpoint, and model choices are restored from the per-user settings file; API keys remain memory-only and are never stored there.
+English is the default interface language. Use the compact **English / 中文** switch in the top-right corner to change it immediately. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
 
 ## Providers and model validation
 
-The app includes editable presets for common official APIs and aggregators. It validates the endpoint, discovers models, keeps exact model IDs editable, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
+The app includes editable presets for common official APIs and aggregators. It validates the endpoint, fetches the account's current `/models` catalog without merging stale built-in model names, keeps exact model IDs editable, maps one thinking-level control to provider-supported request parameters, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
 
-Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key.
+Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key. Secure keys use the OS credential service through `keyring` (Windows Credential Manager on Windows); memory-only mode never persists them.
 
 | Provider | Preset endpoint | Notes |
 | --- | --- | --- |
@@ -56,6 +56,10 @@ Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or 
 | [Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) | `https://api.anthropic.com/v1` | Claude compatibility layer; JSON response parameters are omitted |
 | [DeepSeek](https://api-docs.deepseek.com/) | `https://api.deepseek.com` | Official OpenAI-compatible API; `/v1` is also selectable |
 | [MiniMax](https://platform.minimax.io/docs/api-reference/models/openai/list-models) | `https://api.minimax.io/v1` | International and mainland China endpoints |
+| [Alibaba Cloud Model Studio](https://help.aliyun.com/en/model-studio/deep-thinking) | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Mainland China and international DashScope endpoints |
+| [Zhipu AI](https://docs.bigmodel.cn/cn/guide/capabilities/thinking) | `https://open.bigmodel.cn/api/paas/v4` | Official BigModel API |
+| [Moonshot AI](https://platform.moonshot.cn/) | `https://api.moonshot.cn/v1` | Official Kimi API |
+| [SiliconFlow](https://docs.siliconflow.cn/cn/api-reference/models/get-model-list) | `https://api.siliconflow.cn/v1` | Aggregated live account catalog |
 | [OpenRouter](https://openrouter.ai/docs/api/api-reference/models/get-models) | `https://openrouter.ai/api/v1` | Aggregated model catalog |
 | Custom | Editable | Any third-party or local OpenAI-compatible endpoint |
 
@@ -122,7 +126,7 @@ RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow 
 
 The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. Model setup remains the first step, built-in provider presets replace profile importing, every endpoint stays editable, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 
-The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
+Keyboard focus uses a solid color border and state contrast—never a dotted focus rectangle. The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
 
 ## How it works
 

@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
+
 from .pipeline import PipelineStage, RenWeavePipeline
 from .provider import ModelProfile
 from .rpa import RpaArchive, script_member
@@ -15,7 +17,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="renweave",
         description="RenWeave / 织译：理解场景与剧情关系的 Ren'Py 多语言本地化引擎",
     )
-    parser.add_argument("--version", action="version", version="RenWeave 1.6.0")
+    parser.add_argument("--version", action="version", version=f"RenWeave {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     gui = commands.add_parser("gui", help="启动桌面一键翻译界面")

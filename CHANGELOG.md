@@ -2,6 +2,15 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.7.0 - 2026-08-10
+
+- Removed every hard-coded model ID; successful model discovery now uses only the provider's current account catalog.
+- Added Alibaba Cloud Model Studio, Zhipu AI, Moonshot AI, and SiliconFlow presets alongside the existing providers.
+- Added provider-aware thinking levels for effort, toggle, thinking-object, and thinking-budget APIs.
+- Added a shared Settings dialog with encrypted OS credential storage by default, a memory-only option, and per-provider/endpoint key isolation.
+- Added opt-in GitHub release checks, disabled by default, with a manual check action and no automatic installation.
+- Replaced dotted button focus rings with solid semantic focus borders and corrected provider-grid padding alignment.
+
 ## 1.6.0 - 2026-08-10
 
 - Eliminated model-page jumps by updating provider, connection, and verification controls in place and reserving a stable scrollbar gutter.

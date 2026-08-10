@@ -8,12 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from . import __version__
+from .credentials import CredentialStorageError, SecureCredentialStore
 from .io import atomic_write_json, read_json
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID, get_provider_preset
 from .runtime import CancellationToken
 from .usage import TokenBudget, estimate_project_tokens
+from .update_check import UpdateResult, check_for_updates
 
 
 def default_desktop_settings_path() -> Path:
@@ -115,7 +118,31 @@ COPY: dict[str, dict[str, str]] = {"en": {}, "zh": {}}
 
 COPY["en"].update({
     "workspace_label": "TRANSLATION WORKSPACE",
-    "nav_privacy": "Private by default\nKeys stay in memory. Game files remain local.",
+    "nav_privacy": "Private by default\nKeys use encrypted system storage. Game files remain local.",
+    "settings.title": "Settings",
+    "settings.body": "Control credential persistence and optional online update checks. These choices apply to this user account.",
+    "settings.credentials": "API key storage",
+    "settings.credentials_hint": "Secure storage uses the operating system credential service. API keys never enter RenWeave settings, project files, logs, or translation packages.",
+    "settings.secure": "Encrypted system storage (recommended)",
+    "settings.memory": "Memory only — forget keys when RenWeave closes",
+    "settings.forget_key": "Forget current key",
+    "settings.key_error": "Credential storage error",
+    "settings.key_save_failed": "The model is verified, but the operating system credential service could not save this key. It remains available only for the current session.",
+    "settings.updates": "Version updates",
+    "settings.updates_hint": "Automatic checks contact GitHub Releases after startup. They are disabled by default and never install anything automatically.",
+    "settings.update_toggle": "Check for new versions after startup",
+    "settings.check_now": "Check now",
+    "settings.current_version": "Installed version: {version}",
+    "settings.update_title": "RenWeave update",
+    "settings.update_available": "Version {latest} is available. You currently have {current}.",
+    "settings.up_to_date": "RenWeave {current} is up to date. Latest release: {latest}.",
+    "model.reasoning": "Thinking level",
+    "model.reasoning_hint": "Auto follows the model default. Other levels are translated to the selected provider's supported reasoning controls.",
+    "model.reasoning_unavailable": "This provider does not expose a supported reasoning-level control; the selected model decides automatically.",
+    "reasoning.auto": "Automatic (provider default)",
+    "reasoning.low": "Low",
+    "reasoning.high": "High",
+    "reasoning.maximum": "Maximum",
     "provider.choose": "Choose a provider",
     "provider.choose_hint": "Start with an official or aggregator preset. Every endpoint remains editable.",
     "provider.official": "Official",
@@ -177,9 +204,9 @@ COPY["en"].update({
     "languages.target_hint": "Enter any language name or locale supported by the selected model. This determines the Ren'Py language directory.",
     "dialog.copy_details": "Copy details",
     "dialog.error_log_hint": "Translation errors also include a full traceback in the workspace diagnostic log.",
-    "tip.provider": "Switch provider presets. The previous in-memory API key is cleared for safety.",
+    "tip.provider": "Switch provider presets. Keys are isolated by provider and endpoint.",
     "tip.endpoint": "Editable API base URL. Keep the preset unless your provider documents a different endpoint.",
-    "tip.api_key": "Used only for this session. RenWeave does not write this value to the provider profile.",
+    "tip.api_key": "Saved in encrypted system storage by default, or kept only in memory if you choose that in Settings. Never written to project files.",
     "tip.load_models": "Contact the /models endpoint and populate the model picker; normally no model Tokens are used.",
     "tip.model_id": "Enter the exact API model identifier, including any provider prefix required by an aggregator.",
     "tip.browse_models": "Open a searchable list of models returned by the provider.",
@@ -193,7 +220,9 @@ COPY["en"].update({
     "tip.pause": "Finish the current network request or atomic unit, save a checkpoint, then stop before the next unit.",
     "tip.resume": "Revalidate existing checkpoints and continue only the unfinished or damaged work.",
     "tip.copy_log": "Copy the persistent diagnostic log path to the clipboard.",
-    "tip.show_key": "Reveal the API key only while this switch is on. The key still remains memory-only.",
+    "tip.show_key": "Reveal the API key only while this switch is on. Storage follows your Settings choice.",
+    "tip.settings": "Choose encrypted or memory-only key storage and control optional update checks.",
+    "tip.reasoning": "Choose how much reasoning the model may use. Unsupported levels safely fall back to the provider's documented on/off control.",
     "tip.model_picker": "Choose the highlighted model ID and return it to the connection form.",
     "footer.effect.model": "Next: choose the game. Translation has not started.",
     "footer.effect.game": "Next: choose languages. Game files stay unchanged.",
@@ -204,7 +233,31 @@ COPY["en"].update({
 
 COPY["zh"].update({
     "workspace_label": "游戏翻译工作台",
-    "nav_privacy": "默认保护隐私\n密钥只驻留内存，游戏文件保留在本机。",
+    "nav_privacy": "默认保护隐私\n密钥使用系统加密存储，游戏文件保留在本机。",
+    "settings.title": "设置",
+    "settings.body": "管理密钥保存方式与可选的在线版本检查；这些选项仅应用于当前系统用户。",
+    "settings.credentials": "API 密钥存储",
+    "settings.credentials_hint": "安全存储使用操作系统凭据服务。密钥不会写入织译设置、项目文件、日志或翻译包。",
+    "settings.secure": "系统加密存储（推荐）",
+    "settings.memory": "仅保留在内存——关闭织译后忘记密钥",
+    "settings.forget_key": "删除当前密钥",
+    "settings.key_error": "密钥存储错误",
+    "settings.key_save_failed": "模型已验证，但操作系统凭据服务无法保存该密钥；它将只在当前会话中可用。",
+    "settings.updates": "版本更新",
+    "settings.updates_hint": "自动检查会在启动后访问 GitHub Releases；默认关闭，且绝不会自动安装更新。",
+    "settings.update_toggle": "启动后检查新版本",
+    "settings.check_now": "立即检查",
+    "settings.current_version": "当前版本：{version}",
+    "settings.update_title": "织译版本更新",
+    "settings.update_available": "已有新版本 {latest}；当前版本为 {current}。",
+    "settings.up_to_date": "织译 {current} 已是最新版本；最新发布版为 {latest}。",
+    "model.reasoning": "思考等级",
+    "model.reasoning_hint": "“auto”遵循模型默认值；其他等级会转换成所选提供商正式支持的推理参数。",
+    "model.reasoning_unavailable": "该提供商未公开受支持的思考等级参数；将由所选模型自动决定。",
+    "reasoning.auto": "自动（提供商默认）",
+    "reasoning.low": "低",
+    "reasoning.high": "高",
+    "reasoning.maximum": "最高",
     "provider.choose": "选择 API 提供商",
     "provider.choose_hint": "优先使用官方或聚合平台预设；所有接口地址仍可编辑。",
     "provider.official": "官方",
@@ -266,9 +319,9 @@ COPY["zh"].update({
     "languages.target_hint": "可填写模型支持的任意语言名称或区域代码；它会决定 Ren'Py 语言目录名称。",
     "dialog.copy_details": "复制详情",
     "dialog.error_log_hint": "翻译流程错误还会在工作区诊断日志中保存完整堆栈。",
-    "tip.provider": "切换提供商预设。为安全起见，上一提供商的内存密钥会被清空。",
+    "tip.provider": "切换提供商预设；密钥按提供商和接口地址相互隔离。",
     "tip.endpoint": "可编辑的 API 基础地址；除非提供商另有说明，建议保留预设值。",
-    "tip.api_key": "仅用于当前会话；织译不会把该值写入提供商配置。",
+    "tip.api_key": "默认保存到系统加密凭据库，也可在设置中改为仅驻留内存；绝不会写入项目文件。",
     "tip.load_models": "访问 /models 接口并填充模型选择器；通常不会消耗模型 Token。",
     "tip.model_id": "填写准确的 API 模型标识；聚合平台可能要求包含提供商前缀。",
     "tip.browse_models": "打开提供商返回模型的可搜索列表。",
@@ -282,7 +335,9 @@ COPY["zh"].update({
     "tip.pause": "完成当前网络请求或原子操作，保存检查点，并在下一单元前停止。",
     "tip.resume": "重新核验现有检查点，只继续尚未完成或已经损坏的部分。",
     "tip.copy_log": "把持久诊断日志路径复制到剪贴板。",
-    "tip.show_key": "仅在开关启用时显示 API 密钥；密钥仍只保留在内存中。",
+    "tip.show_key": "仅在开关启用时显示 API 密钥；保存方式遵循设置中的选择。",
+    "tip.settings": "选择系统加密或仅内存密钥存储，并管理可选的版本检查。",
+    "tip.reasoning": "选择模型可使用的推理强度；不支持细分等级的接口会安全退化为官方开关参数。",
     "tip.model_picker": "采用当前高亮的模型 ID，并返回连接页面。",
     "footer.effect.model": "下一步选择游戏；翻译尚未开始。",
     "footer.effect.game": "下一步选择语言；游戏文件保持不变。",
@@ -338,7 +393,7 @@ _BASE_COPY = {
         "model.provider": "Provider name",
         "model.endpoint": "Base URL",
         "model.key": "API key",
-        "model.key_hint": "API settings save automatically. The key stays memory-only.",
+        "model.key_hint": "Encrypted system storage is the default. Change this anytime in Settings.",
         "model.show_key": "Show key",
         "model.settings_saved": "Saved automatically",
         "model.connect": "Connect and load models",
@@ -390,7 +445,7 @@ _BASE_COPY = {
         "review.install_hint": "Off by default. The packaged output always remains in the workspace.",
         "review.engine_yes": "Ren'Py engine validation required",
         "review.engine_no": "Built-in validation",
-        "review.key_safe": "API key remains memory-only",
+        "review.key_safe": "API key stays in encrypted system storage or session memory",
         "progress.title": "Translation in progress",
         "progress.body": "You can follow each stage here. Checkpoints make interrupted work resumable.",
         "progress.ready": "Preparing the one-click pipeline…",
@@ -431,7 +486,7 @@ _BASE_COPY = {
         "model.provider": "服务名称",
         "model.endpoint": "基础 URL",
         "model.key": "API 密钥",
-        "model.key_hint": "API 设置会自动保存；密钥仍只保留在内存。",
+        "model.key_hint": "默认使用系统加密存储；可随时在“设置”中改为仅内存。",
         "model.show_key": "显示密钥",
         "model.settings_saved": "设置自动保存",
         "model.connect": "连接并获取模型",
@@ -483,7 +538,7 @@ _BASE_COPY = {
         "review.install_hint": "默认关闭；打包输出始终会保留在工作区。",
         "review.engine_yes": "必须通过 Ren'Py 引擎验证",
         "review.engine_no": "使用内置验证",
-        "review.key_safe": "API 密钥仅保留在内存",
+        "review.key_safe": "API 密钥仅保存在系统加密凭据库或会话内存",
         "progress.title": "正在翻译",
         "progress.body": "可在这里查看每个阶段；检查点让中断后的任务能够恢复。",
         "progress.ready": "正在准备一键翻译流程…",
@@ -627,6 +682,100 @@ class GuidedTooltip:
             except self.app.tk.TclError:
                 pass
             self.window = None
+
+
+class SettingsDialog:
+    """Privacy and maintenance settings, kept separate from the translation flow."""
+
+    def __init__(self, app: "RenWeaveDesktopApp") -> None:
+        tk, ttk = app.tk, app.ttk
+        self.app = app
+        self.window = tk.Toplevel(app.root)
+        self.window.title(app.t("settings.title"))
+        self.window.configure(background=Colors.CARD)
+        self.window.geometry("660x540")
+        self.window.minsize(560, 470)
+        self.window.transient(app.root)
+        self.window.grab_set()
+        self.window.columnconfigure(0, weight=1)
+        self.window.rowconfigure(1, weight=1)
+
+        header = ttk.Frame(self.window, style="Dialog.TFrame", padding=(28, 24, 28, 12))
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text=app.t("settings.title"), style="DialogTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            header, text=app.t("settings.body"), style="DialogHint.TLabel",
+            wraplength=590, justify="left"
+        ).grid(row=1, column=0, sticky="w", pady=(7, 0))
+
+        body = ttk.Frame(self.window, style="Dialog.TFrame", padding=(28, 8, 28, 16))
+        body.grid(row=1, column=0, sticky="nsew")
+        body.columnconfigure(0, weight=1)
+        ttk.Label(body, text=app.t("settings.credentials"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            body, text=app.t("settings.credentials_hint"), style="Hint.TLabel",
+            wraplength=590, justify="left"
+        ).grid(row=1, column=0, sticky="w", pady=(4, 8))
+        secure = ttk.Radiobutton(
+            body, text=app.t("settings.secure"), value="secure",
+            variable=app.key_storage, style="Material.TRadiobutton", command=self._storage_changed
+        )
+        secure.grid(row=2, column=0, sticky="w")
+        memory = ttk.Radiobutton(
+            body, text=app.t("settings.memory"), value="memory",
+            variable=app.key_storage, style="Material.TRadiobutton", command=self._storage_changed
+        )
+        memory.grid(row=3, column=0, sticky="w", pady=(3, 0))
+        forget = app._button(
+            body, app.t("settings.forget_key"), app._forget_api_key,
+            kind="secondary", width=18
+        )
+        forget.grid(row=4, column=0, sticky="w", pady=(10, 0))
+
+        separator = tk.Frame(body, background=Colors.OUTLINE_VARIANT, height=1)
+        separator.grid(row=5, column=0, sticky="ew", pady=18)
+        ttk.Label(body, text=app.t("settings.updates"), style="Section.TLabel").grid(row=6, column=0, sticky="w")
+        ttk.Label(
+            body, text=app.t("settings.updates_hint"), style="Hint.TLabel",
+            wraplength=590, justify="left"
+        ).grid(row=7, column=0, sticky="w", pady=(4, 8))
+        update_toggle = ttk.Checkbutton(
+            body, text=app.t("settings.update_toggle"), variable=app.update_checks_enabled,
+            style="Material.TCheckbutton", command=app._schedule_settings_save
+        )
+        update_toggle.grid(row=8, column=0, sticky="w")
+        check = app._button(
+            body, app.t("settings.check_now"), lambda: app._check_updates(manual=True),
+            kind="secondary", width=18
+        )
+        check.grid(row=9, column=0, sticky="w", pady=(10, 0))
+        ttk.Label(
+            body, text=app.t("settings.current_version", version=__version__),
+            style="Hint.TLabel"
+        ).grid(row=10, column=0, sticky="w", pady=(5, 0))
+
+        footer = ttk.Frame(self.window, style="Dialog.TFrame", padding=(28, 8, 28, 24))
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.columnconfigure(0, weight=1)
+        close = app._button(footer, app.t("close"), self._close, width=Metrics.DIALOG_ACTION_WIDTH)
+        close.grid(row=0, column=1, sticky="e")
+        self.window.bind("<Escape>", lambda _event: self._close())
+        self.window.protocol("WM_DELETE_WINDOW", self._close)
+        self.window.update_idletasks()
+        x = app.root.winfo_rootx() + max(0, (app.root.winfo_width() - self.window.winfo_width()) // 2)
+        y = app.root.winfo_rooty() + max(0, (app.root.winfo_height() - self.window.winfo_height()) // 2)
+        self.window.geometry(f"+{x}+{y}")
+        close.focus_set()
+
+    def _storage_changed(self) -> None:
+        if self.app.key_storage.get() == "secure":
+            self.app._save_api_key()
+        self.app._schedule_settings_save()
+
+    def _close(self) -> None:
+        self.app._save_api_key()
+        self.app._save_desktop_settings()
+        self.window.destroy()
 
 
 class MaterialDialog:
@@ -789,6 +938,7 @@ class RenWeaveDesktopApp:
         initial_project: str = "",
         initial_workspace: str = "",
         settings_path: str | Path | None = None,
+        credential_store: SecureCredentialStore | None = None,
     ) -> None:
         import tkinter as tk
         from tkinter import ttk
@@ -819,6 +969,8 @@ class RenWeaveDesktopApp:
         self.narrow_layout = False
         self._responsive_render_id = None
         self._settings_save_id = None
+        self._session_keys: dict[tuple[str, str], str] = {}
+        self.credential_store = credential_store or SecureCredentialStore()
         self.settings_path = Path(settings_path).expanduser() if settings_path else default_desktop_settings_path()
         saved_settings = self._load_desktop_settings()
 
@@ -836,9 +988,21 @@ class RenWeaveDesktopApp:
         self.base_url = tk.StringVar(value=str(saved_settings.get("base_url", initial_preset.base_url)))
         self.api_key_env = tk.StringVar(value=str(saved_settings.get("api_key_env", initial_preset.api_key_env)))
         self.supports_json = tk.BooleanVar(value=bool(saved_settings.get("supports_json", initial_preset.supports_json_parameter)))
-        self.model = tk.StringVar(value=str(saved_settings.get("model", initial_preset.default_model)))
-        self.model_choices: tuple[str, ...] = initial_preset.default_models
+        self.model = tk.StringVar(value=str(saved_settings.get("model", "")))
+        self.model_choices: tuple[str, ...] = ()
         self.api_key = tk.StringVar()
+        self.key_storage = tk.StringVar(value=str(saved_settings.get("key_storage", "secure")))
+        if self.key_storage.get() not in {"secure", "memory"}:
+            self.key_storage.set("secure")
+        self.reasoning_level = tk.StringVar(value=str(saved_settings.get("reasoning_level", "auto")))
+        if self.reasoning_level.get() not in {"auto", "low", "high", "maximum"}:
+            self.reasoning_level.set("auto")
+        self.reasoning_display = tk.StringVar(value=self.t(f"reasoning.{self.reasoning_level.get()}"))
+        self.reasoning_display.trace_add("write", self._reasoning_selection_changed)
+        self.update_checks_enabled = tk.BooleanVar(value=bool(saved_settings.get("update_checks_enabled", False)))
+        self.update_result: UpdateResult | None = None
+        self.update_check_state = "idle"
+        self._update_worker: threading.Thread | None = None
         self.show_key = tk.BooleanVar(value=False)
         self.source_language = tk.StringVar(value="auto")
         self.target_language = tk.StringVar()
@@ -859,6 +1023,7 @@ class RenWeaveDesktopApp:
         self.nav = None
         self._configure_styles()
         self._build_shell()
+        self._restore_api_key()
         self._bind_provider_changes()
         if initial_project and not initial_workspace:
             self._suggest_workspace(initial_project)
@@ -867,6 +1032,8 @@ class RenWeaveDesktopApp:
         self.root.bind("<Configure>", self._on_root_configure, add="+")
         self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
+        if self.update_checks_enabled.get():
+            self.root.after(800, self._check_updates)
 
     def t(self, key: str, **values: object) -> str:
         text = COPY[self.locale.get()].get(key, COPY["en"].get(key, key))
@@ -898,11 +1065,40 @@ class RenWeaveDesktopApp:
             "model": self.model.get().strip(),
             "api_key_env": self.api_key_env.get().strip(),
             "supports_json": bool(self.supports_json.get()),
+            "key_storage": self.key_storage.get(),
+            "reasoning_level": self.reasoning_level.get(),
+            "update_checks_enabled": bool(self.update_checks_enabled.get()),
         }
         try:
             atomic_write_json(self.settings_path, payload)
         except OSError as exc:
             self.logs.append(f"Settings could not be saved: {exc}")
+
+    def _credential_identity(self) -> tuple[str, str]:
+        return (self.selected_provider_id.get().strip() or "custom", self.base_url.get().strip())
+
+    def _save_api_key(self) -> bool:
+        identity = self._credential_identity()
+        secret = self.api_key.get()
+        if secret:
+            self._session_keys[identity] = secret
+        if secret and self.key_storage.get() == "secure":
+            try:
+                self.credential_store.set(*identity, secret)
+            except CredentialStorageError as exc:
+                self.logs.append(str(exc))
+                return False
+        return True
+
+    def _restore_api_key(self) -> None:
+        identity = self._credential_identity()
+        secret = self._session_keys.get(identity, "")
+        if not secret and self.key_storage.get() == "secure":
+            try:
+                secret = self.credential_store.get(*identity)
+            except CredentialStorageError as exc:
+                self.logs.append(str(exc))
+        self.api_key.set(secret)
 
     def _guide(self, widget, key: str):
         GuidedTooltip(self, widget, self.t(key))
@@ -1030,7 +1226,7 @@ class RenWeaveDesktopApp:
         style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10, "bold"), foreground=Colors.PRIMARY, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
         style.map("FieldAction.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Language.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
-        style.map("Language.TButton", background=[("pressed", Colors.SURFACE_CONTAINER), ("active", Colors.SURFACE_CONTAINER)], bordercolor=[("focus", Colors.PRIMARY)])
+        style.map("Language.TButton", background=[("focus", Colors.SURFACE_CONTAINER), ("pressed", Colors.SURFACE_CONTAINER), ("active", Colors.SURFACE_CONTAINER)], foreground=[("focus", Colors.PRIMARY)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("LanguageActive.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=0, relief="flat")
         style.map("LanguageActive.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Provider.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE, background=Colors.CARD, borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, relief="flat")
@@ -1038,18 +1234,34 @@ class RenWeaveDesktopApp:
         style.configure("ProviderSelected.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
         style.map("ProviderSelected.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Nav.TButton", anchor="w", padding=(16, 12), font=("Segoe UI", 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
-        style.map("Nav.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
+        style.map("Nav.TButton", background=[("focus", Colors.NAV_ACTIVE), ("active", Colors.NAV_ACTIVE)], foreground=[("focus", Colors.NAV_TEXT), ("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
         style.configure("NavActive.TButton", anchor="w", padding=(16, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
         style.map("NavActive.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT)])
         style.configure("NavNarrow.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
-        style.map("NavNarrow.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
+        style.map("NavNarrow.TButton", background=[("focus", Colors.NAV_ACTIVE), ("active", Colors.NAV_ACTIVE)], foreground=[("focus", Colors.NAV_TEXT), ("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
         style.configure("NavNarrowActive.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
+        button_layout = [
+            ("Button.border", {"sticky": "nswe", "children": [
+                ("Button.padding", {"sticky": "nswe", "children": [
+                    ("Button.label", {"sticky": "nswe"}),
+                ]}),
+            ]}),
+        ]
+        for button_style in (
+            "Primary.TButton", "Secondary.TButton", "Ghost.TButton", "FieldAction.TButton",
+            "Language.TButton", "LanguageActive.TButton", "Provider.TButton",
+            "ProviderSelected.TButton", "Nav.TButton", "NavActive.TButton",
+            "NavNarrow.TButton", "NavNarrowActive.TButton",
+        ):
+            style.layout(button_style, button_layout)
         style.configure("Workspace.TEntry", padding=(11, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, insertcolor=Colors.ON_SURFACE)
         style.map("Workspace.TEntry", bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)], fieldbackground=[("disabled", Colors.SURFACE_CONTAINER)], foreground=[("disabled", Colors.OUTLINE)])
         style.configure("Workspace.TCombobox", padding=(11, Metrics.CONTROL_PADDING_Y - 1), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, background=Colors.CARD, bordercolor=Colors.OUTLINE_VARIANT, arrowcolor=Colors.ON_SURFACE_VARIANT)
         style.map("Workspace.TCombobox", bordercolor=[("focus", Colors.PRIMARY)], fieldbackground=[("readonly", Colors.CARD), ("disabled", Colors.SURFACE_CONTAINER)], selectbackground=[("readonly", Colors.CARD)], selectforeground=[("readonly", Colors.ON_SURFACE)], arrowcolor=[("disabled", Colors.OUTLINE)])
-        style.configure("Material.TCheckbutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10), padding=(0, 4), focuscolor=Colors.PRIMARY)
+        style.configure("Material.TCheckbutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10), padding=(0, 4), focuscolor=Colors.CARD)
         style.map("Material.TCheckbutton", background=[("active", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)])
+        style.configure("Material.TRadiobutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10), padding=(0, 4), focuscolor=Colors.CARD)
+        style.map("Material.TRadiobutton", background=[("active", Colors.CARD)], foreground=[("focus", Colors.PRIMARY)])
         style.configure("ModelList.Treeview", background=Colors.CARD, fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, rowheight=Metrics.LIST_ROW_HEIGHT, font=("Segoe UI", 10), relief="flat")
         style.map("ModelList.Treeview", background=[("selected", Colors.PRIMARY_CONTAINER)], foreground=[("selected", Colors.ON_PRIMARY_CONTAINER)])
         style.configure("Workspace.Vertical.TScrollbar", background=Colors.SCROLL_THUMB, troughcolor=Colors.SURFACE_CONTAINER, bordercolor=Colors.SURFACE_CONTAINER, arrowcolor=Colors.ON_SURFACE_VARIANT, lightcolor=Colors.SCROLL_THUMB, darkcolor=Colors.SCROLL_THUMB, width=13, arrowsize=12, relief="flat")
@@ -1113,8 +1325,13 @@ class RenWeaveDesktopApp:
         self.top.columnconfigure(1, weight=1)
         self.workspace_label = self.ttk.Label(self.top, style="TopLabel.TLabel")
         self.workspace_label.grid(row=0, column=0, sticky="w")
+        self.settings_button = self._button(
+            self.top, self.t("settings.title"), self._open_settings, kind="ghost", width=10
+        )
+        self.settings_button.grid(row=0, column=2, sticky="e", padx=(0, 10))
+        self._guide(self.settings_button, "tip.settings")
         language_box = self.ttk.Frame(self.top, style="LanguageGroup.TFrame", padding=2)
-        language_box.grid(row=0, column=2, sticky="e")
+        language_box.grid(row=0, column=3, sticky="e")
         self.language_buttons = {}
         for column, (code, label) in enumerate((("en", "English"), ("zh", "中文"))):
             button = self.ttk.Button(
@@ -1165,6 +1382,7 @@ class RenWeaveDesktopApp:
             return
         self.locale.set(locale)
         self.locale_display.set("简体中文" if locale == "zh" else "English")
+        self.reasoning_display.set(self.t(f"reasoning.{self.reasoning_level.get()}"))
         self._schedule_settings_save()
         self._render()
 
@@ -1247,6 +1465,7 @@ class RenWeaveDesktopApp:
             self.brand_subtitle.grid()
             self.privacy_label.grid()
         self.workspace_label.configure(text=self.t("workspace_label"))
+        self.settings_button.configure(text=self.t("settings.title"))
         self.privacy_label.configure(text=self.t("nav_privacy"))
         for code, button in self.language_buttons.items():
             button.configure(style="LanguageActive.TButton" if code == self.locale.get() else "Language.TButton")
@@ -1366,7 +1585,13 @@ class RenWeaveDesktopApp:
                 takefocus=True,
             )
             provider_column = index % provider_columns
-            button.grid(row=index // provider_columns, column=provider_column, sticky="ew", padx=(0 if provider_column == 0 else 5, 0), pady=(0, 4))
+            button.grid(
+                row=index // provider_columns,
+                column=provider_column,
+                sticky="ew",
+                padx=(0, 5 if provider_column < provider_columns - 1 else 0),
+                pady=(0, 5),
+            )
             self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
 
@@ -1376,8 +1601,17 @@ class RenWeaveDesktopApp:
         category = self.t(f"provider.{preset.category}")
         self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=("Segoe UI", 8, "bold"), padx=7, pady=3)
         self.provider_category.pack(side="left")
-        self.provider_description = self.tk.Label(selection, text=preset.localized_description(self.locale.get()), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), anchor="w")
-        self.provider_description.pack(side="left", padx=(10, 0))
+        self.provider_description = self.tk.Label(
+            selection,
+            text=preset.localized_description(self.locale.get()),
+            background=Colors.SURFACE_CONTAINER,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=420 if self.compact_layout else 650,
+        )
+        self.provider_description.pack(side="left", fill="x", expand=True, padx=(10, 0))
 
         config = self.ttk.Frame(card, style="CardBody.TFrame")
         config.grid(row=5, column=0, sticky="nsew")
@@ -1426,13 +1660,31 @@ class RenWeaveDesktopApp:
         self.browse_models_button.grid(row=2, column=1, sticky="e", padx=(7, 0), pady=(4, 0))
         self._guide(self.browse_models_button, "tip.browse_models")
         self.ttk.Label(right, text=self.t("model.model_hint"), style="Hint.TLabel", wraplength=350, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Label(right, text=self.t("model.reasoning"), style="Field.TLabel").grid(
+            row=4, column=0, columnspan=2, sticky="w", pady=(10, 0)
+        )
+        reasoning_values = tuple(self.t(f"reasoning.{level}") for level in ("auto", "low", "high", "maximum"))
+        self.reasoning_box = self._combobox(
+            right, self.reasoning_display, reasoning_values, readonly=True
+        )
+        self.reasoning_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        if preset.reasoning_control == "none":
+            self.reasoning_box.configure(state="disabled")
+        self._guide(self.reasoning_box, "tip.reasoning")
+        self.reasoning_hint_label = self.ttk.Label(
+            right,
+            text=self.t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint"),
+            style="Hint.TLabel",
+            wraplength=370, justify="left"
+        )
+        self.reasoning_hint_label.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.verify_button = self._button(right, self.t("model.verify"), self._verify_model)
-        self.verify_button.grid(row=4, column=0, columnspan=2, sticky="w", pady=(9, 0))
+        self.verify_button.grid(row=7, column=0, columnspan=2, sticky="w", pady=(9, 0))
         self._guide(self.verify_button, "tip.verify_model")
-        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
-        status_card.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(7, 0))
+        status_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(7, 0))
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
         details = dict(self.connection_detail)
         detail_key = f"model.{state_key}_body"
@@ -1463,8 +1715,15 @@ class RenWeaveDesktopApp:
             text=self.t(f"provider.{preset.category}").upper(),
             background=preset.accent,
         )
-        self.provider_description.configure(text=preset.localized_description(self.locale.get()))
+        self.provider_description.configure(
+            text=preset.localized_description(self.locale.get()),
+            wraplength=420 if self.compact_layout else 650,
+        )
         self.endpoint_box.configure(values=preset.base_urls)
+        self.reasoning_box.configure(state="disabled" if preset.reasoning_control == "none" else "readonly")
+        self.reasoning_hint_label.configure(
+            text=self.t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint")
+        )
         self.browse_models_button.configure(
             text=self.t("model.browse", count=len(self.model_choices)),
             state="normal" if self.model_choices else "disabled",
@@ -1491,6 +1750,7 @@ class RenWeaveDesktopApp:
         if preset_id == self.selected_provider_id.get() or (self.worker and self.worker.is_alive()):
             return
         preset = get_provider_preset(preset_id)
+        self._save_api_key()
         self._suspend_provider_trace = True
         try:
             self.selected_provider_id.set(preset.id)
@@ -1499,19 +1759,54 @@ class RenWeaveDesktopApp:
             self.api_key_env.set(preset.api_key_env)
             self.supports_json.set(preset.supports_json_parameter)
             self.api_key.set("")
-            self.model_choices = preset.default_models
-            self.model.set(preset.default_model)
+            self.model_choices = ()
+            self.model.set("")
             self.provider.set("")
         finally:
             self._suspend_provider_trace = False
         self.connection_state = "idle"
         self.connection_detail = {}
+        self._restore_api_key()
         self._schedule_settings_save()
         self._refresh_model_panel()
 
     def _toggle_key(self) -> None:
         if hasattr(self, "api_key_entry"):
             self.api_key_entry.configure(show="" if self.show_key.get() else "•")
+
+    def _reasoning_selection_changed(self, *_args) -> None:
+        selected = self.reasoning_display.get()
+        for level in ("auto", "low", "high", "maximum"):
+            if selected == self.t(f"reasoning.{level}") and self.reasoning_level.get() != level:
+                self.reasoning_level.set(level)
+                break
+
+    def _open_settings(self) -> SettingsDialog:
+        return SettingsDialog(self)
+
+    def _forget_api_key(self) -> None:
+        identity = self._credential_identity()
+        self._session_keys.pop(identity, None)
+        self.api_key.set("")
+        try:
+            self.credential_store.delete(*identity)
+        except CredentialStorageError as exc:
+            self._dialog(self.t("settings.key_error"), str(exc), error=True)
+
+    def _check_updates(self, *, manual: bool = False) -> None:
+        if self._update_worker and self._update_worker.is_alive():
+            return
+        self.update_check_state = "checking"
+
+        def run() -> None:
+            try:
+                result = check_for_updates(__version__)
+                self.events.put(("update_result", (result, manual)))
+            except BaseException as exc:
+                self.events.put(("update_error", (exc, manual)))
+
+        self._update_worker = threading.Thread(target=run, daemon=True)
+        self._update_worker.start()
 
     def _render_game(self) -> None:
         card = self._card()
@@ -1860,6 +2155,7 @@ class RenWeaveDesktopApp:
             ("base_url", self.base_url),
             ("api_key", self.api_key),
             ("model", self.model),
+            ("reasoning_level", self.reasoning_level),
         ):
             variable.trace_add(
                 "write",
@@ -1893,6 +2189,7 @@ class RenWeaveDesktopApp:
             api_key=self.api_key.get(),
             api_key_env=self.api_key_env.get().strip(),
             supports_json=self.supports_json.get(),
+            reasoning_level=self.reasoning_level.get(),
             max_retries=2,
             retry_base_seconds=0.5,
         )
@@ -2076,6 +2373,7 @@ class RenWeaveDesktopApp:
             except self.tk.TclError:
                 pass
             self._save_desktop_settings()
+        self._save_api_key()
         self.root.destroy()
 
     def _start(self) -> None:
@@ -2125,10 +2423,7 @@ class RenWeaveDesktopApp:
             if kind == "catalog":
                 catalog = value
                 assert isinstance(catalog, ModelCatalog)
-                preset = get_provider_preset(self.selected_provider_id.get())
-                self.model_choices = tuple(
-                    sorted(set((*catalog.models, *preset.default_models)), key=str.casefold)
-                )
+                self.model_choices = catalog.models
                 self._suspend_provider_trace = True
                 try:
                     if not self.model.get().strip() and self.model_choices:
@@ -2147,12 +2442,35 @@ class RenWeaveDesktopApp:
                 assert isinstance(verified, ModelVerification)
                 self.connection_state = "verified"
                 self.connection_detail = {"model": verified.model, "latency": verified.latency_ms}
+                if not self._save_api_key():
+                    self._dialog(
+                        self.t("settings.key_error"),
+                        self.t("settings.key_save_failed"),
+                        error=True,
+                    )
                 self._schedule_settings_save()
                 self._refresh_model_panel()
             elif kind == "connection_error":
                 self.connection_state = "failed"
                 self.connection_detail = {"message": str(value)}
                 self._refresh_model_panel()
+            elif kind == "update_result":
+                result, manual = value
+                assert isinstance(result, UpdateResult)
+                self.update_result = result
+                self.update_check_state = "available" if result.update_available else "current"
+                if manual or result.update_available:
+                    key = "settings.update_available" if result.update_available else "settings.up_to_date"
+                    self._dialog(
+                        self.t("settings.update_title"),
+                        self.t(key, current=result.current_version, latest=result.latest_version)
+                        + f"\n\n{result.release_url}",
+                    )
+            elif kind == "update_error":
+                error, manual = value
+                self.update_check_state = "failed"
+                if manual:
+                    self._dialog(self.t("settings.update_title"), str(error), error=True)
             elif kind == "progress":
                 assert isinstance(value, dict)
                 self._apply_progress_payload(value)

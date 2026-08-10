@@ -2,14 +2,14 @@
 
 ## Release target
 
-RenWeave 1.6 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model, includes guided presets for major official and aggregated APIs, exposes both preflight Token expectations and provider-reported usage throughout the run, and applies one responsive, no-jump component and alignment system across the entire desktop workflow.
+RenWeave 1.7 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model, discovers live account catalogs across major official and aggregated APIs, protects keys through encrypted OS storage by default, exposes preflight and provider-reported Token usage, and applies one responsive, no-jump component and alignment system across the entire desktop workflow.
 
 ## Requirement coverage
 
 | Requirement | Status | Implementation |
 | --- | --- | --- |
 | Guided one-click UI | Complete | English-default five-step Calm Technical Workspace with an English/Chinese segment, in-place no-jump state updates, standalone bottom actions, 268/88 px adaptive navigation, responsive overflow handling, and unified dialogs |
-| Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom built-in presets; editable endpoints; model discovery; exact-ID fallback; minimal health check; automatic per-user non-secret settings |
+| Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, Alibaba Cloud, Zhipu, Moonshot, SiliconFlow, OpenRouter, and custom presets; current-account model discovery without hard-coded IDs; exact-ID fallback; provider-aware thinking levels; encrypted per-provider keys; minimal health check |
 | Unpack Ren'Py games | Complete | Safe RPA 2.0/3.0/3.2 reader and selective script acquisition |
 | Decompile compiled scripts | Complete | Pinned and hash-verified unrpyc, isolated subprocess, and workspace copies |
 | Understand the complete game | Complete | Scene graph, deterministic evidence, storyline chunks, hierarchical narrative synthesis, character, relationship, and term profiles |

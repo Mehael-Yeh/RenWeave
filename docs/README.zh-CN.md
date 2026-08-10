@@ -41,13 +41,13 @@ renweave-gui
 4. 确认自动化流程、输出选项与预计 Token 预算。
 5. 一次启动，持续查看解包、分析、翻译、精修、验证、打包、ETA 与 Token 用量。
 
-界面默认显示英文；可通过右上角紧凑的 **English / 中文** 双按钮即时切换。提供商、接口与模型会从用户设置中自动恢复；API 密钥仅保留在内存，不会写入设置文件。
+界面默认显示英文；可通过右上角紧凑的 **English / 中文** 双按钮即时切换。提供商、接口、模型与思考等级会从用户设置中自动恢复。API 密钥默认保存到操作系统加密凭据库，也可在“设置”中改为仅内存；密钥永远不会写入织译设置或项目文件。版本自动检查默认关闭。
 
 ## 提供商与模型验证
 
-桌面程序内置常见官方 API 与聚合平台的可编辑预设。它会验证接口、获取模型列表、允许准确填写模型 ID、用一次最小请求测试所选模型，并自动保存不含密钥的可复用配置。若某个接口不提供 `/models`，仍可填写准确模型 ID 后直接验证。
+桌面程序内置常见官方 API 与聚合平台的可编辑预设。它会验证接口，只采用账号当前 `/models` 实时目录而不混入过期内置模型名，允许准确填写模型 ID，将统一的思考等级转换为提供商正式支持的参数，用一次最小请求测试所选模型，并自动保存不含密钥的可复用配置。若某个接口不提供 `/models`，仍可填写准确模型 ID 后直接验证。
 
-Windows 设置文件位于 `%APPDATA%\RenWeave\settings.json`，Linux 位于 `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json`；其中不包含 API 密钥。
+Windows 设置文件位于 `%APPDATA%\RenWeave\settings.json`，Linux 位于 `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json`；其中不包含 API 密钥。安全模式通过 `keyring` 使用系统凭据服务（Windows 上为 Windows Credential Manager）；仅内存模式不会持久化密钥。
 
 | 提供商 | 预设地址 | 说明 |
 | --- | --- | --- |
@@ -56,6 +56,10 @@ Windows 设置文件位于 `%APPDATA%\RenWeave\settings.json`，Linux 位于 `${
 | [Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) | `https://api.anthropic.com/v1` | Claude 兼容层；不发送 JSON 响应参数 |
 | [DeepSeek](https://api-docs.deepseek.com/) | `https://api.deepseek.com` | 官方 OpenAI 兼容接口，也可选择 `/v1` 地址 |
 | [MiniMax](https://platform.minimax.io/docs/api-reference/models/openai/list-models) | `https://api.minimax.io/v1` | 同时提供国际站和中国大陆地址 |
+| [阿里云百炼](https://help.aliyun.com/zh/model-studio/deep-thinking) | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 中国大陆与国际 DashScope 地址 |
+| [智谱清言](https://docs.bigmodel.cn/cn/guide/capabilities/thinking) | `https://open.bigmodel.cn/api/paas/v4` | BigModel 官方接口 |
+| [月之暗面](https://platform.moonshot.cn/) | `https://api.moonshot.cn/v1` | Kimi 官方接口 |
+| [硅基流动](https://docs.siliconflow.cn/cn/api-reference/models/get-model-list) | `https://api.siliconflow.cn/v1` | 按账号实时获取聚合模型目录 |
 | [OpenRouter](https://openrouter.ai/docs/api/api-reference/models/get-models) | `https://openrouter.ai/api/v1` | 聚合模型目录 |
 | 自定义接口 | 可编辑 | 任意第三方或本地 OpenAI 兼容接口 |
 

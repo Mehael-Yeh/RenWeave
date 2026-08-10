@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "renweave"
-version = "1.6.0"
+version = "1.7.0"
 description = "Context-aware, one-click Ren'Py localization pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "RenWeave contributors" }]
-dependencies = []
+dependencies = ["keyring>=25.0,<27"]
 keywords = ["renpy", "localization", "translation", "visual-novel", "ai"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
