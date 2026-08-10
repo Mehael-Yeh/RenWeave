@@ -41,11 +41,13 @@ The desktop app guides you through five steps:
 4. Review the automatically selected pipeline, output options, and estimated Token budget.
 5. Start once and follow unpacking, analysis, translation, refinement, validation, packaging, ETA, and Token usage.
 
-English is the default interface language. Choose **简体中文** from the top-right language menu to switch immediately. API keys entered in the app remain in memory; the generated provider profile never contains the key.
+English is the default interface language. Use the compact **English / 中文** switch in the top-right corner to change it immediately. Provider, endpoint, and model choices are restored from the per-user settings file; API keys remain memory-only and are never stored there.
 
 ## Providers and model validation
 
 The app includes editable presets for common official APIs and aggregators. It validates the endpoint, discovers models, keeps exact model IDs editable, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
+
+Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key.
 
 | Provider | Preset endpoint | Notes |
 | --- | --- | --- |
@@ -115,10 +117,10 @@ Diagnostics are always retained under the workspace:
 RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow rail, a high-contrast light work canvas, compact provider tiles, and one restrained indigo accent. The same 8-point spacing rhythm, field treatment, status panels, dialog structure, and three-level button hierarchy are used throughout:
 
 - **Primary** for the single next or confirming action.
-- **Secondary** for back, import, cancellation, pause, and other non-destructive alternatives.
+- **Secondary** for back, cancellation, pause, and other non-destructive alternatives.
 - **Field action** for browse, choose, copy, and controls attached to a specific field.
 
-The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. The model-first setup stays visible, every endpoint remains editable, and all five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
+The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. Model setup remains the first step, built-in provider presets replace profile importing, every endpoint stays editable, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 
 The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
 

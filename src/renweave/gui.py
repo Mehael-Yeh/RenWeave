@@ -1,17 +1,28 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from .io import atomic_write_json, read_json
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID, get_provider_preset
 from .runtime import CancellationToken
 from .usage import TokenBudget, estimate_project_tokens
+
+
+def default_desktop_settings_path() -> Path:
+    """Return the per-user, non-secret desktop settings path."""
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        base = Path(os.environ["APPDATA"])
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "RenWeave" / "settings.json"
 
 
 @dataclass(slots=True)
@@ -166,7 +177,6 @@ COPY["en"].update({
     "languages.target_hint": "Enter any language name or locale supported by the selected model. This determines the Ren'Py language directory.",
     "dialog.copy_details": "Copy details",
     "dialog.error_log_hint": "Translation errors also include a full traceback in the workspace diagnostic log.",
-    "tip.import_profile": "Load a saved provider JSON. The profile should not contain an API key.",
     "tip.provider": "Switch provider presets. The previous in-memory API key is cleared for safety.",
     "tip.endpoint": "Editable API base URL. Keep the preset unless your provider documents a different endpoint.",
     "tip.api_key": "Used only for this session. RenWeave does not write this value to the provider profile.",
@@ -256,7 +266,6 @@ COPY["zh"].update({
     "languages.target_hint": "可填写模型支持的任意语言名称或区域代码；它会决定 Ren'Py 语言目录名称。",
     "dialog.copy_details": "复制详情",
     "dialog.error_log_hint": "翻译流程错误还会在工作区诊断日志中保存完整堆栈。",
-    "tip.import_profile": "载入已保存的提供商 JSON；配置文件不应包含 API 密钥。",
     "tip.provider": "切换提供商预设。为安全起见，上一提供商的内存密钥会被清空。",
     "tip.endpoint": "可编辑的 API 基础地址；除非提供商另有说明，建议保留预设值。",
     "tip.api_key": "仅用于当前会话；织译不会把该值写入提供商配置。",
@@ -329,9 +338,9 @@ _BASE_COPY = {
         "model.provider": "Provider name",
         "model.endpoint": "Base URL",
         "model.key": "API key",
-        "model.key_hint": "Kept in memory for this session and never written to the profile.",
+        "model.key_hint": "API settings save automatically. The key stays memory-only.",
         "model.show_key": "Show key",
-        "model.import": "Import profile",
+        "model.settings_saved": "Saved automatically",
         "model.connect": "Connect and load models",
         "model.model": "Model",
         "model.model_hint": "Choose a discovered model or enter an exact model ID.",
@@ -349,8 +358,6 @@ _BASE_COPY = {
         "model.failed": "Connection failed",
         "model.changed": "Settings changed",
         "model.changed_body": "Reconnect and verify the model before continuing.",
-        "model.import_title": "Import an OpenAI-compatible profile",
-        "model.import_error": "Profile could not be imported",
         "model.required": "Connect to the API and verify a model before continuing.",
         "game.title": "Choose the Ren'Py game",
         "game.body": "RenWeave works from an isolated workspace and does not modify the source game during analysis.",
@@ -400,7 +407,7 @@ _BASE_COPY = {
         "dialog.failed": "Translation failed",
     },
     "zh": {
-        "app_title": "RenWeave / 织译",
+        "app_title": "织译",
         "app_subtitle": "理解上下文的 Ren'Py 翻译：从游戏文件到通过验证的语言包。",
         "language": "界面语言",
         "steps.model": "模型",
@@ -424,9 +431,9 @@ _BASE_COPY = {
         "model.provider": "服务名称",
         "model.endpoint": "基础 URL",
         "model.key": "API 密钥",
-        "model.key_hint": "仅保留在本次运行的内存中，不会写入配置文件。",
+        "model.key_hint": "API 设置会自动保存；密钥仍只保留在内存。",
         "model.show_key": "显示密钥",
-        "model.import": "导入配置",
+        "model.settings_saved": "设置自动保存",
         "model.connect": "连接并获取模型",
         "model.model": "模型",
         "model.model_hint": "选择获取到的模型，或输入准确的模型 ID。",
@@ -444,8 +451,6 @@ _BASE_COPY = {
         "model.failed": "连接失败",
         "model.changed": "设置已更改",
         "model.changed_body": "继续前请重新连接并验证模型。",
-        "model.import_title": "导入 OpenAI 兼容模型配置",
-        "model.import_error": "无法导入配置",
         "model.required": "请先连接 API 并验证模型。",
         "game.title": "选择 Ren'Py 游戏",
         "game.body": "织译在独立工作区运行，分析过程中不会修改游戏源文件。",
@@ -545,10 +550,15 @@ class Metrics:
     BUTTON_WIDTH = 18
     FIELD_ACTION_WIDTH = 16
     DIALOG_ACTION_WIDTH = 15
+    FOOTER_BACK_WIDTH = 14
+    FOOTER_ACTION_WIDTH = 17
     FOOTER_SLOT_WIDTH = 180
     COMPACT_FOOTER_SLOT_WIDTH = 150
     LIST_ROW_HEIGHT = 38
     COMPACT_BREAKPOINT = 1120
+    NARROW_BREAKPOINT = 980
+    SIDEBAR_WIDTH = 268
+    NARROW_SIDEBAR_WIDTH = 88
 
 
 class GuidedTooltip:
@@ -772,7 +782,14 @@ class RenWeaveDesktopApp:
     STEPS = ("model", "game", "languages", "review", "progress")
     LANGUAGE_CHOICES = ("English", "简体中文", "繁體中文", "日本語", "한국어", "Deutsch", "Français", "Español", "Português", "Русский")
 
-    def __init__(self, root, *, initial_project: str = "", initial_workspace: str = "") -> None:
+    def __init__(
+        self,
+        root,
+        *,
+        initial_project: str = "",
+        initial_workspace: str = "",
+        settings_path: str | Path | None = None,
+    ) -> None:
         import tkinter as tk
         from tkinter import ttk
 
@@ -781,7 +798,7 @@ class RenWeaveDesktopApp:
         self.root = root
         self.root.title("RenWeave")
         self.root.geometry("1180x820")
-        self.root.minsize(1020, 720)
+        self.root.minsize(900, 640)
         self.root.configure(background=Colors.SURFACE)
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -799,21 +816,28 @@ class RenWeaveDesktopApp:
         self.connection_detail: dict[str, object] = {}
         self._suspend_provider_trace = False
         self.compact_layout = False
+        self.narrow_layout = False
         self._responsive_render_id = None
+        self._settings_save_id = None
+        self.settings_path = Path(settings_path).expanduser() if settings_path else default_desktop_settings_path()
+        saved_settings = self._load_desktop_settings()
 
-        self.locale = tk.StringVar(value="en")
-        self.locale_display = tk.StringVar(value="English")
+        saved_locale = str(saved_settings.get("locale", "en"))
+        initial_locale = saved_locale if saved_locale in {"en", "zh"} else "en"
+        self.locale = tk.StringVar(value=initial_locale)
+        self.locale_display = tk.StringVar(value="简体中文" if initial_locale == "zh" else "English")
         self.project = tk.StringVar(value=initial_project)
         self.workspace = tk.StringVar(value=initial_workspace)
-        initial_preset = get_provider_preset("openai")
+        saved_provider_id = str(saved_settings.get("provider_id", "openai"))
+        initial_preset = get_provider_preset(saved_provider_id if saved_provider_id in PROVIDER_PRESETS_BY_ID else "openai")
         self.provider = tk.StringVar()
         self.selected_provider_id = tk.StringVar(value=initial_preset.id)
-        self.provider_name = tk.StringVar(value=initial_preset.name)
-        self.base_url = tk.StringVar(value=initial_preset.base_url)
-        self.api_key_env = tk.StringVar(value=initial_preset.api_key_env)
-        self.supports_json = tk.BooleanVar(value=initial_preset.supports_json_parameter)
-        self.model = tk.StringVar()
-        self.model_choices: tuple[str, ...] = ()
+        self.provider_name = tk.StringVar(value=str(saved_settings.get("provider_name", initial_preset.name)))
+        self.base_url = tk.StringVar(value=str(saved_settings.get("base_url", initial_preset.base_url)))
+        self.api_key_env = tk.StringVar(value=str(saved_settings.get("api_key_env", initial_preset.api_key_env)))
+        self.supports_json = tk.BooleanVar(value=bool(saved_settings.get("supports_json", initial_preset.supports_json_parameter)))
+        self.model = tk.StringVar(value=str(saved_settings.get("model", initial_preset.default_model)))
+        self.model_choices: tuple[str, ...] = initial_preset.default_models
         self.api_key = tk.StringVar()
         self.show_key = tk.BooleanVar(value=False)
         self.source_language = tk.StringVar(value="auto")
@@ -847,6 +871,38 @@ class RenWeaveDesktopApp:
     def t(self, key: str, **values: object) -> str:
         text = COPY[self.locale.get()].get(key, COPY["en"].get(key, key))
         return text.format(**values) if values else text
+
+    def _load_desktop_settings(self) -> dict[str, object]:
+        try:
+            payload = read_json(self.settings_path)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _schedule_settings_save(self) -> None:
+        if self._settings_save_id is not None:
+            try:
+                self.root.after_cancel(self._settings_save_id)
+            except self.tk.TclError:
+                pass
+        self._settings_save_id = self.root.after(500, self._save_desktop_settings)
+
+    def _save_desktop_settings(self) -> None:
+        self._settings_save_id = None
+        payload = {
+            "schema_version": 1,
+            "locale": self.locale.get(),
+            "provider_id": self.selected_provider_id.get().strip() or "custom",
+            "provider_name": self.provider_name.get().strip(),
+            "base_url": self.base_url.get().strip(),
+            "model": self.model.get().strip(),
+            "api_key_env": self.api_key_env.get().strip(),
+            "supports_json": bool(self.supports_json.get()),
+        }
+        try:
+            atomic_write_json(self.settings_path, payload)
+        except OSError as exc:
+            self.logs.append(f"Settings could not be saved: {exc}")
 
     def _guide(self, widget, key: str):
         GuidedTooltip(self, widget, self.t(key))
@@ -942,8 +998,10 @@ class RenWeaveDesktopApp:
             style.theme_use("clam")
         style.configure("App.TFrame", background=Colors.SURFACE)
         style.configure("TopBar.TFrame", background=Colors.CARD, padding=(32, 18))
-        style.configure("Footer.TFrame", background=Colors.CARD, padding=(36, 14), relief="solid", borderwidth=1)
-        style.configure("FooterSlot.TFrame", background=Colors.CARD)
+        style.configure("Footer.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
+        style.configure("FooterSlot.TFrame", background=Colors.SURFACE)
+        style.configure("ActionBar.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
+        style.configure("LanguageGroup.TFrame", background=Colors.SURFACE_HIGH, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("Content.TFrame", background=Colors.SURFACE, padding=(36, 24))
         style.configure("Card.TFrame", background=Colors.CARD, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("CardBody.TFrame", background=Colors.CARD, relief="flat", borderwidth=0)
@@ -955,6 +1013,8 @@ class RenWeaveDesktopApp:
         style.configure("Body.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10))
         style.configure("SurfaceBody.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10))
         style.configure("Hint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
+        style.configure("ActionHint.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
+        style.configure("AutoSave.TLabel", background=Colors.CARD, foreground=Colors.SUCCESS, font=("Segoe UI", 9, "bold"))
         style.configure("Field.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"))
         style.configure("DialogTitle.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 16, "bold"))
         style.configure("DialogHint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
@@ -969,6 +1029,10 @@ class RenWeaveDesktopApp:
         style.map("Ghost.TButton", background=[("pressed", Colors.SURFACE_HIGH), ("active", Colors.SURFACE_CONTAINER), ("disabled", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)])
         style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10, "bold"), foreground=Colors.PRIMARY, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
         style.map("FieldAction.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
+        style.configure("Language.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
+        style.map("Language.TButton", background=[("pressed", Colors.SURFACE_CONTAINER), ("active", Colors.SURFACE_CONTAINER)], bordercolor=[("focus", Colors.PRIMARY)])
+        style.configure("LanguageActive.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=0, relief="flat")
+        style.map("LanguageActive.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Provider.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE, background=Colors.CARD, borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, relief="flat")
         style.map("Provider.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.SURFACE_CONTAINER)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("ProviderSelected.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
@@ -977,6 +1041,9 @@ class RenWeaveDesktopApp:
         style.map("Nav.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
         style.configure("NavActive.TButton", anchor="w", padding=(16, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
         style.map("NavActive.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT)])
+        style.configure("NavNarrow.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
+        style.map("NavNarrow.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
+        style.configure("NavNarrowActive.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
         style.configure("Workspace.TEntry", padding=(11, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, insertcolor=Colors.ON_SURFACE)
         style.map("Workspace.TEntry", bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)], fieldbackground=[("disabled", Colors.SURFACE_CONTAINER)], foreground=[("disabled", Colors.OUTLINE)])
         style.configure("Workspace.TCombobox", padding=(11, Metrics.CONTROL_PADDING_Y - 1), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, background=Colors.CARD, bordercolor=Colors.OUTLINE_VARIANT, arrowcolor=Colors.ON_SURFACE_VARIANT)
@@ -997,16 +1064,16 @@ class RenWeaveDesktopApp:
         self.shell.columnconfigure(1, weight=1)
         self.shell.rowconfigure(1, weight=1)
 
-        sidebar = self.tk.Frame(self.shell, background=Colors.NAV, width=268)
-        sidebar.grid(row=0, column=0, rowspan=3, sticky="nsew")
-        sidebar.grid_propagate(False)
-        sidebar.columnconfigure(0, weight=1)
-        sidebar.rowconfigure(2, weight=1)
+        self.sidebar = self.tk.Frame(self.shell, background=Colors.NAV, width=Metrics.SIDEBAR_WIDTH)
+        self.sidebar.grid(row=0, column=0, rowspan=3, sticky="nsew")
+        self.sidebar.grid_propagate(False)
+        self.sidebar.columnconfigure(0, weight=1)
+        self.sidebar.rowconfigure(2, weight=1)
 
-        brand = self.tk.Frame(sidebar, background=Colors.NAV)
-        brand.grid(row=0, column=0, sticky="ew", padx=24, pady=(28, 24))
+        self.brand = self.tk.Frame(self.sidebar, background=Colors.NAV)
+        self.brand.grid(row=0, column=0, sticky="ew", padx=24, pady=(28, 24))
         self.brand_title = self.tk.Label(
-            brand,
+            self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_TEXT,
             font=("Segoe UI", 20, "bold"),
@@ -1016,7 +1083,7 @@ class RenWeaveDesktopApp:
         )
         self.brand_title.grid(row=0, column=0, sticky="w")
         self.brand_subtitle = self.tk.Label(
-            brand,
+            self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_MUTED,
             font=("Segoe UI", 9),
@@ -1026,10 +1093,10 @@ class RenWeaveDesktopApp:
         )
         self.brand_subtitle.grid(row=1, column=0, sticky="w", pady=(7, 0))
 
-        self.nav = self.tk.Frame(sidebar, background=Colors.NAV)
+        self.nav = self.tk.Frame(self.sidebar, background=Colors.NAV)
         self.nav.grid(row=1, column=0, sticky="ew", padx=14)
         self.privacy_label = self.tk.Label(
-            sidebar,
+            self.sidebar,
             background=Colors.NAV_ACTIVE,
             foreground=Colors.NAV_MUTED,
             font=("Segoe UI", 9),
@@ -1041,22 +1108,31 @@ class RenWeaveDesktopApp:
         )
         self.privacy_label.grid(row=3, column=0, sticky="ew", padx=18, pady=20)
 
-        top = self.ttk.Frame(self.shell, style="TopBar.TFrame", padding=(36, 0, 36, 0))
-        top.grid(row=0, column=1, sticky="ew")
-        top.columnconfigure(1, weight=1)
-        self.workspace_label = self.ttk.Label(top, style="TopLabel.TLabel")
+        self.top = self.ttk.Frame(self.shell, style="TopBar.TFrame", padding=(36, 0, 36, 0))
+        self.top.grid(row=0, column=1, sticky="ew")
+        self.top.columnconfigure(1, weight=1)
+        self.workspace_label = self.ttk.Label(self.top, style="TopLabel.TLabel")
         self.workspace_label.grid(row=0, column=0, sticky="w")
-        language_box = self.ttk.Frame(top, style="TopBar.TFrame")
+        language_box = self.ttk.Frame(self.top, style="LanguageGroup.TFrame", padding=2)
         language_box.grid(row=0, column=2, sticky="e")
-        self.language_label = self.ttk.Label(language_box, style="TopLabel.TLabel")
-        self.language_label.grid(row=0, column=0, sticky="e", padx=(0, 10))
-        chooser = self._combobox(language_box, self.locale_display, ("English", "简体中文"), readonly=True, width=12)
-        chooser.grid(row=0, column=1)
-        chooser.bind("<<ComboboxSelected>>", self._change_locale)
+        self.language_buttons = {}
+        for column, (code, label) in enumerate((("en", "English"), ("zh", "中文"))):
+            button = self.ttk.Button(
+                language_box,
+                text=label,
+                command=lambda selected=code: self._set_locale(selected),
+                style="LanguageActive.TButton" if code == self.locale.get() else "Language.TButton",
+                width=8 if code == "en" else 6,
+                cursor="hand2",
+                takefocus=True,
+            )
+            button.grid(row=0, column=column, padx=(0 if column == 0 else 4, 0))
+            self.language_buttons[code] = button
 
         content_host = self.ttk.Frame(self.shell, style="App.TFrame")
         content_host.grid(row=1, column=1, sticky="nsew")
         content_host.columnconfigure(0, weight=1)
+        content_host.columnconfigure(1, minsize=13)
         content_host.rowconfigure(0, weight=1)
         self.content_canvas = self.tk.Canvas(
             content_host,
@@ -1077,21 +1153,30 @@ class RenWeaveDesktopApp:
         self.content_canvas.bind("<Configure>", self._schedule_content_layout)
         self.content.bind("<Configure>", self._schedule_content_layout)
 
-        self.footer = self.ttk.Frame(self.shell, style="Footer.TFrame", padding=(36, 0, 36, 0))
+        self.footer = self.ttk.Frame(self.shell, style="Footer.TFrame", padding=(36, 6, 36, 8))
         self.footer.grid(row=2, column=1, sticky="ew")
         self.footer.columnconfigure(1, weight=1)
 
     def _change_locale(self, _event=None) -> None:
-        self.locale.set("zh" if self.locale_display.get() == "简体中文" else "en")
+        self._set_locale("zh" if self.locale_display.get() == "简体中文" else "en")
+
+    def _set_locale(self, locale: str) -> None:
+        if locale not in {"en", "zh"}:
+            return
+        self.locale.set(locale)
+        self.locale_display.set("简体中文" if locale == "zh" else "English")
+        self._schedule_settings_save()
         self._render()
 
     def _on_root_configure(self, event) -> None:
         if event.widget is not self.root:
             return
         compact = event.width < Metrics.COMPACT_BREAKPOINT
-        if compact == self.compact_layout:
+        narrow = event.width < Metrics.NARROW_BREAKPOINT
+        if compact == self.compact_layout and narrow == self.narrow_layout:
             return
         self.compact_layout = compact
+        self.narrow_layout = narrow
         if self._responsive_render_id is not None:
             try:
                 self.root.after_cancel(self._responsive_render_id)
@@ -1144,12 +1229,34 @@ class RenWeaveDesktopApp:
             self.content_canvas.yview_moveto(0.0)
 
     def _render(self) -> None:
-        brand_size = 18 if self.locale.get() == "zh" else 20
-        self.brand_title.configure(text=self.t("app_title"), font=("Segoe UI", brand_size, "bold"))
+        sidebar_width = Metrics.NARROW_SIDEBAR_WIDTH if self.narrow_layout else Metrics.SIDEBAR_WIDTH
+        self.sidebar.configure(width=sidebar_width)
+        self.brand.grid_configure(padx=14 if self.narrow_layout else 24, pady=(24, 20) if self.narrow_layout else (28, 24))
+        brand_text = "RW" if self.narrow_layout and self.locale.get() == "en" else self.t("app_title")
+        brand_size = 17 if self.narrow_layout else (18 if self.locale.get() == "zh" else 20)
+        self.brand_title.configure(
+            text=brand_text,
+            font=("Segoe UI", brand_size, "bold"),
+            wraplength=60 if self.narrow_layout else 215,
+        )
         self.brand_subtitle.configure(text=self.t("app_subtitle"))
+        if self.narrow_layout:
+            self.brand_subtitle.grid_remove()
+            self.privacy_label.grid_remove()
+        else:
+            self.brand_subtitle.grid()
+            self.privacy_label.grid()
         self.workspace_label.configure(text=self.t("workspace_label"))
-        self.language_label.configure(text=self.t("language"))
         self.privacy_label.configure(text=self.t("nav_privacy"))
+        for code, button in self.language_buttons.items():
+            button.configure(style="LanguageActive.TButton" if code == self.locale.get() else "Language.TButton")
+        inset = 24 if self.compact_layout else 36
+        self.top.configure(padding=(inset, 10, inset, 10))
+        self.content.configure(padding=(inset, 0, inset, 0))
+        self.footer.configure(padding=(inset, 6, inset, 8))
+        self.next_button = None
+        self.back_button = None
+        self.start_button = None
         for parent in (self.nav, self.content, self.footer):
             for child in parent.winfo_children():
                 child.destroy()
@@ -1164,11 +1271,17 @@ class RenWeaveDesktopApp:
             prefix = f"{index + 1:02d}"
             is_current = index == self.step
             is_available = index <= self.step and self.step < 4
+            if self.narrow_layout:
+                button_text = prefix
+                button_style = "NavNarrowActive.TButton" if is_current else "NavNarrow.TButton"
+            else:
+                button_text = f"{prefix}    {self.t(f'steps.{step}')}"
+                button_style = "NavActive.TButton" if is_current else "Nav.TButton"
             button = self.ttk.Button(
                 self.nav,
-                text=f"{prefix}    {self.t(f'steps.{step}')}",
+                text=button_text,
                 command=lambda selected=index: self._go_to_step(selected),
-                style="NavActive.TButton" if is_current else "Nav.TButton",
+                style=button_style,
                 cursor="hand2" if is_available else "arrow",
                 state="normal" if is_available else "disabled",
                 takefocus=is_available,
@@ -1200,7 +1313,7 @@ class RenWeaveDesktopApp:
             style="SurfaceBody.TLabel",
             wraplength=620 if self.compact_layout else 720,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 18))
+        ).grid(row=1, column=0, sticky="w", pady=(6, 14))
 
     def _card(self, parent=None, *, row: int = 2, padding: int = 20):
         card = self.ttk.Frame(parent or self.page, style="Card.TFrame", padding=padding)
@@ -1224,9 +1337,11 @@ class RenWeaveDesktopApp:
         title_row.grid(row=0, column=0, sticky="ew")
         title_row.columnconfigure(0, weight=1)
         self.ttk.Label(title_row, text=self.t("provider.choose"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
-        import_button = self._button(title_row, self.t("model.import"), self._browse_provider, kind="secondary")
-        import_button.grid(row=0, column=1, sticky="e")
-        self._guide(import_button, "tip.import_profile")
+        self.ttk.Label(
+            title_row,
+            text=self.t("model.settings_saved"),
+            style="AutoSave.TLabel",
+        ).grid(row=0, column=1, sticky="e")
         self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 6))
 
         sequence = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=12, pady=5)
@@ -1239,6 +1354,7 @@ class RenWeaveDesktopApp:
         for column in range(provider_columns):
             preset_grid.columnconfigure(column, weight=1, uniform="provider")
         selected_id = self.selected_provider_id.get()
+        self.provider_buttons = {}
         for index, preset in enumerate(PROVIDER_PRESETS):
             selected = preset.id == selected_id
             button = self.ttk.Button(
@@ -1251,14 +1367,17 @@ class RenWeaveDesktopApp:
             )
             provider_column = index % provider_columns
             button.grid(row=index // provider_columns, column=provider_column, sticky="ew", padx=(0 if provider_column == 0 else 5, 0), pady=(0, 4))
+            self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
 
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
         selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=12, pady=7)
         selection.grid(row=4, column=0, sticky="ew", pady=(2, 7))
         category = self.t(f"provider.{preset.category}")
-        self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=("Segoe UI", 8, "bold"), padx=7, pady=3).pack(side="left")
-        self.tk.Label(selection, text=preset.localized_description(self.locale.get()), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), anchor="w").pack(side="left", padx=(10, 0))
+        self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=("Segoe UI", 8, "bold"), padx=7, pady=3)
+        self.provider_category.pack(side="left")
+        self.provider_description = self.tk.Label(selection, text=preset.localized_description(self.locale.get()), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), anchor="w")
+        self.provider_description.pack(side="left", padx=(10, 0))
 
         config = self.ttk.Frame(card, style="CardBody.TFrame")
         config.grid(row=5, column=0, sticky="nsew")
@@ -1326,14 +1445,47 @@ class RenWeaveDesktopApp:
         self.model_status_body = self.ttk.Label(status_card, text=body, style="StatusBody.TLabel", wraplength=360, justify="left")
         self.model_status_body.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        busy = self.connection_state in {"connecting", "verifying"}
-        self.connect_button.configure(state="disabled" if busy else "normal")
-        self.verify_button.configure(state="disabled" if busy or not self.model.get().strip() else "normal")
-        self.browse_models_button.configure(state="normal" if self.model_choices else "disabled")
+        self._refresh_model_panel()
 
     def _browse_models(self) -> None:
         if self.model_choices:
             ModelPickerDialog(self)
+
+    def _refresh_model_panel(self) -> None:
+        """Refresh model setup in place so button clicks never rebuild or jump the page."""
+        if self.step != 0 or not hasattr(self, "model_status_title"):
+            return
+        selected_id = self.selected_provider_id.get()
+        preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
+        for provider_id, button in getattr(self, "provider_buttons", {}).items():
+            button.configure(style="ProviderSelected.TButton" if provider_id == selected_id else "Provider.TButton")
+        self.provider_category.configure(
+            text=self.t(f"provider.{preset.category}").upper(),
+            background=preset.accent,
+        )
+        self.provider_description.configure(text=preset.localized_description(self.locale.get()))
+        self.endpoint_box.configure(values=preset.base_urls)
+        self.browse_models_button.configure(
+            text=self.t("model.browse", count=len(self.model_choices)),
+            state="normal" if self.model_choices else "disabled",
+        )
+        state_key = self.connection_state if self.connection_state in {
+            "idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"
+        } else "idle"
+        details = dict(self.connection_detail)
+        detail_key = f"model.{state_key}_body"
+        title = self.t(f"model.{state_key}")
+        body = self.t(detail_key, **details) if detail_key in COPY[self.locale.get()] else str(details.get("message", ""))
+        if state_key == "failed":
+            body = str(details.get("message", ""))
+        self.model_status_title.configure(text=title)
+        self.model_status_body.configure(text=body)
+        busy = state_key in {"connecting", "verifying"}
+        self.connect_button.configure(state="disabled" if busy else "normal")
+        self.verify_button.configure(state="disabled" if busy or not self.model.get().strip() else "normal")
+        if self.next_button is not None:
+            self.next_button.configure(state="normal" if state_key == "verified" else "disabled")
+        self._schedule_content_layout()
 
     def _apply_provider_preset(self, preset_id: str) -> None:
         if preset_id == self.selected_provider_id.get() or (self.worker and self.worker.is_alive()):
@@ -1354,7 +1506,8 @@ class RenWeaveDesktopApp:
             self._suspend_provider_trace = False
         self.connection_state = "idle"
         self.connection_detail = {}
-        self._render()
+        self._schedule_settings_save()
+        self._refresh_model_panel()
 
     def _toggle_key(self) -> None:
         if hasattr(self, "api_key_entry"):
@@ -1648,30 +1801,39 @@ class RenWeaveDesktopApp:
 
     def _render_footer(self) -> None:
         slot_width = Metrics.COMPACT_FOOTER_SLOT_WIDTH if self.compact_layout else Metrics.FOOTER_SLOT_WIDTH
-        left_slot = self.ttk.Frame(self.footer, style="FooterSlot.TFrame", width=slot_width, height=48)
+        action_bar = self.ttk.Frame(self.footer, style="ActionBar.TFrame")
+        action_bar.grid(row=0, column=0, columnspan=3, sticky="ew")
+        action_bar.columnconfigure(0, minsize=slot_width)
+        action_bar.columnconfigure(1, weight=1)
+        action_bar.columnconfigure(2, minsize=slot_width)
+        left_slot = self.ttk.Frame(action_bar, style="FooterSlot.TFrame")
         left_slot.grid(row=0, column=0, sticky="w")
-        left_slot.grid_propagate(False)
-        right_slot = self.ttk.Frame(self.footer, style="FooterSlot.TFrame", width=slot_width, height=48)
+        right_slot = self.ttk.Frame(action_bar, style="FooterSlot.TFrame")
         right_slot.grid(row=0, column=2, sticky="e")
-        right_slot.grid_propagate(False)
         effect = self.ttk.Label(
-            self.footer,
+            action_bar,
             text=self.t(f"footer.effect.{self.STEPS[self.step]}"),
-            style="Hint.TLabel",
+            style="ActionHint.TLabel",
             wraplength=260 if self.compact_layout else 560,
             justify="left",
         )
         effect_padding = Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4
-        effect.grid(row=0, column=1, sticky="w", padx=(effect_padding, effect_padding))
+        effect.grid(row=0, column=1, sticky="w", padx=effect_padding)
         if self.step > 0 and self.step < 4:
-            self.back_button = self._button(left_slot, self.t("back"), lambda: self._go_to_step(self.step - 1), kind="secondary")
-            self.back_button.pack(fill="both", expand=True)
+            self.back_button = self._button(
+                left_slot,
+                self.t("back"),
+                lambda: self._go_to_step(self.step - 1),
+                kind="secondary",
+                width=Metrics.FOOTER_BACK_WIDTH,
+            )
+            self.back_button.pack(side="left")
             self._guide(self.back_button, "tip.back")
         action_text = self.t("progress.resume") if self.step == 3 and self.resume_candidate else (self.t("start") if self.step == 3 else self.t("continue"))
         if self.step < 4:
             command = self._start if self.step == 3 else self._continue
-            self.next_button = self._button(right_slot, action_text, command)
-            self.next_button.pack(fill="both", expand=True)
+            self.next_button = self._button(right_slot, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
+            self.next_button.pack(side="right")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
             if self.step == 3:
                 self.start_button = self.next_button
@@ -1680,25 +1842,35 @@ class RenWeaveDesktopApp:
         elif self.step == 4:
             running = bool(self.worker and self.worker.is_alive())
             if running:
-                self.pause_button = self._button(right_slot, self.t("progress.pause"), self._request_pause, kind="secondary")
-                self.pause_button.pack(fill="both", expand=True)
+                self.pause_button = self._button(right_slot, self.t("progress.pause"), self._request_pause, kind="secondary", width=Metrics.FOOTER_ACTION_WIDTH)
+                self.pause_button.pack(side="right")
                 self._guide(self.pause_button, "tip.pause")
             elif self.last_stage in {"paused", "failed"}:
                 label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
-                resume_button = self._button(right_slot, label, self._start)
-                resume_button.pack(fill="both", expand=True)
+                resume_button = self._button(right_slot, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
+                resume_button.pack(side="right")
                 self._guide(resume_button, "tip.resume")
             else:
-                close_button = self._button(right_slot, self.t("close"), self._close_window)
-                close_button.pack(fill="both", expand=True)
+                close_button = self._button(right_slot, self.t("close"), self._close_window, width=Metrics.FOOTER_ACTION_WIDTH)
+                close_button.pack(side="right")
 
     def _bind_provider_changes(self) -> None:
-        for variable in (self.provider_name, self.base_url, self.api_key, self.model):
-            variable.trace_add("write", self._provider_changed)
+        for setting_name, variable in (
+            ("provider_name", self.provider_name),
+            ("base_url", self.base_url),
+            ("api_key", self.api_key),
+            ("model", self.model),
+        ):
+            variable.trace_add(
+                "write",
+                lambda *_args, changed_setting=setting_name: self._provider_changed(changed_setting),
+            )
 
-    def _provider_changed(self, *_args) -> None:
+    def _provider_changed(self, changed_setting: str) -> None:
         if self._suspend_provider_trace or self.connection_state in {"connecting", "verifying"}:
             return
+        if changed_setting != "api_key":
+            self._schedule_settings_save()
         if self.connection_state != "idle":
             self.connection_state = "changed"
             self.connection_detail = {}
@@ -1737,7 +1909,7 @@ class RenWeaveDesktopApp:
             return
         self.connection_state = "connecting"
         self.connection_detail = {}
-        self._render()
+        self._refresh_model_panel()
 
         def run() -> None:
             try:
@@ -1758,7 +1930,7 @@ class RenWeaveDesktopApp:
             return
         self.connection_state = "verifying"
         self.connection_detail = {}
-        self._render()
+        self._refresh_model_panel()
 
         def run() -> None:
             try:
@@ -1768,43 +1940,6 @@ class RenWeaveDesktopApp:
 
         self.worker = threading.Thread(target=run, daemon=True)
         self.worker.start()
-
-    def _browse_provider(self) -> None:
-        from tkinter import filedialog
-
-        selected = filedialog.askopenfilename(
-            title=self.t("model.import_title"),
-            filetypes=(("JSON", "*.json"), ("All files", "*.*")),
-        )
-        if not selected:
-            return
-        try:
-            profile = ModelProfile.load(selected)
-            profile.validate_connection()
-        except (OSError, ValueError, TypeError) as exc:
-            self._dialog(self.t("model.import_error"), str(exc), error=True)
-            return
-        self._suspend_provider_trace = True
-        try:
-            self.provider.set(selected)
-            preset_id = profile.provider_id if profile.provider_id in PROVIDER_PRESETS_BY_ID else "custom"
-            self.selected_provider_id.set(preset_id)
-            self.provider_name.set(profile.name)
-            self.base_url.set(profile.base_url)
-            self.model.set(profile.model)
-            self.api_key_env.set(profile.api_key_env)
-            self.supports_json.set(profile.supports_json)
-            preset = get_provider_preset(preset_id)
-            self.model_choices = tuple(
-                dict.fromkeys(model for model in (profile.model, *preset.default_models) if model)
-            )
-            if profile.api_key:
-                self.api_key.set(profile.api_key)
-        finally:
-            self._suspend_provider_trace = False
-        self.connection_state = "changed"
-        self.connection_detail = {}
-        self._render()
 
     def _browse_project(self) -> None:
         from tkinter import filedialog
@@ -1838,6 +1973,7 @@ class RenWeaveDesktopApp:
     def _go_to_step(self, selected: int) -> None:
         if 0 <= selected <= self.step and self.step < 4:
             self.step = selected
+            self.content_canvas.yview_moveto(0.0)
             self._render()
 
     def _continue(self) -> None:
@@ -1856,6 +1992,7 @@ class RenWeaveDesktopApp:
             self._dialog(self.t("dialog.cannot_continue"), self.t("languages.required"), error=True)
             return
         self.step = min(3, self.step + 1)
+        self.content_canvas.yview_moveto(0.0)
         self._render()
 
     def _persist_profile(self) -> Path:
@@ -1933,6 +2070,12 @@ class RenWeaveDesktopApp:
     def _close_window(self) -> None:
         if self.worker and self.worker.is_alive() and self.cancel_token is not None:
             self.cancel_token.cancel()
+        if self._settings_save_id is not None:
+            try:
+                self.root.after_cancel(self._settings_save_id)
+            except self.tk.TclError:
+                pass
+            self._save_desktop_settings()
         self.root.destroy()
 
     def _start(self) -> None:
@@ -1948,6 +2091,7 @@ class RenWeaveDesktopApp:
             return
         existing = self._resume_state()
         self.step = 4
+        self.content_canvas.yview_moveto(0.0)
         self.status.set(self.t("progress.ready"))
         self.last_stage = str(existing.get("stage", "")) if existing else ""
         self.last_state_updated_at = ""
@@ -1993,21 +2137,22 @@ class RenWeaveDesktopApp:
                     self._suspend_provider_trace = False
                 self.connection_state = "connected"
                 self.connection_detail = {"count": len(catalog.models), "latency": catalog.latency_ms}
-                self._render()
+                self._refresh_model_panel()
             elif kind == "catalog_error":
                 self.connection_state = "discovery_failed"
                 self.connection_detail = {"message": str(value)}
-                self._render()
+                self._refresh_model_panel()
             elif kind == "verified":
                 verified = value
                 assert isinstance(verified, ModelVerification)
                 self.connection_state = "verified"
                 self.connection_detail = {"model": verified.model, "latency": verified.latency_ms}
-                self._render()
+                self._schedule_settings_save()
+                self._refresh_model_panel()
             elif kind == "connection_error":
                 self.connection_state = "failed"
                 self.connection_detail = {"message": str(value)}
-                self._render()
+                self._refresh_model_panel()
             elif kind == "progress":
                 assert isinstance(value, dict)
                 self._apply_progress_payload(value)

@@ -129,7 +129,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.5.0")
+        self.assertEqual(renweave.__version__, "1.6.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -242,10 +242,12 @@ class CorePipelineTests(unittest.TestCase):
             self.skipTest(f"Tk display unavailable: {exc}")
         try:
             root.withdraw()
+            settings_path = Path(self.temp.name) / "desktop-settings.json"
             app = RenWeaveDesktopApp(
                 root,
                 initial_project=str(self.root),
                 initial_workspace=str(Path(self.temp.name) / "visual-workspace"),
+                settings_path=settings_path,
             )
             root.update_idletasks()
             self.assertEqual(app.step, 0)
@@ -253,30 +255,48 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.brand_title.cget("text"), "RenWeave")
             self.assertEqual(app.connect_button.cget("text"), "Load available models")
             self.assertEqual(app.selected_provider_id.get(), "openai")
+            endpoint_box = app.endpoint_box
+            page = app.page
+            scroll_position = app.content_canvas.yview()
             app.api_key.set("provider-specific-secret")
             app._apply_provider_preset("minimax")
             root.update_idletasks()
+            self.assertIs(app.endpoint_box, endpoint_box)
+            self.assertIs(app.page, page)
+            self.assertEqual(app.content_canvas.yview(), scroll_position)
             self.assertEqual(app.selected_provider_id.get(), "minimax")
             self.assertEqual(app.base_url.get(), "https://api.minimax.io/v1")
             self.assertIn("https://api.minimaxi.com/v1", app.endpoint_box.cget("values"))
             self.assertEqual(app.api_key.get(), "")
             self.assertFalse(app.supports_json.get())
             self.assertEqual(app.next_button.cget("text"), "Continue")
-            self.assertEqual(int(app.next_button.cget("width")), Metrics.BUTTON_WIDTH)
+            self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
             self.assertTrue(all(child.winfo_class() == "TButton" for child in app.nav.winfo_children()))
             self.assertTrue(app.next_button.instate(["disabled"]))
-            self.assertGreaterEqual(root.minsize()[0], 920)
+            self.assertEqual(root.minsize()[0], 900)
             self.assertEqual(app.source_language.get(), "auto")
             self.assertEqual(app.status.get(), "Enter an API key, then load available models.")
+            self.assertFalse(hasattr(app, "_browse_provider"))
+            self.assertEqual(set(app.language_buttons), {"en", "zh"})
+            self.assertEqual(app.language_buttons["en"].cget("style"), "LanguageActive.TButton")
+
+            def widget_classes(widget):
+                classes = [child.winfo_class() for child in widget.winfo_children()]
+                for child in widget.winfo_children():
+                    classes.extend(widget_classes(child))
+                return classes
+
+            self.assertNotIn("TCombobox", widget_classes(app.top))
 
             app.locale_display.set("简体中文")
             app._change_locale()
             root.update_idletasks()
             self.assertEqual(app.locale.get(), "zh")
-            self.assertEqual(app.brand_title.cget("text"), "RenWeave / 织译")
+            self.assertEqual(app.brand_title.cget("text"), "织译")
             self.assertEqual(int(app.brand_title.cget("wraplength")), 215)
             self.assertLessEqual(app.brand_title.winfo_reqwidth(), 220)
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
+            self.assertEqual(app.language_buttons["zh"].cget("style"), "LanguageActive.TButton")
 
             app.model.set("translation-model")
             app.connection_state = "verified"
@@ -361,6 +381,17 @@ class CorePipelineTests(unittest.TestCase):
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)
             self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")
+            app._save_desktop_settings()
+            saved_settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved_settings["provider_id"], "minimax")
+            self.assertEqual(saved_settings["locale"], "zh")
+            self.assertNotIn("api_key", saved_settings)
+            self.assertEqual(app._load_desktop_settings()["provider_id"], "minimax")
+            app.narrow_layout = True
+            app._render()
+            self.assertEqual(int(app.sidebar.cget("width")), Metrics.NARROW_SIDEBAR_WIDTH)
+            self.assertEqual(app.brand_title.cget("text"), "织译")
+            self.assertTrue(all(child.cget("style").startswith("NavNarrow") for child in app.nav.winfo_children()))
         finally:
             root.destroy()
 

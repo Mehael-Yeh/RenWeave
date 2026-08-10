@@ -2,6 +2,13 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.6.0 - 2026-08-10
+
+- Eliminated model-page jumps by updating provider, connection, and verification controls in place and reserving a stable scrollbar gutter.
+- Replaced the language dropdown with a compact English/Chinese segmented control, removed desktop profile importing, and added automatic non-secret per-user API settings.
+- Redesigned the bottom actions as standalone controls and added an adaptive `88 px` narrow rail down to a `900 × 640` minimum window.
+- Simplified Chinese branding now displays only `织译`.
+
 ## 1.5.0 - 2026-08-10
 
 - Rebuilt the desktop UI around a normative component system with shared color, spacing, sizing, and state tokens.

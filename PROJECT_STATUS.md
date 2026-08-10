@@ -2,14 +2,14 @@
 
 ## Release target
 
-RenWeave 1.5 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model, includes guided presets for major official and aggregated APIs, exposes both preflight Token expectations and provider-reported usage throughout the run, and applies one normative component and alignment system across the entire desktop workflow.
+RenWeave 1.6 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model, includes guided presets for major official and aggregated APIs, exposes both preflight Token expectations and provider-reported usage throughout the run, and applies one responsive, no-jump component and alignment system across the entire desktop workflow.
 
 ## Requirement coverage
 
 | Requirement | Status | Implementation |
 | --- | --- | --- |
-| Guided one-click UI | Complete | English-default, Chinese-switchable five-step Calm Technical Workspace with shared component factories, fixed action geometry, responsive overflow handling, unified dialogs, field guidance, tooltips, and explicit action consequences |
-| Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom presets; editable endpoints; model discovery; exact-ID fallback; minimal health check; secret-free persistence |
+| Guided one-click UI | Complete | English-default five-step Calm Technical Workspace with an English/Chinese segment, in-place no-jump state updates, standalone bottom actions, 268/88 px adaptive navigation, responsive overflow handling, and unified dialogs |
+| Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, OpenRouter, and custom built-in presets; editable endpoints; model discovery; exact-ID fallback; minimal health check; automatic per-user non-secret settings |
 | Unpack Ren'Py games | Complete | Safe RPA 2.0/3.0/3.2 reader and selective script acquisition |
 | Decompile compiled scripts | Complete | Pinned and hash-verified unrpyc, isolated subprocess, and workspace copies |
 | Understand the complete game | Complete | Scene graph, deterministic evidence, storyline chunks, hierarchical narrative synthesis, character, relationship, and term profiles |

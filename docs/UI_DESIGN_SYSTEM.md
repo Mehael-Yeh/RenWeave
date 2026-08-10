@@ -12,9 +12,9 @@ These are design references, not bundled dependencies. RenWeave's Tk implementat
 
 ## Layout grid
 
-- Default window: `1180 × 820`; minimum: `1020 × 720`.
-- Workflow rail: fixed `268 px`.
-- Main canvas horizontal inset: `36 px` on the top bar, page content, and footer.
+- Default window: `1180 × 820`; minimum: `900 × 640`.
+- Workflow rail: `268 px` by default and a numbered `88 px` rail below the narrow breakpoint.
+- Main canvas horizontal inset: `36 px` by default and `24 px` in compact layouts.
 - Card inset: `18 px`; standard field gap: `6 px`.
 - Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
@@ -24,14 +24,14 @@ These are design references, not bundled dependencies. RenWeave's Tk implementat
 
 | Context | Placement |
 | --- | --- |
-| Global settings | Top-right of the application bar |
+| Interface language | Compact two-button segment at the top-right; never a dropdown while only English and Chinese exist |
 | Section-wide auxiliary action | Top-right of that section |
 | Field-specific action | Attached to the right of its field, equal control height |
 | Form action | Left edge of its form column |
 | Dialog actions | Bottom-right, secondary before primary |
-| Workflow footer | Fixed `180 px` back slot, left-aligned consequence text, fixed `180 px` primary slot |
+| Workflow actions | Standalone back and primary buttons on the page surface with a stable explanatory center column |
 
-The workflow footer never changes its column geometry between pages. Empty slots remain reserved so explanatory text and the main action do not jump when navigating.
+The workflow action row never changes its column geometry between pages. It must not look like a full-width colored bar. Empty slots remain reserved so explanatory text and the main action do not jump when navigating.
 
 ## Components
 
@@ -40,7 +40,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Component | Required implementation | Rules |
 | --- | --- | --- |
 | Primary button | `_button(..., kind="primary")` | One per action region; fixed height and standard width |
-| Secondary button | `_button(..., kind="secondary")` | Back, import, cancel, pause, and non-destructive alternatives |
+| Secondary button | `_button(..., kind="secondary")` | Back, cancel, pause, and non-destructive alternatives |
 | Field action | `_button(..., kind="field")` | Browse, choose, copy, and attached field actions |
 | Text field | `_entry(...)` | Shared padding, border, focus, disabled, selection, and typography |
 | Combo box | `_combobox(...)` | Same visual height as text fields; editable unless explicitly read-only |
@@ -68,13 +68,16 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - Do not apply `Card.TFrame` to an internal layout row.
 - Do not add one-off colors, padding values, fonts, or control heights outside `Colors`, `Metrics`, and `_configure_styles`.
 - Do not use decorative emoji as interface icons.
+- Do not add a profile-import control to the desktop model flow; built-in presets and automatic non-secret settings persistence are the supported path.
+- Do not rebuild the model page for provider selection, connection, or verification state changes; update existing widgets in place.
 
 ## Visual QA checklist
 
-Before merging UI changes, render all five workflow pages plus the model picker and error dialog at default and minimum window sizes. Verify:
+Before merging UI changes, render all five workflow pages plus the model picker and error dialog at default, compact, and minimum window sizes. Verify:
 
 1. Left edges, field heights, button heights, and footer slots do not move between pages.
 2. English and Simplified Chinese copy does not clip.
 3. Hover, focus, selected, disabled, paused, failed, and unavailable-usage states remain legible.
 4. Text fields, list rows, diagnostic text, and scrollbars use the documented styles.
 5. No control is hidden behind the fixed footer and no horizontal scrollbar is required.
+6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
