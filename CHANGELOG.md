@@ -2,6 +2,12 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.9.0 - 2026-08-10
+
+- Added a desktop and CLI output choice for RPA creation, enabled by default.
+- Preserved validated standard RPY translation files in every output mode, including when RPA creation is disabled.
+- Persisted the selected output mode in resumable state and made completion logs, dialogs, and package metadata accurately describe the generated artifacts.
+
 ## 1.8.0 - 2026-08-10
 
 - Bundled the pinned unrpyc 2.0.2 runtime and MIT license inside every RenWeave distribution.

@@ -19,7 +19,7 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 - A preflight Token budget before starting and a persistent provider-reported usage ledger while running.
 - Structural validation for Ren'Py tags, interpolation, placeholders, IDs, and generated scripts.
 - Selective cross-scene refinement instead of paying to resend every translated line.
-- Deterministic language directories and verified RPA 3.0 packages.
+- Validated standard RPY language directories in every run, plus optional verified RPA 3.0 archives enabled by default.
 - Original game files remain read-only unless installation is explicitly enabled.
 
 ## Quick start
@@ -39,7 +39,7 @@ The desktop app guides you through five steps:
 2. Choose the Ren'Py game and an isolated workspace.
 3. Choose any source and target languages.
 4. Review the automatically selected pipeline, output options, and estimated Token budget.
-5. Start once and follow unpacking, analysis, translation, refinement, validation, packaging, ETA, and Token usage.
+5. Start once and follow unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
 
 English is the default interface language. Use the compact **English / 中文** switch in the top-right corner to change it immediately. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
 
@@ -88,7 +88,7 @@ renweave run "D:\Games\Example" `
   --target-language "Português do Brasil"
 ```
 
-Add `--install` only when you want the verified output copied to `game/tl/<language>`. Use `renweave build --workspace <path>` to rebuild a package from validated checkpoints without another model call.
+Add `--install` only when you want the verified RPY output copied to `game/tl/<language>`. RPA creation is enabled by default; add `--no-rpa` to keep only the validated RPY files. Use `renweave build --workspace <path>` to rebuild outputs from validated checkpoints without another model call.
 
 ## Progress, pause, and recovery
 
@@ -138,7 +138,8 @@ flowchart LR
     D --> E[Context-aware translation]
     E --> F[Validate and repair]
     F --> G[Risk-only refinement]
-    G --> H[Build and verify package]
+    G --> H[Build and verify RPY files]
+    H --> I[Optional RPA archive]
 ```
 
 RenWeave limits extra Token use through deterministic pre-analysis, hierarchical evidence summaries, scene-specific context, content-addressed caches, targeted repairs, and risk-only global refinement. Estimated and reported usage, request counts, phase breakdowns, and cache-aware resumability are recorded in the workspace.

@@ -2,7 +2,7 @@
 
 ## Release target
 
-RenWeave 1.8 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable language directory and verified RPA package. It accepts any source and target languages understood by the selected model, discovers live account catalogs across major official and aggregated APIs, protects keys through encrypted OS storage by default, exposes preflight and provider-reported Token usage, includes its required decompiler for offline use, and applies one responsive, no-jump component and alignment system across the entire desktop workflow.
+RenWeave 1.9 provides a complete, context-aware and resumable Ren'Py localization path from a game directory to an installable RPY language directory and an optional verified RPA archive. It accepts any source and target languages understood by the selected model, discovers live account catalogs across major official and aggregated APIs, protects keys through encrypted OS storage by default, exposes preflight and provider-reported Token usage, includes its required decompiler for offline use, and applies one responsive, no-jump component and alignment system across the entire desktop workflow.
 
 ## Requirement coverage
 
@@ -16,9 +16,9 @@ RenWeave 1.8 provides a complete, context-aware and resumable Ren'Py localizatio
 | Avoid line-by-line translation | Complete | Whole-scene translation with control-flow neighbors and compact relevant narrative context |
 | Minimize additional Token use | Complete | Zero-Token deterministic pre-analysis, content-addressed caches, bounded context, targeted repair, risk-only refinement, and resume-safe usage counters |
 | Token cost awareness | Complete | Read-only preflight range, indexed refinement, live provider-reporting status, input/output totals, and atomic `usage.json` phase ledger |
-| Fully automatic translation | Complete | Discover → acquire → decompile → index → synthesize → translate → repair → refine → emit → validate → package → optional install |
+| Fully automatic translation | Complete | Discover → acquire → decompile → index → synthesize → translate → repair → refine → emit RPY → validate → optional RPA → optional install |
 | Preserve Ren'Py semantics | Complete | Stable text IDs and validation of coverage, tags, interpolation, placeholders, and generated scripts |
-| Build and distribute | Complete | Standard `game/tl/<language>` scripts, deterministic verified RPA 3.0, safe installer, CI, and manual release automation |
+| Build and distribute | Complete | Standard `game/tl/<language>` RPY scripts always retained, default-on optional verified RPA 3.0, safe installer, CI, and manual release automation |
 | Recover from failures | Complete | Atomic workspace artifacts, completed-scene checkpoints, request retries, targeted repair, and persistent diagnostics |
 | Visible progress and ETA | Complete | Weighted 0–100% pipeline progress, phase and scene status, checkpoint counts, provider-reported versus estimated Token usage, and adaptive ETA |
 | Safe pause and resume | Complete | Cooperative phase/scene cancellation, content fingerprints, checkpoint revalidation, CLI interrupt handling, workspace locking, and failure circuit breaking |

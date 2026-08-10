@@ -56,6 +56,8 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - Every clickable control has hover, pressed, disabled, and keyboard-focus states. Focus is a solid accent border/state contrast; dotted focus rectangles are prohibited.
 - Disabled controls use both reduced contrast and native disabled semantics.
 - Important controls include concise inline consequences and delayed guidance tooltips.
+- Review-page output choices use vertically aligned checkboxes followed by consequence text; RPA creation appears before installation because it changes workspace artifacts, while installation changes the selected game.
+- The RPA choice is on by default, and its inline copy always states that validated RPY files remain available when it is off.
 - API-contacting actions state whether they normally consume Tokens.
 - Keyboard focus follows the visual order; dialogs support `Escape`, and confirmation supports `Return` where safe.
 - Text contrast targets WCAG AA. Color is never the only status signal.

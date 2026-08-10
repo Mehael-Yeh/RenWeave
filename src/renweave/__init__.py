@@ -20,4 +20,4 @@ __all__ = [
     "TextUnit",
     "TokenBudget",
 ]
-__version__ = "1.8.0"
+__version__ = "1.9.0"

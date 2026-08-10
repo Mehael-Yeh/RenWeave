@@ -66,6 +66,7 @@ class PipelineState:
     renpy_language: str = ""
     output_dir: str = ""
     installed_dir: str = ""
+    generate_rpa: bool = True
     package_path: str = ""
     package_sha256: str = ""
     build_validation_status: str = ""
@@ -316,6 +317,7 @@ class RenWeavePipeline:
         allow_tool_download: bool = False,
         synthesize_knowledge: bool = True,
         refine_translations: bool = True,
+        generate_rpa: bool = True,
         renpy_sdk_path: str | Path | None = None,
         require_engine_validation: bool = False,
         cancel_token: CancellationToken | None = None,
@@ -339,6 +341,9 @@ class RenWeavePipeline:
         state = self._load_state()
         completed_run_before_resume = state.stage == PipelineStage.COMPLETE
         state.run_status = "running"
+        state.generate_rpa = bool(generate_rpa)
+        if not install:
+            state.installed_dir = ""
         state.pause_reason = ""
         state.error = ""
         if not state.started_at:
@@ -614,7 +619,7 @@ class RenWeavePipeline:
                 if self._cancelled(cancel_token):
                     return self._pause(state, "Cancellation requested after global refinement")
             state.stage = PipelineStage.BUILDING
-            state.current_operation = "Building the Ren'Py language package"
+            state.current_operation = "Generating Ren'Py translation scripts"
             self._save_state(state)
             try:
                 manifest = RenpyTranslationEmitter().emit(
@@ -624,7 +629,7 @@ class RenWeavePipeline:
                     self.output_dir,
                 )
                 state.stage = PipelineStage.VALIDATING_BUILD
-                state.current_operation = "Validating generated scripts and package integrity"
+                state.current_operation = "Validating generated Ren'Py scripts"
                 self._save_state(state)
                 validation = self._validate_build(
                     manifest,
@@ -636,11 +641,9 @@ class RenWeavePipeline:
                 state.engine_validation_status = validation.engine.status
                 if not validation.passed:
                     raise ValueError("生成的语言包未通过构建验证，详见 build-validation.json")
-                package = self._package(manifest)
                 state.renpy_language = manifest.renpy_language
                 state.output_dir = manifest.output_dir
-                state.package_path = package.archive_path
-                state.package_sha256 = package.archive_sha256
+                self._apply_package_choice(manifest, state, generate_rpa=generate_rpa)
                 if install:
                     installed = TranslationInstaller().install(
                         manifest,
@@ -651,7 +654,11 @@ class RenWeavePipeline:
                     state.installed_dir = installed.destination
                 state.stage = PipelineStage.COMPLETE
                 state.run_status = "complete"
-                state.current_operation = "Translation package is ready"
+                state.current_operation = (
+                    "Translation scripts and RPA archive are ready"
+                    if generate_rpa
+                    else "Translation scripts are ready"
+                )
                 state.current_scene_id = ""
                 state.current_scene_label = ""
                 state.eta_seconds = 0
@@ -659,7 +666,7 @@ class RenWeavePipeline:
             except Exception as exc:
                 state.stage = PipelineStage.FAILED
                 state.run_status = "failed"
-                state.current_operation = "Build or package validation failed"
+                state.current_operation = "Build validation or output generation failed"
                 state.error = str(exc)
                 self.logger.exception("build_failed", exc, stage=str(state.stage))
                 self._save_state(state)
@@ -693,11 +700,15 @@ class RenWeavePipeline:
         requested_language: str | None = None,
         install: bool = False,
         overwrite_existing: bool = False,
+        generate_rpa: bool = True,
         renpy_sdk_path: str | Path | None = None,
         require_engine_validation: bool = False,
     ):
         """Build translation scripts from all validated scene artifacts."""
         state = self._load_state()
+        state.generate_rpa = bool(generate_rpa)
+        if not install:
+            state.installed_dir = ""
         index = ProjectIndex.from_dict(read_json(self.index_path))
         language = requested_language or state.target_language
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
@@ -725,11 +736,9 @@ class RenWeavePipeline:
             state.error = "生成的语言包未通过构建验证，详见 build-validation.json"
             self._save_state(state)
             raise ValueError(state.error)
-        package = self._package(manifest)
         state.renpy_language = manifest.renpy_language
         state.output_dir = manifest.output_dir
-        state.package_path = package.archive_path
-        state.package_sha256 = package.archive_sha256
+        self._apply_package_choice(manifest, state, generate_rpa=generate_rpa)
         if install:
             installed = TranslationInstaller().install(
                 manifest,
@@ -742,12 +751,45 @@ class RenWeavePipeline:
         self._save_state(state)
         return manifest
 
+    def _apply_package_choice(
+        self,
+        manifest: BuildManifest,
+        state: PipelineState,
+        *,
+        generate_rpa: bool,
+    ) -> None:
+        state.generate_rpa = bool(generate_rpa)
+        if generate_rpa:
+            package = self._package(manifest)
+            state.package_path = package.archive_path
+            state.package_sha256 = package.archive_sha256
+            return
+        manifest.archive_path = ""
+        manifest.archive_sha256 = ""
+        state.package_path = ""
+        state.package_sha256 = ""
+        atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
+        atomic_write_json(
+            self.package_path,
+            {
+                "schema_version": 1,
+                "generated": False,
+                "format": "",
+                "archive_path": "",
+                "archive_size": 0,
+                "archive_sha256": "",
+                "members": [],
+            },
+        )
+
     def _package(self, manifest: BuildManifest) -> PackageManifest:
         package = TranslationPackager().package(manifest, self.packages_dir)
         manifest.archive_path = package.archive_path
         manifest.archive_sha256 = package.archive_sha256
         atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
-        atomic_write_json(self.package_path, package.to_dict())
+        package_payload = package.to_dict()
+        package_payload["generated"] = True
+        atomic_write_json(self.package_path, package_payload)
         return package
 
     def _validate_build(
@@ -888,7 +930,7 @@ class RenWeavePipeline:
         project_fingerprint: str,
     ) -> PipelineState:
         state = PipelineState(
-            schema_version=3,
+            schema_version=4,
             project_target=str(Path(target).expanduser().resolve()),
             source_language=source_language,
             target_language=target_language,
@@ -900,6 +942,7 @@ class RenWeavePipeline:
             if target_language.casefold() != "und"
             else "",
             installed_dir="",
+            generate_rpa=True,
             package_path="",
             package_sha256="",
             build_validation_status="",
@@ -930,6 +973,7 @@ class RenWeavePipeline:
         payload.setdefault("renpy_language", "")
         payload.setdefault("output_dir", "")
         payload.setdefault("installed_dir", "")
+        payload.setdefault("generate_rpa", True)
         payload.setdefault("package_path", "")
         payload.setdefault("package_sha256", "")
         payload.setdefault("build_validation_status", "")

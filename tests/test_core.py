@@ -130,7 +130,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.8.0")
+        self.assertEqual(renweave.__version__, "1.9.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -219,6 +219,7 @@ class CorePipelineTests(unittest.TestCase):
             source_language="English",
             target_language="Português do Brasil",
             api_key="memory-only-secret",
+            generate_rpa=False,
             install=True,
         )
         result = execute_translation(request, pipeline_factory=FakePipeline)
@@ -226,6 +227,7 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(captured["args"][2], "Português do Brasil")
         self.assertEqual(captured["args"][3].api_key, "memory-only-secret")
         self.assertTrue(captured["kwargs"]["install"])
+        self.assertFalse(captured["kwargs"]["generate_rpa"])
         self.assertNotIn("memory-only-secret", provider.read_text(encoding="utf-8"))
         self.assertFalse(workspace.exists())
 
@@ -272,6 +274,7 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.selected_provider_id.get(), "openai")
             self.assertEqual(app.key_storage.get(), "secure")
             self.assertFalse(app.update_checks_enabled.get())
+            self.assertTrue(app.generate_rpa.get())
             self.assertEqual(app.reasoning_level.get(), "auto")
             self.assertEqual(
                 tuple(app.reasoning_box.cget("values")),
@@ -362,6 +365,8 @@ class CorePipelineTests(unittest.TestCase):
             review_text = "\n".join(visible_texts(app.content))
             self.assertIn("预计 TOKEN 预算", review_text)
             self.assertIn("Token", review_text)
+            self.assertIn("生成通过验证的 RPA 归档", review_text)
+            self.assertIn("标准 RPY 翻译文件也始终保留", review_text)
 
             class ActiveWorker:
                 @staticmethod
@@ -703,6 +708,9 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue(Path(state.package_path).is_file())
         self.assertEqual(len(state.package_sha256), 64)
         self.assertTrue((workspace / "package.json").is_file())
+        self.assertTrue(
+            json.loads((workspace / "package.json").read_text(encoding="utf-8"))["generated"]
+        )
         self.assertEqual(state.build_validation_status, "passed")
         self.assertEqual(state.engine_validation_status, "skipped")
         self.assertTrue((workspace / "build-validation.json").is_file())
@@ -719,6 +727,17 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(usage["actual"]["total_tokens"], 45)
         self.assertGreater(usage["estimate"]["total_low"], 0)
         self.assertGreaterEqual(usage["estimate"]["total_high"], usage["estimate"]["total_low"])
+
+        rebuilt = RenWeavePipeline(workspace).build(generate_rpa=False)
+        rebuilt_state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
+        package_status = json.loads((workspace / "package.json").read_text(encoding="utf-8"))
+        self.assertFalse(rebuilt_state["generate_rpa"])
+        self.assertEqual(rebuilt_state["package_path"], "")
+        self.assertEqual(rebuilt_state["package_sha256"], "")
+        self.assertEqual(rebuilt.archive_path, "")
+        self.assertFalse(package_status["generated"])
+        self.assertTrue(Path(rebuilt.output_dir, "script.rpy").is_file())
+        self.assertTrue(Path(rebuilt.output_dir, "strings.rpy").is_file())
 
     def test_token_budget_exposes_preflight_and_indexed_ranges(self) -> None:
         preflight = estimate_project_tokens(self.root)

@@ -111,6 +111,36 @@ class CliEndToEndTests(unittest.TestCase):
             self.assertIn('narrator "PT: Hello [player]."', generated)
             self.assertIn('narrator "PT: Goodbye."', generated)
 
+            rebuilt = subprocess.run(
+                [
+                    sys.executable,
+                    "-X",
+                    "utf8",
+                    "-m",
+                    "renweave",
+                    "build",
+                    "--workspace",
+                    str(workspace),
+                    "--no-rpa",
+                ],
+                cwd=repository,
+                env=environment,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(rebuilt.returncode, 0, rebuilt.stdout + rebuilt.stderr)
+            rebuilt_state = json.loads(
+                (workspace / "state.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(rebuilt_state["generate_rpa"])
+            self.assertEqual(rebuilt_state["package_path"], "")
+            self.assertTrue(
+                (workspace / "output" / "game" / "tl" / "pt_br" / "script.rpy").is_file()
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

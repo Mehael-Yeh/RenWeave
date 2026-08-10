@@ -36,6 +36,7 @@ class TranslationRequest:
     source_language: str
     target_language: str
     api_key: str = ""
+    generate_rpa: bool = True
     install: bool = False
     overwrite_existing: bool = False
     renpy_sdk: str = ""
@@ -78,6 +79,7 @@ def execute_translation(
             profile,
             install=request.install,
             overwrite_existing=request.overwrite_existing,
+            generate_rpa=request.generate_rpa,
             renpy_sdk_path=request.renpy_sdk or None,
             require_engine_validation=request.require_engine_validation,
             cancel_token=cancel_token,
@@ -441,8 +443,10 @@ _BASE_COPY = {
         "review.game": "Game and workspace",
         "review.languages": "Translation",
         "review.options": "Output options",
+        "review.rpa": "Create a verified RPA archive",
+        "review.rpa_hint": "On by default. Standard RPY translation files are always preserved in the workspace, even when this is off.",
         "review.install": "Install the completed language package into the game",
-        "review.install_hint": "Off by default. The packaged output always remains in the workspace.",
+        "review.install_hint": "Off by default. Generated RPY files always remain in the workspace.",
         "review.engine_yes": "Ren'Py engine validation required",
         "review.engine_no": "Built-in validation",
         "review.key_safe": "API key stays in encrypted system storage or session memory",
@@ -453,7 +457,10 @@ _BASE_COPY = {
         "progress.log": "Activity",
         "progress.started": "Task started. Analysis and AI artifacts are being written to the isolated workspace.",
         "progress.complete": "Translation complete",
-        "progress.complete_body": "The verified language package and RPA archive are ready.",
+        "progress.complete_body_rpa": "The verified RPY translation files and RPA archive are ready.",
+        "progress.complete_body_rpy": "The verified RPY translation files are ready. RPA creation was disabled.",
+        "progress.rpy_output": "RPY files",
+        "progress.rpa_output": "RPA archive",
         "progress.failed": "Translation stopped",
         "progress.failed_body": "The workspace, checkpoints, and diagnostics were kept so the task can be retried.",
         "dialog.cannot_continue": "Cannot continue",
@@ -534,8 +541,10 @@ _BASE_COPY = {
         "review.game": "游戏与工作区",
         "review.languages": "翻译语言",
         "review.options": "输出选项",
+        "review.rpa": "生成通过验证的 RPA 归档",
+        "review.rpa_hint": "默认开启。即使关闭此项，标准 RPY 翻译文件也始终保留在工作区。",
         "review.install": "完成后将语言包安装到游戏",
-        "review.install_hint": "默认关闭；打包输出始终会保留在工作区。",
+        "review.install_hint": "默认关闭；生成的 RPY 文件始终保留在工作区。",
         "review.engine_yes": "必须通过 Ren'Py 引擎验证",
         "review.engine_no": "使用内置验证",
         "review.key_safe": "API 密钥仅保存在系统加密凭据库或会话内存",
@@ -546,7 +555,10 @@ _BASE_COPY = {
         "progress.log": "活动记录",
         "progress.started": "任务已启动，分析结果与 AI 产物正在写入独立工作区。",
         "progress.complete": "翻译完成",
-        "progress.complete_body": "已生成通过验证的语言包和 RPA 归档。",
+        "progress.complete_body_rpa": "已生成通过验证的 RPY 翻译文件和 RPA 归档。",
+        "progress.complete_body_rpy": "已生成通过验证的 RPY 翻译文件；本次未生成 RPA。",
+        "progress.rpy_output": "RPY 文件",
+        "progress.rpa_output": "RPA 归档",
         "progress.failed": "翻译已停止",
         "progress.failed_body": "工作区、检查点与诊断信息均已保留，可以重试。",
         "dialog.cannot_continue": "无法继续",
@@ -1007,6 +1019,7 @@ class RenWeaveDesktopApp:
         self.source_language = tk.StringVar(value="auto")
         self.target_language = tk.StringVar()
         self.renpy_sdk = tk.StringVar()
+        self.generate_rpa = tk.BooleanVar(value=True)
         self.install = tk.BooleanVar(value=False)
         self.require_engine = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value=self.t("model.idle_body"))
@@ -1925,12 +1938,34 @@ class RenWeaveDesktopApp:
         else:
             self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
 
-        self.ttk.Checkbutton(card, text=self.t("review.install"), variable=self.install, style="Material.TCheckbutton").grid(row=3, column=0, columnspan=2, sticky="w", pady=(16, 0))
-        self.ttk.Label(card, text=self.t("review.install_hint"), style="Hint.TLabel").grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.ttk.Label(card, text=self.t("review.key_safe"), style="Hint.TLabel").grid(row=5, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self.ttk.Checkbutton(
+            card,
+            text=self.t("review.rpa"),
+            variable=self.generate_rpa,
+            style="Material.TCheckbutton",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(16, 0))
+        self.ttk.Label(
+            card,
+            text=self.t("review.rpa_hint"),
+            style="Hint.TLabel",
+            wraplength=720,
+            justify="left",
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Checkbutton(
+            card,
+            text=self.t("review.install"),
+            variable=self.install,
+            style="Material.TCheckbutton",
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        self.ttk.Label(
+            card, text=self.t("review.install_hint"), style="Hint.TLabel"
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Label(
+            card, text=self.t("review.key_safe"), style="Hint.TLabel"
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(12, 0))
         if self.resume_candidate:
             resume = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
-            resume.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+            resume.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(12, 0))
             self.ttk.Label(resume, text=self.t("review.resume_found"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
             self.ttk.Label(
                 resume,
@@ -2308,6 +2343,7 @@ class RenWeaveDesktopApp:
             source_language=self.source_language.get().strip() or "auto",
             target_language=self.target_language.get().strip(),
             api_key=self.api_key.get(),
+            generate_rpa=self.generate_rpa.get(),
             install=self.install.get(),
             renpy_sdk=self.renpy_sdk.get().strip(),
             require_engine_validation=self.require_engine.get(),
@@ -2480,11 +2516,24 @@ class RenWeaveDesktopApp:
                 self.progress_payload = state.to_dict()
                 self.last_stage = "complete"
                 self.status.set(self.t("progress.complete"))
-                self._append_log(f"Package: {state.package_path}")
+                self._append_log(f"{self.t('progress.rpy_output')}: {state.output_dir}")
+                if state.package_path:
+                    self._append_log(f"{self.t('progress.rpa_output')}: {state.package_path}")
                 if state.installed_dir:
                     self._append_log(f"Installed: {state.installed_dir}")
                 self._render()
-                self._dialog(self.t("dialog.complete"), f"{self.t('progress.complete_body')}\n\n{state.package_path}")
+                body_key = (
+                    "progress.complete_body_rpa"
+                    if state.package_path
+                    else "progress.complete_body_rpy"
+                )
+                outputs = [f"{self.t('progress.rpy_output')}: {state.output_dir}"]
+                if state.package_path:
+                    outputs.append(f"{self.t('progress.rpa_output')}: {state.package_path}")
+                self._dialog(
+                    self.t("dialog.complete"),
+                    self.t(body_key) + "\n\n" + "\n".join(outputs),
+                )
             elif kind == "paused":
                 state = value
                 self.worker = None

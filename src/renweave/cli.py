@@ -56,6 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--install", action="store_true", help="构建成功后安装到游戏的 game/tl/<language>")
     run.add_argument(
+        "--no-rpa",
+        action="store_true",
+        help="不生成 RPA 归档；经过验证的 RPY 翻译文件仍会保留",
+    )
+    run.add_argument(
         "--overwrite-existing",
         action="store_true",
         help="安装时允许覆盖不是由 RenWeave 生成的同名文件",
@@ -71,6 +76,11 @@ def _parser() -> argparse.ArgumentParser:
         help="未找到 SDK 或 compile 失败时终止构建",
     )
     build.add_argument("--install", action="store_true", help="构建成功后安装到原游戏目录")
+    build.add_argument(
+        "--no-rpa",
+        action="store_true",
+        help="不生成 RPA 归档；经过验证的 RPY 翻译文件仍会保留",
+    )
     build.add_argument(
         "--overwrite-existing",
         action="store_true",
@@ -162,6 +172,7 @@ def main(argv: list[str] | None = None) -> int:
                 requested_language=args.target_language,
                 install=args.install,
                 overwrite_existing=args.overwrite_existing,
+                generate_rpa=not args.no_rpa,
                 renpy_sdk_path=args.renpy_sdk,
                 require_engine_validation=args.require_renpy_validation,
             )
@@ -182,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_tool_download=False,
             synthesize_knowledge=not args.no_ai_knowledge,
             refine_translations=not args.no_refine,
+            generate_rpa=not args.no_rpa,
             renpy_sdk_path=args.renpy_sdk,
             require_engine_validation=args.require_renpy_validation,
         )
