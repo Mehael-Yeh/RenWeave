@@ -146,7 +146,7 @@ RenWeave limits extra Token use through deterministic pre-analysis, hierarchical
 ## Compatibility and safety
 
 - Reads `.rpy`, `.rpym`, `.rpyc`, `.rpymc`, and RPA 2.0/3.0/3.2 archives.
-- Downloads a pinned, SHA-256-verified unrpyc release only when compiled scripts require it; `--no-tool-download` forces offline operation.
+- Ships the pinned, integrity-verified unrpyc 2.0.2 runtime and license inside the package; no executable tool is downloaded while processing a game.
 - Always performs static generated-script validation. An optional Ren'Py SDK enables isolated engine compilation; `--require-renpy-validation` makes it mandatory.
 - Only process games you are authorized to modify. Do not report secrets or proprietary game assets in public issues.
 
@@ -172,5 +172,6 @@ CI tests Python 3.10 and 3.13 on Windows and Linux. Maintainers can publish a ta
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [GPL-3.0 license](LICENSE)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 Issues and pull requests are welcome. Please never include API keys, copyrighted game files, or private model responses.

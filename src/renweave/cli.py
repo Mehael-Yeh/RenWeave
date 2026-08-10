@@ -28,8 +28,8 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("target", help="游戏根目录、game 目录或游戏程序")
     analyze.add_argument("--workspace", required=True, help="RenWeave 独立工作目录")
     analyze.add_argument("--source-language", default="auto", help="源语言代码或名称；默认自动识别")
-    analyze.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
-    analyze.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
+    analyze.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认使用软件内置版本")
+    analyze.add_argument("--no-tool-download", action="store_true", help=argparse.SUPPRESS)
 
     run = commands.add_parser("run", help="执行场景级翻译流水线")
     run.add_argument("target", help="游戏根目录、game 目录或游戏程序")
@@ -37,8 +37,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--provider", required=True, help="模型配置 JSON")
     run.add_argument("--source-language", default="auto", help="源语言代码或名称；默认自动识别")
     run.add_argument("--target-language", required=True, help="任意目标语言代码或名称，例如 es-ES、ja、Deutsch")
-    run.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
-    run.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
+    run.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认使用软件内置版本")
+    run.add_argument("--no-tool-download", action="store_true", help=argparse.SUPPRESS)
     run.add_argument("--no-ai-knowledge", action="store_true", help="跳过 AI 剧情知识提炼，仅使用零 Token 证据层")
     run.add_argument("--no-refine", action="store_true", help="跳过跨场景风险审计与 AI 精修")
     run.add_argument("--renpy-sdk", help="用于隔离编译验证的 Ren'Py SDK 目录")
@@ -80,8 +80,8 @@ def _parser() -> argparse.ArgumentParser:
     decompile = commands.add_parser("decompile", help="解包并反编译项目中缺少 RPY 源码的 RPYC/RPYMC")
     decompile.add_argument("target", help="游戏根目录、game 目录或游戏程序")
     decompile.add_argument("--workspace", required=True, help="RenWeave 独立工作目录")
-    decompile.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认按需下载固定版本")
-    decompile.add_argument("--no-tool-download", action="store_true", help="禁止自动下载反编译器")
+    decompile.add_argument("--unrpyc", help="自定义 unrpyc.py 路径；默认使用软件内置版本")
+    decompile.add_argument("--no-tool-download", action="store_true", help=argparse.SUPPRESS)
 
     provider = commands.add_parser("provider-check", help="离线检查模型配置")
     provider.add_argument("config", help="模型配置 JSON")
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             manifest = pipeline.decompile(
                 args.target,
                 unrpyc_path=args.unrpyc,
-                allow_tool_download=not args.no_tool_download,
+                allow_tool_download=False,
             )
             print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
             return 0
@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.target,
                 source_language=args.source_language,
                 unrpyc_path=args.unrpyc,
-                allow_tool_download=not args.no_tool_download,
+                allow_tool_download=False,
             )
             print(json.dumps({
                 "project": index.project.name,
@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             overwrite_existing=args.overwrite_existing,
             repair_attempts=max(0, args.repair_attempts),
             unrpyc_path=args.unrpyc,
-            allow_tool_download=not args.no_tool_download,
+            allow_tool_download=False,
             synthesize_knowledge=not args.no_ai_knowledge,
             refine_translations=not args.no_refine,
             renpy_sdk_path=args.renpy_sdk,

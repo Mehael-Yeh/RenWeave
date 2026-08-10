@@ -8,7 +8,6 @@ import sys
 import tempfile
 import unittest
 import zlib
-import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -23,8 +22,8 @@ from renweave.build_validation import (
     RenpySdk,
 )
 from renweave.decompiler import (
-    UNRPYC_ARCHIVE_SHA256,
-    UNRPYC_COMMIT,
+    UNRPYC_BUNDLED_FILES,
+    UNRPYC_BUNDLED_TREE_SHA256,
     DecompilationError,
     UnrpycDecompiler,
     UnrpycToolManager,
@@ -131,7 +130,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.7.0")
+        self.assertEqual(renweave.__version__, "1.8.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -1527,10 +1526,25 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(len(manifest["files"]), 1)
         self.assertEqual(manifest["tool_version"], "2.0.2")
 
-    def test_unrpyc_download_can_be_disabled(self) -> None:
-        manager = UnrpycToolManager(Path(self.temp.name) / "empty-tools")
-        with self.assertRaises(DecompilationError):
-            manager.resolve(allow_download=False)
+    def test_unrpyc_is_bundled_and_installs_without_network(self) -> None:
+        manager = UnrpycToolManager(Path(self.temp.name) / "offline-tools")
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network used")) as urlopen:
+            entrypoint = manager.resolve(allow_download=False)
+        urlopen.assert_not_called()
+        self.assertTrue(entrypoint.is_file())
+        installed_files = {
+            path.relative_to(manager.install_dir).as_posix()
+            for path in manager.install_dir.rglob("*")
+            if path.is_file() and path.name != "renweave-source.json"
+        }
+        self.assertEqual(installed_files, set(UNRPYC_BUNDLED_FILES))
+        metadata = json.loads(
+            (manager.install_dir / "renweave-source.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["distribution"], "bundled")
+        self.assertEqual(metadata["tree_sha256"], UNRPYC_BUNDLED_TREE_SHA256)
+        self.assertEqual(UnrpycDecompiler(entrypoint).version(), "Unrpyc v2.0.2")
+        self.assertEqual(manager.resolve(), entrypoint)
 
     def test_failed_decompilation_keeps_diagnostic_manifest(self) -> None:
         project = Path(self.temp.name) / "BrokenCompiledGame"
@@ -1552,34 +1566,13 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(diagnostics["files"], [])
         self.assertIn("nonproducing-unrpyc", diagnostics["tool"])
 
-    def test_unrpyc_tool_archive_rejects_path_traversal(self) -> None:
-        payload = io.BytesIO()
-        with zipfile.ZipFile(payload, "w") as archive:
-            archive.writestr("unrpyc-root/../escape.py", "bad")
-        with self.assertRaises(DecompilationError):
-            UnrpycToolManager._extract_verified(
-                payload.getvalue(),
-                Path(self.temp.name) / "unsafe-tool",
-            )
-
     def test_cached_unrpyc_install_detects_tampering(self) -> None:
         manager = UnrpycToolManager(Path(self.temp.name) / "verified-tools")
-        manager.install_dir.mkdir(parents=True)
-        (manager.install_dir / "unrpyc.py").write_text("print('ok')\n", encoding="utf-8")
-        dependency = manager.install_dir / "decompiler.py"
-        dependency.write_text("VALUE = 1\n", encoding="utf-8")
-        (manager.install_dir / "renweave-source.json").write_text(
-            json.dumps({
-                "commit": UNRPYC_COMMIT,
-                "archive_sha256": UNRPYC_ARCHIVE_SHA256,
-                "tree_sha256": manager._tree_digest(manager.install_dir),
-            }),
-            encoding="utf-8",
-        )
-        self.assertTrue(manager.resolve(allow_download=False).is_file())
-        dependency.write_text("VALUE = 2\n", encoding="utf-8")
+        self.assertTrue(manager.resolve().is_file())
+        dependency = manager.install_dir / "decompiler" / "util.py"
+        dependency.write_text("# tampered\n", encoding="utf-8")
         with self.assertRaises(DecompilationError):
-            manager.resolve(allow_download=False)
+            manager.resolve()
 
     def _write_fake_unrpyc(self) -> Path:
         tool_dir = Path(self.temp.name) / "fake-unrpyc"

@@ -146,7 +146,7 @@ flowchart LR
 ## 兼容性与安全
 
 - 读取 `.rpy`、`.rpym`、`.rpyc`、`.rpymc` 和 RPA 2.0/3.0/3.2。
-- 只有编译脚本确实需要时，才下载固定版本且通过 SHA-256 校验的 unrpyc；`--no-tool-download` 可强制离线。
+- 软件包内置固定版本且经过完整性校验的 unrpyc 2.0.2 及其许可证；处理游戏时不会下载任何可执行工具。
 - 始终执行生成脚本静态验证。可选 Ren'Py SDK 用于隔离引擎编译；`--require-renpy-validation` 会把它设为强制要求。
 - 只处理你有权修改的游戏；不要在公开 Issue 中提交密钥或游戏资产。
 

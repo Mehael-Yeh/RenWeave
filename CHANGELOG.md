@@ -2,6 +2,13 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.8.0 - 2026-08-10
+
+- Bundled the pinned unrpyc 2.0.2 runtime and MIT license inside every RenWeave distribution.
+- Removed runtime executable-tool downloads; compiled-script acquisition now works fully offline by default.
+- Added package-resource integrity verification, isolated extraction, tamper detection, and no-bytecode subprocess execution for the bundled tool.
+- Retained explicit `--unrpyc` and `RENWEAVE_UNRPYC` overrides for advanced compatibility needs.
+
 ## 1.7.0 - 2026-08-10
 
 - Removed every hard-coded model ID; successful model discovery now uses only the provider's current account catalog.

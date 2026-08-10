@@ -1,0 +1,2 @@
+# Preserve vendored upstream tool bytes so the pinned tree hash is platform-independent.
+src/renweave/_vendor/unrpyc/** -text

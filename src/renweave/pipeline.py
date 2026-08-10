@@ -154,7 +154,7 @@ class RenWeavePipeline:
         source_language: str = "auto",
         target_language: str = "und",
         unrpyc_path: str | Path | None = None,
-        allow_tool_download: bool = True,
+        allow_tool_download: bool = False,
         cancel_token: CancellationToken | None = None,
         progress_callback: Callable[[PipelineState], None] | None = None,
     ) -> tuple[ProjectIndex, KnowledgeBase]:
@@ -255,7 +255,7 @@ class RenWeavePipeline:
         target: str | Path,
         *,
         unrpyc_path: str | Path | None = None,
-        allow_tool_download: bool = True,
+        allow_tool_download: bool = False,
     ) -> DecompilationManifest:
         project = ProjectDiscovery().discover(target)
         acquisition = ArchiveAcquirer().acquire(project, self.acquired_dir, scripts_only=True)
@@ -313,7 +313,7 @@ class RenWeavePipeline:
         overwrite_existing: bool = False,
         repair_attempts: int = 2,
         unrpyc_path: str | Path | None = None,
-        allow_tool_download: bool = True,
+        allow_tool_download: bool = False,
         synthesize_knowledge: bool = True,
         refine_translations: bool = True,
         renpy_sdk_path: str | Path | None = None,

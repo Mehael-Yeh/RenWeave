@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
-import zipfile
 from dataclasses import asdict, dataclass
+from importlib import resources
 from pathlib import Path, PurePosixPath
 
 from .io import atomic_write_bytes, atomic_write_json, read_json
@@ -19,8 +17,21 @@ UNRPYC_VERSION = "2.0.2"
 UNRPYC_COMMIT = "e16a767bbdd75abcf47a318b20480db4a07f7dfa"
 UNRPYC_ARCHIVE_URL = f"https://github.com/CensoredUsername/unrpyc/archive/{UNRPYC_COMMIT}.zip"
 UNRPYC_ARCHIVE_SHA256 = "25a273473cdf205a5ada8e0e9681dc5d31de2ba8bfec29d3f51faa49111b4e0d"
-MAX_TOOL_DOWNLOAD_BYTES = 20 * 1024 * 1024
-MAX_TOOL_EXTRACTED_BYTES = 80 * 1024 * 1024
+UNRPYC_BUNDLED_TREE_SHA256 = "49480a95128db5f5083763b62da16bbb3c1d0c13bf5fd9a087ba5976d98f72fd"
+UNRPYC_BUNDLED_FILES = (
+    "LICENSE",
+    "deobfuscate.py",
+    "unrpyc.py",
+    "decompiler/__init__.py",
+    "decompiler/astdump.py",
+    "decompiler/atldecompiler.py",
+    "decompiler/magic.py",
+    "decompiler/renpycompat.py",
+    "decompiler/sl2decompiler.py",
+    "decompiler/testcasedecompiler.py",
+    "decompiler/translate.py",
+    "decompiler/util.py",
+)
 COMPILED_SUFFIXES = {".rpyc": ".rpy", ".rpymc": ".rpym"}
 ISOLATED_BOOTSTRAP = (
     "import runpy,sys;"
@@ -64,25 +75,26 @@ class DecompilationManifest:
 class UnrpycToolManager:
     def __init__(self, tools_root: str | Path) -> None:
         self.tools_root = Path(tools_root).expanduser().resolve()
-        self.install_dir = self.tools_root / f"unrpyc-{UNRPYC_VERSION}-{UNRPYC_COMMIT[:8]}"
+        self.install_dir = (
+            self.tools_root / f"unrpyc-{UNRPYC_VERSION}-{UNRPYC_COMMIT[:8]}-bundled"
+        )
 
     def resolve(
         self,
         explicit_path: str | Path | None = None,
         *,
-        allow_download: bool = True,
+        allow_download: bool = False,
     ) -> Path:
+        # Kept for API compatibility with 1.x callers. RenWeave never downloads
+        # executable tools at runtime; the verified tool is part of the package.
+        _ = allow_download
         configured = explicit_path or os.environ.get("RENWEAVE_UNRPYC", "")
         if configured:
             return self._entrypoint(Path(configured).expanduser().resolve())
         installed = self.install_dir / "unrpyc.py"
         if installed.is_file():
             return self._validate_install(installed)
-        if not allow_download:
-            raise DecompilationError(
-                "发现仅有 RPYC 的脚本，但 unrpyc 尚未安装；请提供 --unrpyc 或允许工具下载"
-            )
-        return self._download()
+        return self._install_bundled()
 
     @staticmethod
     def _entrypoint(path: Path) -> Path:
@@ -91,41 +103,42 @@ class UnrpycToolManager:
             raise DecompilationError(f"无效的 unrpyc 入口：{entrypoint}")
         return entrypoint
 
-    def _download(self) -> Path:
-        request = urllib.request.Request(
-            UNRPYC_ARCHIVE_URL,
-            headers={"User-Agent": f"RenWeave/{UNRPYC_VERSION}"},
-        )
-        payload = bytearray()
-        with urllib.request.urlopen(request, timeout=120) as response:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                payload.extend(chunk)
-                if len(payload) > MAX_TOOL_DOWNLOAD_BYTES:
-                    raise DecompilationError("unrpyc 下载包超过安全大小限制")
-        digest = hashlib.sha256(payload).hexdigest()
-        if digest != UNRPYC_ARCHIVE_SHA256:
-            raise DecompilationError(
-                f"unrpyc 下载包哈希不匹配：期望 {UNRPYC_ARCHIVE_SHA256}，实际 {digest}"
-            )
-
+    def _install_bundled(self) -> Path:
         self.tools_root.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".unrpyc-", dir=self.tools_root))
         try:
-            self._extract_verified(bytes(payload), staging)
+            bundled = resources.files("renweave").joinpath("_vendor").joinpath("unrpyc")
+            for relative_text in UNRPYC_BUNDLED_FILES:
+                relative = PurePosixPath(relative_text)
+                resource = bundled
+                for part in relative.parts:
+                    resource = resource.joinpath(part)
+                try:
+                    payload = resource.read_bytes()
+                except (FileNotFoundError, OSError) as exc:
+                    raise DecompilationError(
+                        f"The RenWeave installation is missing bundled unrpyc file: {relative_text}"
+                    ) from exc
+                atomic_write_bytes(staging.joinpath(*relative.parts), payload)
             if not (staging / "unrpyc.py").is_file():
-                raise DecompilationError("unrpyc 下载包缺少 unrpyc.py")
+                raise DecompilationError("The bundled unrpyc tool is missing its entry point")
+            tree_sha256 = self._tree_digest(staging)
+            if tree_sha256 != UNRPYC_BUNDLED_TREE_SHA256:
+                raise DecompilationError(
+                    "The bundled unrpyc files failed their installation integrity check"
+                )
             atomic_write_json(staging / "renweave-source.json", {
                 "version": UNRPYC_VERSION,
                 "commit": UNRPYC_COMMIT,
+                "distribution": "bundled",
                 "archive_url": UNRPYC_ARCHIVE_URL,
                 "archive_sha256": UNRPYC_ARCHIVE_SHA256,
-                "tree_sha256": self._tree_digest(staging),
+                "tree_sha256": tree_sha256,
             })
             if self.install_dir.exists():
-                raise DecompilationError(f"unrpyc 安装目录已存在但不完整：{self.install_dir}")
+                raise DecompilationError(
+                    f"The unrpyc installation directory already exists but is incomplete: {self.install_dir}"
+                )
             os.replace(staging, self.install_dir)
         except BaseException:
             if staging.exists():
@@ -140,7 +153,9 @@ class UnrpycToolManager:
         metadata = read_json(metadata_path)
         if (
             metadata.get("commit") != UNRPYC_COMMIT
+            or metadata.get("distribution") != "bundled"
             or metadata.get("archive_sha256") != UNRPYC_ARCHIVE_SHA256
+            or metadata.get("tree_sha256") != UNRPYC_BUNDLED_TREE_SHA256
             or metadata.get("tree_sha256") != self._tree_digest(self.install_dir)
         ):
             raise DecompilationError(f"unrpyc 安装内容校验失败：{self.install_dir}")
@@ -150,32 +165,16 @@ class UnrpycToolManager:
     def _tree_digest(root: Path) -> str:
         digest = hashlib.sha256()
         for path in sorted(root.rglob("*"), key=lambda item: item.as_posix().casefold()):
-            if not path.is_file() or path.name == "renweave-source.json":
+            if (
+                not path.is_file()
+                or path.name == "renweave-source.json"
+                or "__pycache__" in path.parts
+            ):
                 continue
             relative = path.relative_to(root).as_posix()
             digest.update(relative.encode("utf-8"))
             digest.update(hashlib.sha256(path.read_bytes()).digest())
         return digest.hexdigest()
-
-    @staticmethod
-    def _extract_verified(payload: bytes, destination: Path) -> None:
-        total = 0
-        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-            for info in archive.infolist():
-                if info.is_dir():
-                    continue
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == 0o120000:
-                    raise DecompilationError(f"unrpyc 下载包包含符号链接：{info.filename}")
-                parts = PurePosixPath(info.filename).parts
-                if len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
-                    raise DecompilationError(f"unrpyc 下载包包含不安全路径：{info.filename}")
-                relative = Path(*parts[1:])
-                target = destination / relative
-                total += info.file_size
-                if total > MAX_TOOL_EXTRACTED_BYTES:
-                    raise DecompilationError("unrpyc 解压内容超过安全大小限制")
-                atomic_write_bytes(target, archive.read(info))
 
 
 class UnrpycDecompiler:
@@ -319,6 +318,7 @@ class UnrpycDecompiler:
         return [
             self.python_executable,
             "-I",
+            "-B",
             "-c",
             ISOLATED_BOOTSTRAP,
             str(self.entrypoint.parent),
@@ -336,6 +336,7 @@ class UnrpycDecompiler:
         }
         environment["PYTHONIOENCODING"] = "utf-8"
         environment["PYTHONUTF8"] = "1"
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
         return environment
 
     @staticmethod
