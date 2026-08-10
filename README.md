@@ -47,7 +47,7 @@ English is the default interface language. Use the compact **English / 中文** 
 
 The app includes editable presets for common official APIs and aggregators. It validates the endpoint, fetches the account's current `/models` catalog without merging stale built-in model names, keeps exact model IDs editable, maps one thinking-level control to provider-supported request parameters, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
 
-Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key. Secure keys use the OS credential service through `keyring` (Windows Credential Manager on Windows); memory-only mode never persists them.
+Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key. Secure keys use the dedicated `RenWeave API Credentials` namespace in the OS credential service through `keyring` (Windows Credential Manager on Windows); memory-only mode never persists them.
 
 | Provider | Preset endpoint | Notes |
 | --- | --- | --- |

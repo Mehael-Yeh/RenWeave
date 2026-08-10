@@ -47,7 +47,7 @@ renweave-gui
 
 桌面程序内置常见官方 API 与聚合平台的可编辑预设。它会验证接口，只采用账号当前 `/models` 实时目录而不混入过期内置模型名，允许准确填写模型 ID，将统一的思考等级转换为提供商正式支持的参数，用一次最小请求测试所选模型，并自动保存不含密钥的可复用配置。若某个接口不提供 `/models`，仍可填写准确模型 ID 后直接验证。
 
-Windows 设置文件位于 `%APPDATA%\RenWeave\settings.json`，Linux 位于 `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json`；其中不包含 API 密钥。安全模式通过 `keyring` 使用系统凭据服务（Windows 上为 Windows Credential Manager）；仅内存模式不会持久化密钥。
+Windows 设置文件位于 `%APPDATA%\RenWeave\settings.json`，Linux 位于 `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json`；其中不包含 API 密钥。安全模式通过 `keyring` 使用系统凭据服务中的独立 `RenWeave API Credentials` 命名空间（Windows 上为 Windows Credential Manager）；仅内存模式不会持久化密钥。
 
 | 提供商 | 预设地址 | 说明 |
 | --- | --- | --- |

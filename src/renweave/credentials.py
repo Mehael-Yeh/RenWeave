@@ -26,7 +26,7 @@ class SecureCredentialStore:
     """Store API keys in the operating system's encrypted credential service."""
 
     backend: CredentialBackend | None = None
-    service_name: str = "RenWeave"
+    service_name: str = "RenWeave API Credentials"
 
     def _backend(self) -> CredentialBackend:
         if self.backend is not None:
