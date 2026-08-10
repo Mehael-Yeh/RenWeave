@@ -2,6 +2,15 @@
 
 All notable changes to RenWeave are documented here.
 
+## 1.5.0 - 2026-08-10
+
+- Rebuilt the desktop UI around a normative component system with shared color, spacing, sizing, and state tokens.
+- Unified buttons, fields, combo boxes, checkboxes, provider selectors, model lists, diagnostic text, and scrollbars across every screen and dialog.
+- Standardized page alignment and the fixed workflow footer so navigation, consequence copy, and primary actions never jump between steps.
+- Added responsive minimum-window layouts, conditional content scrolling, compact provider and progress grids, and fixed-footer overflow protection.
+- Replaced the model picker with a searchable, keyboard-friendly styled table and centered all application-owned dialogs relative to the workspace.
+- Added component-structure assertions and a normative visual-QA checklist covering all workflow pages, dialogs, states, and supported window sizes.
+
 ## 1.4.0 - 2026-08-10
 
 - Added a read-only preflight Token budget with input, output, and total ranges before translation starts.

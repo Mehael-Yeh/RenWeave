@@ -115,8 +115,8 @@ Diagnostics are always retained under the workspace:
 RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow rail, a high-contrast light work canvas, compact provider tiles, and one restrained indigo accent. The same 8-point spacing rhythm, field treatment, status panels, dialog structure, and three-level button hierarchy are used throughout:
 
 - **Primary** for the single next or confirming action.
-- **Secondary** for an important action that does not advance the workflow.
-- **Ghost** for navigation, browsing, importing, and cancellation.
+- **Secondary** for back, import, cancellation, pause, and other non-destructive alternatives.
+- **Field action** for browse, choose, copy, and controls attached to a specific field.
 
 The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. The model-first setup stays visible, every endpoint remains editable, and all five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 

@@ -2,6 +2,14 @@
 
 RenWeave uses a Material 3–informed **Calm Technical Workspace** system for a focused desktop workflow. This document is normative: new UI code must use these tokens and component roles rather than creating page-specific widget styling.
 
+## Reference basis
+
+- [Material Design 3](https://m3.material.io/) informs semantic color roles, component states, hierarchy, and accessible interaction feedback.
+- [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) informs the explicit design-system workflow, responsive checks, and pre-delivery visual audit.
+- [Awesome Design Systems](https://github.com/alexpate/awesome-design-systems) was used as a catalog of mature system patterns rather than as a source of page-specific styling.
+
+These are design references, not bundled dependencies. RenWeave's Tk implementation, desktop workflow, tokens, and Calm Technical Workspace visual identity are project-specific.
+
 ## Layout grid
 
 - Default window: `1180 × 820`; minimum: `1020 × 720`.

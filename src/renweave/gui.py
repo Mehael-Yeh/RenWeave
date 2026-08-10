@@ -1011,6 +1011,8 @@ class RenWeaveDesktopApp:
             foreground=Colors.NAV_TEXT,
             font=("Segoe UI", 20, "bold"),
             anchor="w",
+            justify="left",
+            wraplength=215,
         )
         self.brand_title.grid(row=0, column=0, sticky="w")
         self.brand_subtitle = self.tk.Label(
@@ -1142,7 +1144,8 @@ class RenWeaveDesktopApp:
             self.content_canvas.yview_moveto(0.0)
 
     def _render(self) -> None:
-        self.brand_title.configure(text=self.t("app_title"))
+        brand_size = 18 if self.locale.get() == "zh" else 20
+        self.brand_title.configure(text=self.t("app_title"), font=("Segoe UI", brand_size, "bold"))
         self.brand_subtitle.configure(text=self.t("app_subtitle"))
         self.workspace_label.configure(text=self.t("workspace_label"))
         self.language_label.configure(text=self.t("language"))
@@ -1367,7 +1370,16 @@ class RenWeaveDesktopApp:
         safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
         safety.grid(row=11, column=0, sticky="ew", pady=(16, 0))
         self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=("Segoe UI", 10, "bold")).pack(side="left")
-        self.tk.Label(safety, text=self.t("game.safety_note"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), wraplength=700, justify="left").pack(side="left", padx=(9, 0))
+        self.tk.Label(
+            safety,
+            text=self.t("game.safety_note"),
+            background=Colors.SUCCESS_CONTAINER,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=("Segoe UI", 9),
+            wraplength=540 if self.compact_layout else 700,
+            justify="left",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=(9, 0))
 
     def _path_field(self, parent, row: int, label: str, variable, hint: str, command: Callable[[], None], tooltip_key: str) -> None:
         self.ttk.Label(parent, text=label, style="Field.TLabel").grid(row=row, column=0, sticky="w")
@@ -1458,7 +1470,7 @@ class RenWeaveDesktopApp:
                 background=Colors.PRIMARY_CONTAINER,
                 foreground=Colors.ON_SURFACE_VARIANT,
                 font=("Segoe UI", 9),
-                wraplength=720,
+                wraplength=560 if self.compact_layout else 720,
                 justify="left",
                 anchor="w",
             ).grid(row=3, column=0, sticky="w", pady=(5, 0))
@@ -1646,7 +1658,7 @@ class RenWeaveDesktopApp:
             self.footer,
             text=self.t(f"footer.effect.{self.STEPS[self.step]}"),
             style="Hint.TLabel",
-            wraplength=330 if self.compact_layout else 560,
+            wraplength=260 if self.compact_layout else 560,
             justify="left",
         )
         effect_padding = Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4

@@ -129,7 +129,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.4.0")
+        self.assertEqual(renweave.__version__, "1.5.0")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -274,6 +274,8 @@ class CorePipelineTests(unittest.TestCase):
             root.update_idletasks()
             self.assertEqual(app.locale.get(), "zh")
             self.assertEqual(app.brand_title.cget("text"), "RenWeave / 织译")
+            self.assertEqual(int(app.brand_title.cget("wraplength")), 215)
+            self.assertLessEqual(app.brand_title.winfo_reqwidth(), 220)
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
 
             app.model.set("translation-model")
