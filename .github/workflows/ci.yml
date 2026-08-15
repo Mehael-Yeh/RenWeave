@@ -22,14 +22,21 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install package and build tools
-        run: python -m pip install --upgrade pip build .
+        run: python -m pip install --upgrade pip build pillow .
       - name: Run tests
         run: python -X utf8 -m unittest discover -s tests -v
       - name: Compile modules
         run: python -m compileall -q src tests
       - name: Verify desktop layouts
         if: runner.os == 'Windows'
-        run: python scripts/visual_smoke_test.py
+        run: python scripts/visual_smoke_test.py --output-dir ui-screenshots
+      - name: Upload desktop visual audit
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots-${{ matrix.python-version }}
+          path: ui-screenshots/*.png
+          if-no-files-found: warn
       - name: Build distributions
         run: python -m build
       - name: Verify bundled offline tools

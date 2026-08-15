@@ -19,6 +19,21 @@ from .usage import TokenBudget, estimate_project_tokens
 from .update_check import UpdateResult, check_for_updates
 
 
+FEATURED_PROVIDER_IDS = (
+    "openai",
+    "google",
+    "anthropic",
+    "deepseek",
+    "minimax",
+    "openrouter",
+)
+
+PROVIDER_SHORT_NAMES_EN = {
+    "alibaba": "Alibaba Cloud",
+    "custom": "Custom API",
+}
+
+
 def default_desktop_settings_path() -> Path:
     """Return the per-user, non-secret desktop settings path."""
     if os.name == "nt" and os.environ.get("APPDATA"):
@@ -126,13 +141,13 @@ COPY["en"].update({
     "settings.credentials": "API key storage",
     "settings.credentials_hint": "Secure storage uses the operating system credential service. API keys never enter RenWeave settings, project files, logs, or translation packages.",
     "settings.secure": "Encrypted system storage (recommended)",
-    "settings.memory": "Memory only — forget keys when RenWeave closes",
+    "settings.memory": "Memory only — cleared when RenWeave closes",
     "settings.forget_key": "Forget current key",
     "settings.key_error": "Credential storage error",
     "settings.key_save_failed": "The model is verified, but the operating system credential service could not save this key. It remains available only for the current session.",
     "settings.updates": "Version updates",
     "settings.updates_hint": "Automatic checks contact GitHub Releases after startup. They are disabled by default and never install anything automatically.",
-    "settings.update_toggle": "Check for new versions after startup",
+    "settings.update_toggle": "Check for updates after startup",
     "settings.check_now": "Check now",
     "settings.current_version": "Installed version: {version}",
     "settings.update_title": "RenWeave update",
@@ -151,6 +166,8 @@ COPY["en"].update({
     "provider.aggregator": "Aggregator",
     "provider.custom": "Custom",
     "provider.selected": "Selected provider",
+    "provider.more": "Show {count} more providers",
+    "provider.less": "Show fewer providers",
     "model.load": "Load available models",
     "model.browse": "Browse {count} models",
     "model.discovery_failed": "Model list unavailable",
@@ -198,7 +215,7 @@ COPY["en"].update({
     "budget.reporting.unavailable": "Provider did not report Token counts; actual usage may be higher",
     "budget.reporting.pending": "Waiting for provider usage data",
     "budget.ledger": "Detailed ledger: {path}",
-    "model.sequence": "1  Choose provider     2  Load or enter model ID     3  Verify with one minimal request",
+    "model.sequence": "1  Provider     2  Model ID     3  Minimal verification",
     "model.load_effect": "Loads the catalog; normally no model Tokens are used.",
     "model.verify_effect": "Sends a minimal request that may bill a few Tokens.",
     "game.safety_note": "The selected game is read-only during analysis. All caches, checkpoints, logs, and packages go to the workspace.",
@@ -266,6 +283,8 @@ COPY["zh"].update({
     "provider.aggregator": "聚合平台",
     "provider.custom": "自定义",
     "provider.selected": "当前提供商",
+    "provider.more": "显示其他 {count} 个提供商",
+    "provider.less": "收起其他提供商",
     "model.load": "获取可用模型",
     "model.browse": "浏览 {count} 个模型",
     "model.discovery_failed": "无法获取模型列表",
@@ -313,7 +332,7 @@ COPY["zh"].update({
     "budget.reporting.unavailable": "提供商未返回 Token 数；实际用量可能更高",
     "budget.reporting.pending": "正在等待提供商用量数据",
     "budget.ledger": "详细账本：{path}",
-    "model.sequence": "1  选择提供商     2  获取或填写模型 ID     3  发送一次最小请求验证",
+    "model.sequence": "1  提供商     2  模型 ID     3  最小请求验证",
     "model.load_effect": "获取模型目录，通常不会消耗模型 Token。",
     "model.verify_effect": "发送最小请求，提供商可能计费少量 Token。",
     "game.safety_note": "分析时游戏目录保持只读；缓存、检查点、日志和语言包全部写入工作区。",
@@ -639,10 +658,10 @@ class Typography:
 class GuidedTooltip:
     """Consistent delayed help for controls whose consequences need explanation."""
 
-    def __init__(self, app: "RenWeaveDesktopApp", widget, text: str) -> None:
+    def __init__(self, app: "RenWeaveDesktopApp", widget, translation_key: str) -> None:
         self.app = app
         self.widget = widget
-        self.text = text
+        self.translation_key = translation_key
         self.after_id = None
         self.window = None
         widget.bind("<Enter>", self._schedule, add="+")
@@ -680,7 +699,7 @@ class GuidedTooltip:
         shell.pack()
         self.app.tk.Label(
             shell,
-            text=self.text,
+            text=self.app.t(self.translation_key),
             background=Colors.NAV,
             foreground=Colors.NAV_TEXT,
             font=(Typography.UI, 9),
@@ -713,8 +732,8 @@ class SettingsDialog:
         self.window = tk.Toplevel(app.root)
         self.window.title(app.t("settings.title"))
         self.window.configure(background=Colors.CARD)
-        self.window.geometry("660x540")
-        self.window.minsize(560, 470)
+        self.window.geometry("820x460")
+        self.window.minsize(760, 440)
         self.window.transient(app.root)
         self.window.grab_set()
         self.window.columnconfigure(0, weight=1)
@@ -725,54 +744,60 @@ class SettingsDialog:
         ttk.Label(header, text=app.t("settings.title"), style="DialogTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             header, text=app.t("settings.body"), style="DialogHint.TLabel",
-            wraplength=590, justify="left"
+            wraplength=750, justify="left"
         ).grid(row=1, column=0, sticky="w", pady=(7, 0))
 
         body = ttk.Frame(self.window, style="Dialog.TFrame", padding=(28, 8, 28, 16))
         body.grid(row=1, column=0, sticky="nsew")
         body.columnconfigure(0, weight=1)
-        ttk.Label(body, text=app.t("settings.credentials"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        body.columnconfigure(1, weight=1)
+
+        credentials = ttk.Frame(body, style="Card.TFrame", padding=18)
+        credentials.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        credentials.columnconfigure(0, weight=1)
+        ttk.Label(credentials, text=app.t("settings.credentials"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            body, text=app.t("settings.credentials_hint"), style="Hint.TLabel",
-            wraplength=590, justify="left"
+            credentials, text=app.t("settings.credentials_hint"), style="Hint.TLabel",
+            wraplength=330, justify="left"
         ).grid(row=1, column=0, sticky="w", pady=(4, 8))
         secure = ttk.Radiobutton(
-            body, text=app.t("settings.secure"), value="secure",
+            credentials, text=app.t("settings.secure"), value="secure",
             variable=app.key_storage, style="Material.TRadiobutton", command=self._storage_changed
         )
         secure.grid(row=2, column=0, sticky="w")
         memory = ttk.Radiobutton(
-            body, text=app.t("settings.memory"), value="memory",
+            credentials, text=app.t("settings.memory"), value="memory",
             variable=app.key_storage, style="Material.TRadiobutton", command=self._storage_changed
         )
         memory.grid(row=3, column=0, sticky="w", pady=(3, 0))
         forget = app._button(
-            body, app.t("settings.forget_key"), app._forget_api_key,
-            kind="secondary", width=18
+            credentials, app.t("settings.forget_key"), app._forget_api_key,
+            kind="secondary", width=16
         )
         forget.grid(row=4, column=0, sticky="w", pady=(10, 0))
 
-        separator = tk.Frame(body, background=Colors.OUTLINE_VARIANT, height=1)
-        separator.grid(row=5, column=0, sticky="ew", pady=18)
-        ttk.Label(body, text=app.t("settings.updates"), style="Section.TLabel").grid(row=6, column=0, sticky="w")
+        updates = ttk.Frame(body, style="Card.TFrame", padding=18)
+        updates.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        updates.columnconfigure(0, weight=1)
+        ttk.Label(updates, text=app.t("settings.updates"), style="Section.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
-            body, text=app.t("settings.updates_hint"), style="Hint.TLabel",
-            wraplength=590, justify="left"
-        ).grid(row=7, column=0, sticky="w", pady=(4, 8))
+            updates, text=app.t("settings.updates_hint"), style="Hint.TLabel",
+            wraplength=330, justify="left"
+        ).grid(row=1, column=0, sticky="w", pady=(4, 8))
         update_toggle = ttk.Checkbutton(
-            body, text=app.t("settings.update_toggle"), variable=app.update_checks_enabled,
+            updates, text=app.t("settings.update_toggle"), variable=app.update_checks_enabled,
             style="Material.TCheckbutton", command=app._schedule_settings_save
         )
-        update_toggle.grid(row=8, column=0, sticky="w")
+        update_toggle.grid(row=2, column=0, sticky="w")
         check = app._button(
-            body, app.t("settings.check_now"), lambda: app._check_updates(manual=True),
-            kind="secondary", width=18
+            updates, app.t("settings.check_now"), lambda: app._check_updates(manual=True),
+            kind="secondary", width=16
         )
-        check.grid(row=9, column=0, sticky="w", pady=(10, 0))
+        check.grid(row=3, column=0, sticky="w", pady=(10, 0))
         ttk.Label(
-            body, text=app.t("settings.current_version", version=__version__),
+            updates, text=app.t("settings.current_version", version=__version__),
             style="Hint.TLabel"
-        ).grid(row=10, column=0, sticky="w", pady=(5, 0))
+        ).grid(row=4, column=0, sticky="w", pady=(5, 0))
 
         footer = ttk.Frame(self.window, style="Dialog.TFrame", padding=(28, 8, 28, 24))
         footer.grid(row=2, column=0, sticky="ew")
@@ -908,7 +933,7 @@ class ModelPickerDialog:
         footer.columnconfigure(0, weight=1)
         cancel_button = app._button(footer, app.t("cancel"), self.window.destroy, kind="secondary", width=Metrics.DIALOG_ACTION_WIDTH)
         cancel_button.grid(row=0, column=1, padx=(0, 8))
-        self.select_button = app._button(footer, app.t("model_picker.select"), self._select, width=Metrics.DIALOG_ACTION_WIDTH)
+        self.select_button = app._button(footer, app.t("model_picker.select"), self._select, width=20)
         self.select_button.grid(row=0, column=2)
         app._guide(self.select_button, "tip.model_picker")
         self.window.bind("<Escape>", lambda _event: self.window.destroy())
@@ -995,6 +1020,7 @@ class RenWeaveDesktopApp:
         self._responsive_render_id = None
         self._settings_save_id = None
         self._session_keys: dict[tuple[str, str], str] = {}
+        self._tooltips: list[GuidedTooltip] = []
         self.credential_store = credential_store or SecureCredentialStore()
         self.settings_path = Path(settings_path).expanduser() if settings_path else default_desktop_settings_path()
         saved_settings = self._load_desktop_settings()
@@ -1009,6 +1035,7 @@ class RenWeaveDesktopApp:
         initial_preset = get_provider_preset(saved_provider_id if saved_provider_id in PROVIDER_PRESETS_BY_ID else "openai")
         self.provider = tk.StringVar()
         self.selected_provider_id = tk.StringVar(value=initial_preset.id)
+        self.providers_expanded = initial_preset.id not in FEATURED_PROVIDER_IDS
         self.provider_name = tk.StringVar(value=str(saved_settings.get("provider_name", initial_preset.name)))
         self.base_url = tk.StringVar(value=str(saved_settings.get("base_url", initial_preset.base_url)))
         self.api_key_env = tk.StringVar(value=str(saved_settings.get("api_key_env", initial_preset.api_key_env)))
@@ -1201,7 +1228,12 @@ class RenWeaveDesktopApp:
         self.api_key.set(secret)
 
     def _guide(self, widget, key: str):
-        GuidedTooltip(self, widget, self.t(key))
+        self._tooltips = [
+            tooltip
+            for tooltip in self._tooltips
+            if tooltip.widget.winfo_exists()
+        ]
+        self._tooltips.append(GuidedTooltip(self, widget, key))
         return widget
 
     def _button(
@@ -1258,6 +1290,34 @@ class RenWeaveDesktopApp:
             command=command,
             style="Workspace.Vertical.TScrollbar",
         )
+
+    def _provider_display_name(self, preset) -> str:
+        if self.locale.get() == "zh":
+            return preset.name_zh
+        return PROVIDER_SHORT_NAMES_EN.get(preset.id, preset.name)
+
+    def _provider_icon(self, preset):
+        """Build a compact geometric provider mark without font-dependent initials."""
+        icon = self.tk.PhotoImage(width=20, height=20)
+        for y in range(1, 19):
+            inset = 4 if y in {1, 18} else 2 if y in {2, 17} else 1
+            icon.put(preset.accent, to=(inset, y, 20 - inset, y + 1))
+        icon.put("#FFFFFF", to=(5, 6, 7, 14))
+        icon.put("#FFFFFF", to=(9, 4, 11, 16))
+        icon.put("#FFFFFF", to=(13, 7, 15, 13))
+        return icon
+
+    @staticmethod
+    def _display_path(value: str, *, max_chars: int = 52) -> str:
+        rendered = value.strip()
+        if len(rendered) <= max_chars:
+            return rendered
+        normalized = rendered.replace("\\", "/")
+        parts = [part for part in normalized.split("/") if part]
+        tail = "/".join(parts[-2:]) if len(parts) >= 2 else normalized[-(max_chars - 2):]
+        if len(tail) > max_chars - 2:
+            tail = tail[-(max_chars - 2):]
+        return f"…/{tail}"
 
     @staticmethod
     def _format_token_count(value: int) -> str:
@@ -1420,7 +1480,7 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, 9),
             anchor="w",
             justify="left",
-            wraplength=215,
+            wraplength=170,
         )
         self.brand_subtitle.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
@@ -1433,7 +1493,7 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, 9),
             justify="left",
             anchor="w",
-            wraplength=200,
+            wraplength=160,
             padx=14,
             pady=12,
         )
@@ -1499,6 +1559,8 @@ class RenWeaveDesktopApp:
     def _set_locale(self, locale: str) -> None:
         if locale not in {"en", "zh"}:
             return
+        for tooltip in self._tooltips:
+            tooltip._hide()
         self.locale.set(locale)
         self.locale_display.set("简体中文" if locale == "zh" else "English")
         self.reasoning_display.set(self.t(f"reasoning.{self.reasoning_level.get()}"))
@@ -1599,9 +1661,9 @@ class RenWeaveDesktopApp:
         self.top.configure(padding=(inset, 10, inset, 10))
         self.content.configure(padding=(inset, 0, inset, 0))
         self.footer.configure(padding=(inset, 6, inset, 8))
-        for index, button in enumerate(self.nav.winfo_children()):
+        for index, button in enumerate(getattr(self, "nav_buttons", [])):
             is_current = index == self.step
-            prefix = f"{index + 1:02d}"
+            prefix = "✓" if index < self.step else f"{index + 1:02d}"
             if self.narrow_layout:
                 text = prefix
                 button_style = "NavNarrowActive.TButton" if is_current else "NavNarrow.TButton"
@@ -1609,6 +1671,9 @@ class RenWeaveDesktopApp:
                 text = f"{prefix}    {self.t(f'steps.{self.STEPS[index]}')}"
                 button_style = "NavActive.TButton" if is_current else "Nav.TButton"
             button.configure(text=text, style=button_style)
+            self.nav_indicators[index].configure(
+                background=Colors.ACCENT if is_current else Colors.NAV
+            )
         self._schedule_content_layout()
 
     def _render(self) -> None:
@@ -1626,8 +1691,10 @@ class RenWeaveDesktopApp:
         self._schedule_content_layout()
 
     def _render_nav(self) -> None:
+        self.nav_buttons = []
+        self.nav_indicators = []
         for index, step in enumerate(self.STEPS):
-            prefix = f"{index + 1:02d}"
+            prefix = "✓" if index < self.step else f"{index + 1:02d}"
             is_current = index == self.step
             is_available = index <= self.step and self.step < 4
             if self.narrow_layout:
@@ -1636,8 +1703,18 @@ class RenWeaveDesktopApp:
             else:
                 button_text = f"{prefix}    {self.t(f'steps.{step}')}"
                 button_style = "NavActive.TButton" if is_current else "Nav.TButton"
+            row = self.tk.Frame(self.nav, background=Colors.NAV)
+            row.grid(row=index, column=0, sticky="ew", pady=2)
+            row.columnconfigure(1, weight=1)
+            indicator = self.tk.Frame(
+                row,
+                background=Colors.ACCENT if is_current else Colors.NAV,
+                width=3,
+            )
+            indicator.grid(row=0, column=0, sticky="ns")
+            indicator.grid_propagate(False)
             button = self.ttk.Button(
-                self.nav,
+                row,
                 text=button_text,
                 command=lambda selected=index: self._go_to_step(selected),
                 style=button_style,
@@ -1645,7 +1722,9 @@ class RenWeaveDesktopApp:
                 state="normal" if is_available else "disabled",
                 takefocus=is_available,
             )
-            button.grid(row=index, column=0, sticky="ew", pady=2)
+            button.grid(row=0, column=1, sticky="ew")
+            self.nav_buttons.append(button)
+            self.nav_indicators.append(indicator)
         self.nav.columnconfigure(0, weight=1)
 
     def _render_header(self) -> None:
@@ -1705,39 +1784,59 @@ class RenWeaveDesktopApp:
 
         sequence = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=7)
         sequence.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        self.tk.Label(sequence, text=self.t("model.sequence"), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9, "bold"), anchor="w").pack(fill="x")
+        self.tk.Label(
+            sequence,
+            text=self.t("model.sequence"),
+            background=Colors.SURFACE_CONTAINER,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, 9, "bold"),
+            anchor="w",
+            justify="left",
+            wraplength=680 if self.compact_layout else 760,
+        ).pack(fill="x")
 
         preset_grid = self.tk.Frame(card, background=Colors.CARD)
         preset_grid.grid(row=3, column=0, sticky="ew")
-        provider_columns = 3 if self.compact_layout else 4
-        for column in range(provider_columns):
+        self.provider_grid = preset_grid
+        self.provider_columns = 3 if self.compact_layout else 4
+        for column in range(self.provider_columns):
             preset_grid.columnconfigure(column, weight=1, uniform="provider")
         selected_id = self.selected_provider_id.get()
         self.provider_buttons = {}
-        for index, preset in enumerate(PROVIDER_PRESETS):
+        self.provider_icons = {}
+        for preset in PROVIDER_PRESETS:
             selected = preset.id == selected_id
+            icon = self._provider_icon(preset)
             button = self.ttk.Button(
                 preset_grid,
-                text=f"{preset.mark}    {preset.display_name(self.locale.get())}",
+                text=self._provider_display_name(preset),
+                image=icon,
+                compound="left",
                 command=lambda preset_id=preset.id: self._apply_provider_preset(preset_id),
                 style="ProviderSelected.TButton" if selected else "Provider.TButton",
                 cursor="hand2",
                 takefocus=True,
             )
-            provider_column = index % provider_columns
-            button.grid(
-                row=index // provider_columns,
-                column=provider_column,
-                sticky="ew",
-                padx=(0, 8 if provider_column < provider_columns - 1 else 0),
-                pady=(0, 8),
-            )
+            self.provider_icons[preset.id] = icon
             self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
+        self._layout_provider_buttons()
+
+        provider_toggle = self.ttk.Frame(card, style="CardBody.TFrame")
+        provider_toggle.grid(row=4, column=0, sticky="w", pady=(0, 8))
+        self.provider_more_button = self._button(
+            provider_toggle,
+            "",
+            self._toggle_provider_list,
+            kind="ghost",
+            width=24,
+        )
+        self.provider_more_button.pack(side="left")
+        self._refresh_provider_toggle()
 
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
         selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=9)
-        selection.grid(row=4, column=0, sticky="ew", pady=(2, 14))
+        selection.grid(row=5, column=0, sticky="ew", pady=(2, 14))
         category = self.t(f"provider.{preset.category}")
         self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=(Typography.UI, 8, "bold"), padx=7, pady=3)
         self.provider_category.pack(side="left")
@@ -1754,9 +1853,9 @@ class RenWeaveDesktopApp:
         self.provider_description.pack(side="left", fill="x", expand=True, padx=(10, 0))
 
         separator = self.tk.Frame(card, background=Colors.OUTLINE_VARIANT, height=1)
-        separator.grid(row=5, column=0, sticky="ew", pady=(2, 16))
+        separator.grid(row=6, column=0, sticky="ew", pady=(2, 16))
         config = self.ttk.Frame(card, style="CardBody.TFrame")
-        config.grid(row=6, column=0, sticky="nsew")
+        config.grid(row=7, column=0, sticky="nsew")
         config.columnconfigure(0, weight=1)
         if not self.compact_layout:
             config.columnconfigure(1, weight=1)
@@ -1779,7 +1878,13 @@ class RenWeaveDesktopApp:
         self.api_key_entry.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         self._guide(self.api_key_entry, "tip.api_key")
         self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=5, column=0, sticky="w", pady=(3, 0))
-        self.connect_button = self._button(left, self.t("model.load"), self._connect_models, kind="secondary")
+        self.connect_button = self._button(
+            left,
+            self.t("model.load"),
+            self._connect_models,
+            kind="secondary",
+            width=22,
+        )
         self.connect_button.grid(row=6, column=0, sticky="w", pady=(9, 0))
         self._guide(self.connect_button, "tip.load_models")
         self.ttk.Label(left, text=self.t("model.load_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=7, column=0, sticky="w", pady=(4, 0))
@@ -1827,6 +1932,7 @@ class RenWeaveDesktopApp:
 
         status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
         status_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(7, 0))
+        self.model_status_card = status_card
         status_card.columnconfigure(1, weight=1)
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
         details = dict(self.connection_detail)
@@ -1840,14 +1946,72 @@ class RenWeaveDesktopApp:
             background=self._connection_state_color(state_key),
             width=4,
         )
-        self.model_status_indicator.grid(row=0, column=0, rowspan=2, sticky="ns", padx=(0, 10))
+        self.model_status_indicator.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(0, 10))
         self.model_status_indicator.grid_propagate(False)
         self.model_status_title = self.ttk.Label(status_card, text=title, style="Status.TLabel")
         self.model_status_title.grid(row=0, column=1, sticky="w")
+        self.model_retry_button = self._button(
+            status_card,
+            self.t("retry"),
+            self._verify_model,
+            kind="field",
+            width=10,
+        )
+        self.model_retry_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self.model_retry_button.grid_remove()
         self.model_status_body = self.ttk.Label(status_card, text=body, style="StatusBody.TLabel", wraplength=360, justify="left")
-        self.model_status_body.grid(row=1, column=1, sticky="w", pady=(4, 0))
+        self.model_status_body.grid(row=1, column=1, columnspan=2, sticky="w", pady=(4, 0))
+        self.model_busy_progress = self.ttk.Progressbar(
+            status_card,
+            mode="indeterminate",
+            style="Horizontal.TProgressbar",
+        )
+        self.model_busy_progress.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(8, 0))
+        self.model_busy_progress.grid_remove()
 
         self._refresh_model_panel()
+
+    def _visible_provider_presets(self):
+        selected_id = self.selected_provider_id.get()
+        if self.providers_expanded:
+            return PROVIDER_PRESETS
+        return tuple(
+            preset
+            for preset in PROVIDER_PRESETS
+            if preset.id in FEATURED_PROVIDER_IDS or preset.id == selected_id
+        )
+
+    def _layout_provider_buttons(self) -> None:
+        for button in getattr(self, "provider_buttons", {}).values():
+            button.grid_remove()
+        visible = self._visible_provider_presets()
+        columns = max(1, getattr(self, "provider_columns", 4))
+        for index, preset in enumerate(visible):
+            column = index % columns
+            self.provider_buttons[preset.id].grid(
+                row=index // columns,
+                column=column,
+                sticky="ew",
+                padx=(0, 8 if column < columns - 1 else 0),
+                pady=(0, 8),
+            )
+
+    def _refresh_provider_toggle(self) -> None:
+        if not hasattr(self, "provider_more_button"):
+            return
+        if self.providers_expanded:
+            text = self.t("provider.less")
+        else:
+            visible_ids = {preset.id for preset in self._visible_provider_presets()}
+            count = sum(preset.id not in visible_ids for preset in PROVIDER_PRESETS)
+            text = self.t("provider.more", count=count)
+        self.provider_more_button.configure(text=text)
+
+    def _toggle_provider_list(self) -> None:
+        self.providers_expanded = not self.providers_expanded
+        self._layout_provider_buttons()
+        self._refresh_provider_toggle()
+        self._schedule_content_layout()
 
     def _browse_models(self) -> None:
         if self.model_choices:
@@ -1903,6 +2067,19 @@ class RenWeaveDesktopApp:
         self.model_status_body.configure(text=body)
         self.model_status_indicator.configure(background=self._connection_state_color(state_key))
         busy = state_key in {"connecting", "verifying"}
+        if busy:
+            self.model_retry_button.grid_remove()
+            self.model_busy_progress.grid()
+            self.model_busy_progress.start(12)
+        else:
+            self.model_busy_progress.stop()
+            self.model_busy_progress.grid_remove()
+            if state_key in {"failed", "discovery_failed"}:
+                retry_command = self._connect_models if state_key == "discovery_failed" else self._verify_model
+                self.model_retry_button.configure(command=retry_command, text=self.t("retry"))
+                self.model_retry_button.grid()
+            else:
+                self.model_retry_button.grid_remove()
         self.connect_button.configure(
             text=self.t("model.connecting") if state_key == "connecting" else self.t("model.load")
         )
@@ -2035,7 +2212,10 @@ class RenWeaveDesktopApp:
         self.resume_candidate = self._resume_state()
         summaries = (
             (self.t("review.model"), f"{self.provider_name.get()}  ·  {self.model.get()}\n{self.base_url.get()}"),
-            (self.t("review.game"), f"{self.project.get()}\n{self.workspace.get()}"),
+            (
+                self.t("review.game"),
+                f"{self._display_path(self.project.get())}\n{self._display_path(self.workspace.get())}",
+            ),
             (self.t("review.languages"), f"{self.source_language.get() or 'auto'}  →  {self.target_language.get()}"),
             (self.t("review.options"), self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no")),
         )
@@ -2052,7 +2232,13 @@ class RenWeaveDesktopApp:
             )
             summary.columnconfigure(0, weight=1)
             self.ttk.Label(summary, text=title, style="Status.TLabel").grid(row=0, column=0, sticky="w")
-            self.ttk.Label(summary, text=body, style="StatusBody.TLabel", wraplength=330, justify="left").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.ttk.Label(
+                summary,
+                text=body,
+                style="StatusBody.TLabel",
+                wraplength=260 if self.compact_layout else 330,
+                justify="left",
+            ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
         budget = self._get_token_budget()
         budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
@@ -2367,10 +2553,7 @@ class RenWeaveDesktopApp:
             if self.next_button is not None:
                 self.next_button.configure(state="disabled")
             if hasattr(self, "verify_button"):
-                self.verify_button.configure(state="normal" if self.model.get().strip() else "disabled")
-            if self.connection_state == "changed" and hasattr(self, "model_status_title"):
-                self.model_status_title.configure(text=self.t("model.changed"))
-                self.model_status_body.configure(text=self.t("model.changed_body"))
+                self._refresh_model_panel()
 
     def _profile(self, *, require_model: bool = False) -> ModelProfile:
         profile = ModelProfile(

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
 from renweave.credentials import SecureCredentialStore
-from renweave.gui import RenWeaveDesktopApp
+from renweave.gui import ModelPickerDialog, RenWeaveDesktopApp
 
 
 class MemoryCredentialBackend:
@@ -22,12 +23,31 @@ class MemoryCredentialBackend:
         self.values.pop((service, username), None)
 
 
-def verify_layout() -> None:
+def capture_window(window, path: Path) -> None:
+    from PIL import ImageGrab
+
+    window.update()
+    left = window.winfo_rootx()
+    top = window.winfo_rooty()
+    right = left + window.winfo_width()
+    bottom = top + window.winfo_height()
+    if right - left < 100 or bottom - top < 40:
+        raise RuntimeError(f"Window is too small to capture: {right - left}x{bottom - top}")
+    image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path, format="PNG")
+
+
+def verify_layout(output_dir: Path | None = None) -> None:
     import tkinter as tk
 
     with tempfile.TemporaryDirectory(prefix="renweave-visual-") as directory:
         root = tk.Tk()
-        root.withdraw()
+        if output_dir is None:
+            root.withdraw()
+        else:
+            root.geometry("1240x840+20+20")
+            root.deiconify()
         app = RenWeaveDesktopApp(
             root,
             settings_path=Path(directory) / "settings.json",
@@ -58,11 +78,17 @@ def verify_layout() -> None:
 
         checked = 0
         for width, height in ((1240, 840), (1060, 720), (900, 640)):
-            root.geometry(f"{width}x{height}")
+            root.geometry(f"{width}x{height}+20+20")
             for locale in ("en", "zh"):
-                app.locale.set(locale)
+                app._set_locale(locale)
+                app.status.set(
+                    "Translating chapter_two"
+                    if locale == "en"
+                    else "正在翻译 chapter_two"
+                )
                 for step in range(5):
                     app.step = step
+                    app.worker = SimpleNamespace(is_alive=lambda: True) if step == 4 else None
                     app._render()
                     root.update_idletasks()
                     app._sync_content_layout()
@@ -78,6 +104,12 @@ def verify_layout() -> None:
                         raise RuntimeError(
                             f"Workflow action is too small at {width}x{height}, {locale}, step {step}"
                         )
+                    if output_dir is not None:
+                        root.update()
+                        capture_window(
+                            root,
+                            output_dir / f"{locale}-{width}x{height}-step-{step + 1}.png",
+                        )
                     checked += 1
 
                 app.step = 0
@@ -89,9 +121,67 @@ def verify_layout() -> None:
                     raise RuntimeError(
                         f"Responsive update rebuilt the page at {width}x{height}, {locale}"
                     )
+        if output_dir is not None:
+            root.geometry("1240x840+20+20")
+            root.update()
+            app._set_locale("en")
+            app.status.set("Translating chapter_two")
+            app.step = 0
+            app.worker = None
+            app.connection_state = "connecting"
+            app.connection_detail = {}
+            app._render()
+            app.provider_grid.grid_remove()
+            app.provider_more_button.master.grid_remove()
+            app.provider_description.master.grid_remove()
+            root.update()
+            capture_window(root, output_dir / "en-model-connecting.png")
+
+            app.connection_state = "failed"
+            app.connection_detail = {"message": "Authentication failed. Check the key and try again."}
+            app._render()
+            app.provider_grid.grid_remove()
+            app.provider_more_button.master.grid_remove()
+            app.provider_description.master.grid_remove()
+            root.update()
+            capture_window(root, output_dir / "en-model-retry.png")
+
+            app.step = 4
+            app.last_stage = "paused"
+            app._render()
+            capture_window(root, output_dir / "en-progress-paused.png")
+
+            app.step = 0
+            app.connection_state = "verified"
+            app.connection_detail = {"model": "visual-smoke-model", "latency": 20}
+            app._render()
+            root.update()
+            settings = app._open_settings()
+            capture_window(settings.window, output_dir / "en-settings.png")
+            settings._close()
+
+            app.model_choices = ("provider/model-small", "provider/model-large")
+            picker = ModelPickerDialog(app)
+            capture_window(picker.window, output_dir / "en-model-picker.png")
+            picker.window.destroy()
+
+            error = app._dialog(
+                "Connection failed",
+                "The API rejected this request. Check the key and endpoint, then try again.",
+                error=True,
+            )
+            capture_window(error.window, output_dir / "en-error-dialog.png")
+            error.window.destroy()
         root.destroy()
-    print(f"Verified {checked} desktop page layouts without horizontal overflow or resize rebuilds")
+    screenshot_note = f" and wrote screenshots to {output_dir}" if output_dir else ""
+    print(
+        f"Verified {checked} desktop page layouts without horizontal overflow or resize rebuilds"
+        f"{screenshot_note}"
+    )
 
 
 if __name__ == "__main__":
-    verify_layout()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", type=Path)
+    arguments = parser.parse_args()
+    verify_layout(arguments.output_dir)

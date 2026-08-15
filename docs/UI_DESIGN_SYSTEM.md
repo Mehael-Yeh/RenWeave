@@ -48,6 +48,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Combo box | `_combobox(...)` | Same visual height as text fields; editable unless explicitly read-only |
 | Checkbox | `Material.TCheckbutton` | Left-aligned with the form text column |
 | Model list | `ModelList.Treeview` | `38 px` rows, single selection, consistent selected state |
+| Provider gallery | `_layout_provider_buttons()` | Six featured providers first; additional live-endpoint presets expand in place without rebuilding the page |
 | Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
 | Diagnostic text | styled `tk.Text` | Same border/focus/selection colors as form controls |
 | Outer card | `Card.TFrame` | The only bordered content container |
@@ -90,3 +91,4 @@ Before merging UI changes, render all five workflow pages plus the model picker 
 6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
 7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint.
 8. Windows builds render one GUI window with an integrated dark title bar and no console window.
+9. CI uploads 36 pixel screenshots covering the bilingual workflow, three responsive sizes, connecting/retry/paused states, Settings, model selection, and the error dialog; inspect the artifact for clipping and font fallback.

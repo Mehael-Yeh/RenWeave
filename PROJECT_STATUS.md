@@ -8,7 +8,7 @@ The current RenWeave source provides a complete, context-aware and resumable Ren
 
 | Requirement | Status | Implementation |
 | --- | --- | --- |
-| Guided one-click UI | Complete | English-default five-step Aurora Workbench with an English/Chinese segment, rounded Windows controls, bilingual typography, semantic feedback, in-place no-jump state updates, 232/76 px adaptive navigation, responsive overflow handling, and unified dialogs |
+| Guided one-click UI | Complete | English-default five-step Aurora Workbench with progressive provider disclosure, geometric provider icons, bilingual typography, semantic busy/retry feedback, in-place no-jump updates, 232/76 px navigation with completion state, responsive overflow handling, and unified dialogs |
 | Complete model setup | Complete | OpenAI, Google, Anthropic, DeepSeek, MiniMax, Alibaba Cloud, Zhipu, Moonshot, SiliconFlow, OpenRouter, and custom presets; current-account model discovery without hard-coded IDs; exact-ID fallback; provider-aware thinking levels; encrypted per-provider keys; minimal health check |
 | Unpack Ren'Py games | Complete | Safe RPA 2.0/3.0/3.2 reader and selective script acquisition |
 | Decompile compiled scripts | Complete | Bundled pinned and hash-verified unrpyc, isolated subprocess, workspace copies, and no runtime tool downloads |

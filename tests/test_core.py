@@ -305,7 +305,11 @@ class CorePipelineTests(unittest.TestCase):
             self.assertFalse(app.supports_json.get())
             self.assertEqual(app.next_button.cget("text"), "Continue")
             self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
-            self.assertTrue(all(child.winfo_class() == "TButton" for child in app.nav.winfo_children()))
+            self.assertTrue(all(button.winfo_class() == "TButton" for button in app.nav_buttons))
+            self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 6)
+            self.assertTrue(all(button.cget("image") for button in app.provider_buttons.values()))
+            app._toggle_provider_list()
+            self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 11)
             self.assertTrue(app.next_button.instate(["disabled"]))
             self.assertEqual(root.minsize()[0], 900)
             self.assertEqual(app.source_language.get(), "auto")
@@ -313,6 +317,12 @@ class CorePipelineTests(unittest.TestCase):
             self.assertFalse(hasattr(app, "_browse_provider"))
             self.assertEqual(set(app.language_buttons), {"en", "zh"})
             self.assertEqual(app.language_buttons["en"].cget("style"), "LanguageActive.TButton")
+            settings_tooltip = next(
+                tooltip
+                for tooltip in app._tooltips
+                if tooltip.widget is app.settings_button
+            )
+            self.assertEqual(settings_tooltip.translation_key, "tip.settings")
 
             def widget_classes(widget):
                 classes = [child.winfo_class() for child in widget.winfo_children()]
@@ -331,6 +341,7 @@ class CorePipelineTests(unittest.TestCase):
             self.assertLessEqual(app.brand_title.winfo_reqwidth(), 192)
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
             self.assertEqual(app.language_buttons["zh"].cget("style"), "LanguageActive.TButton")
+            self.assertIn("系统加密", app.t(settings_tooltip.translation_key))
 
             app.model.set("translation-model")
             app.connection_state = "verified"
@@ -427,7 +438,7 @@ class CorePipelineTests(unittest.TestCase):
             app._render()
             self.assertEqual(int(app.sidebar.cget("width")), Metrics.NARROW_SIDEBAR_WIDTH)
             self.assertEqual(app.brand_title.cget("text"), "织译")
-            self.assertTrue(all(child.cget("style").startswith("NavNarrow") for child in app.nav.winfo_children()))
+            self.assertTrue(all(button.cget("style").startswith("NavNarrow") for button in app.nav_buttons))
         finally:
             root.destroy()
 

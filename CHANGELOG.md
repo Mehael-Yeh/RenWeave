@@ -10,6 +10,8 @@ All notable changes to RenWeave are documented here.
 - Rebuilt the desktop visual system as Aurora Workbench with rounded Sun Valley controls, an integrated dark Windows title bar, bilingual typography, semantic connection states, and a generated application icon.
 - Replaced resize-driven page reconstruction with a stable responsive shell, preserving the active widget tree, focus, and scroll state across breakpoints.
 - Added a Windows visual smoke test covering five pages, three window sizes, and both interface languages.
+- Reduced model-setup density with six featured providers, in-place expansion, compact icon slots, short display names, and busy/retry status controls.
+- Balanced Settings into two task cards, added navigation completion states, localized live tooltips, and made CI upload 36 pixel screenshots spanning pages, sizes, languages, transient states, and dialogs.
 
 ## 1.9.0 - 2026-08-10
 
