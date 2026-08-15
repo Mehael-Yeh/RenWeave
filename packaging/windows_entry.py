@@ -11,7 +11,7 @@ from pathlib import Path
 from renweave import __version__
 from renweave.decompiler import (
     FROZEN_UNRPYC_SWITCH,
-    UNRPYC_VERSION,
+    UNRPYC_CLI_VERSION,
     UnrpycDecompiler,
     UnrpycToolManager,
 )
@@ -77,7 +77,7 @@ def _run_self_test(output_path: str) -> int:
             "unrpyc_subprocess_returncode": process.returncode,
             "bundled_tool": entrypoint.is_file(),
         }
-        expected = f"Unrpyc v{UNRPYC_VERSION}"
+        expected = f"Unrpyc v{UNRPYC_CLI_VERSION}"
         succeeded = (
             process.returncode == 0
             and process.stdout.strip() == expected

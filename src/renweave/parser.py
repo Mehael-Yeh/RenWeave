@@ -153,7 +153,13 @@ class RenpyParser:
         before = stripped[:start].strip()
         after = stripped[end:].strip()
         ui_units = self._parse_ui_strings(stripped, relative, line_number, scene)
-        if ui_units and (before.endswith("_(") or before.split(maxsplit=1)[0].casefold() in NON_SPEAKER_PREFIXES):
+        if ui_units and (
+            before.endswith("_(")
+            or (
+                before
+                and before.split(maxsplit=1)[0].casefold() in NON_SPEAKER_PREFIXES
+            )
+        ):
             return ui_units
         channel: TextChannel
         speaker = ""
@@ -214,6 +220,11 @@ class RenpyParser:
         results = []
         segments = _quoted_segments(stripped)
         for ordinal, match in enumerate(UI_STRING_RE.finditer(stripped)):
+            # A narration or dialogue literal may itself mention Ren'Py source,
+            # such as ``"Use _('key') here."``. Do not mistake a call-shaped
+            # substring inside a quoted literal for an executable UI string.
+            if any(start <= match.start() < end for start, end, _literal, _source in segments):
+                continue
             source = _decode_literal(match.group("literal"))
             if source is None:
                 continue

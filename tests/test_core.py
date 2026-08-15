@@ -40,6 +40,7 @@ from renweave.gui import (
 from renweave.indexer import ProjectIndexer
 from renweave.installer import TranslationInstaller
 from renweave.knowledge import DeterministicKnowledgeBuilder
+from renweave.models import TextChannel
 from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.packaging import TranslationPackager
 from renweave.pipeline import PipelineStage, RenWeavePipeline
@@ -127,6 +128,17 @@ class CorePipelineTests(unittest.TestCase):
             ("call", "helper"),
             ("fallthrough", "outside"),
         ])
+
+    def test_parser_does_not_treat_ui_syntax_inside_narration_as_a_call(self) -> None:
+        (self.game / "quoted_ui_syntax.rpy").write_text(
+            'label quoted_ui_syntax:\n    "Use _(\'sample_key\') in source code."\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        scene = next(scene for scene in index.scenes if scene.label == "quoted_ui_syntax")
+        self.assertEqual(len(scene.text_units), 1)
+        self.assertEqual(scene.text_units[0].channel, TextChannel.NARRATION)
+        self.assertEqual(scene.text_units[0].source, "Use _('sample_key') in source code.")
 
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
@@ -1557,7 +1569,7 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual([scene.label for scene in index.scenes], ["recovered"])
         manifest = json.loads((workspace / "decompilation.json").read_text(encoding="utf-8"))
         self.assertEqual(len(manifest["files"]), 1)
-        self.assertEqual(manifest["tool_version"], "2.0.2")
+        self.assertEqual(manifest["tool_version"], "2.0.4")
 
     def test_unrpyc_is_bundled_and_installs_without_network(self) -> None:
         manager = UnrpycToolManager(Path(self.temp.name) / "offline-tools")
@@ -1576,7 +1588,7 @@ class CorePipelineTests(unittest.TestCase):
         )
         self.assertEqual(metadata["distribution"], "bundled")
         self.assertEqual(metadata["tree_sha256"], UNRPYC_BUNDLED_TREE_SHA256)
-        self.assertEqual(UnrpycDecompiler(entrypoint).version(), "Unrpyc v2.0.2")
+        self.assertEqual(UnrpycDecompiler(entrypoint).version(), "Unrpyc v2.0.3")
         self.assertEqual(manager.resolve(), entrypoint)
 
     def test_frozen_executable_routes_unrpyc_through_internal_entry(self) -> None:
@@ -1584,7 +1596,7 @@ class CorePipelineTests(unittest.TestCase):
         executable = Path(sys.executable).resolve()
         decompiler = UnrpycDecompiler(entrypoint, python_executable=executable)
         with mock.patch.object(sys, "frozen", True, create=True):
-            self.assertEqual(decompiler.version(), "Unrpyc v2.0.2")
+            self.assertEqual(decompiler.version(), "Unrpyc v2.0.3")
             self.assertEqual(decompiler._base_command(), [
                 str(executable),
                 FROZEN_UNRPYC_SWITCH,

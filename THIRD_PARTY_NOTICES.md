@@ -15,9 +15,9 @@ RenWeave includes the following third-party component so required game-processin
 ## unrpyc
 
 - Project: [CensoredUsername/unrpyc](https://github.com/CensoredUsername/unrpyc)
-- Version: 2.0.2
-- Commit: `e16a767bbdd75abcf47a318b20480db4a07f7dfa`
-- Source archive SHA-256: `25a273473cdf205a5ada8e0e9681dc5d31de2ba8bfec29d3f51faa49111b4e0d`
+- Release: 2.0.4 (the unchanged upstream CLI reports `v2.0.3`)
+- Commit: `3ae8334ed71a05535927dcc559663d3aca51215b`
+- Source archive SHA-256: `36a0e8d05b00939f45c07c7a7d1e7eca37c3b28347d2baea9007ea3b2b5a41b8`
 - License: MIT
 - Packaged license: `src/renweave/_vendor/unrpyc/LICENSE`
 

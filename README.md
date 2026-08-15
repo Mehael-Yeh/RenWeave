@@ -149,7 +149,7 @@ RenWeave limits extra Token use through deterministic pre-analysis, hierarchical
 ## Compatibility and safety
 
 - Reads `.rpy`, `.rpym`, `.rpyc`, `.rpymc`, and RPA 2.0/3.0/3.2 archives.
-- Ships the pinned, integrity-verified unrpyc 2.0.2 runtime and license inside the package; no executable tool is downloaded while processing a game.
+- Ships the pinned, integrity-verified unrpyc 2.0.4 runtime and license inside the package; no executable tool is downloaded while processing a game.
 - Always performs static generated-script validation. An optional Ren'Py SDK enables isolated engine compilation; `--require-renpy-validation` makes it mandatory.
 - Only process games you are authorized to modify. Do not report secrets or proprietary game assets in public issues.
 

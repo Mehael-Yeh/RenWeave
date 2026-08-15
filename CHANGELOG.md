@@ -4,6 +4,7 @@ All notable changes to RenWeave are documented here.
 
 ## Unreleased
 
+- Updated the bundled decompiler to unrpyc 2.0.4, adding compatibility with newer Ren'Py AST signatures found during full-game validation.
 - Added a standalone, versioned Windows GUI executable to manual GitHub releases.
 - Made the Actions release input the only release-version source; packages and runtime metadata now receive the version during the build instead of storing it in source code.
 - Added release-time executable self-tests for embedded version metadata, offline unrpyc resources, and the frozen subprocess route used by compiled-script decompilation.

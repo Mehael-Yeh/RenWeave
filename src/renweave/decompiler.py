@@ -13,11 +13,14 @@ from pathlib import Path, PurePosixPath
 from .io import atomic_write_bytes, atomic_write_json, read_json
 
 
-UNRPYC_VERSION = "2.0.2"
-UNRPYC_COMMIT = "e16a767bbdd75abcf47a318b20480db4a07f7dfa"
+UNRPYC_VERSION = "2.0.4"
+# Upstream tag v2.0.4 retains the v2.0.3 CLI version string. Keep both values
+# explicit so the bundled source remains byte-for-byte identical to upstream.
+UNRPYC_CLI_VERSION = "2.0.3"
+UNRPYC_COMMIT = "3ae8334ed71a05535927dcc559663d3aca51215b"
 UNRPYC_ARCHIVE_URL = f"https://github.com/CensoredUsername/unrpyc/archive/{UNRPYC_COMMIT}.zip"
-UNRPYC_ARCHIVE_SHA256 = "25a273473cdf205a5ada8e0e9681dc5d31de2ba8bfec29d3f51faa49111b4e0d"
-UNRPYC_BUNDLED_TREE_SHA256 = "49480a95128db5f5083763b62da16bbb3c1d0c13bf5fd9a087ba5976d98f72fd"
+UNRPYC_ARCHIVE_SHA256 = "36a0e8d05b00939f45c07c7a7d1e7eca37c3b28347d2baea9007ea3b2b5a41b8"
+UNRPYC_BUNDLED_TREE_SHA256 = "c828ce5f00af9c962da5ffcf9a230d392d98ee30d9fba0adcba4aad91cb5bf78"
 UNRPYC_BUNDLED_FILES = (
     "LICENSE",
     "deobfuscate.py",
@@ -192,7 +195,7 @@ class UnrpycDecompiler:
 
     def version(self) -> str:
         if self._uses_frozen_launcher():
-            return f"Unrpyc v{UNRPYC_VERSION}"
+            return f"Unrpyc v{UNRPYC_CLI_VERSION}"
         process = subprocess.run(
             [*self._base_command(), "--version"],
             cwd=self.entrypoint.parent,
