@@ -150,7 +150,8 @@ jobs:
           $exe = (Get-ChildItem -LiteralPath release -Filter '*.exe' -File).FullName
           if (-not $exe) { throw 'Windows executable was not created' }
           $result = Join-Path $env:RUNNER_TEMP 'renweave-exe-self-test.json'
-          $process = Start-Process -FilePath $exe -ArgumentList @('--renweave-self-test', $result) -Wait -PassThru
+          $quotedResult = '"' + $result + '"'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--renweave-self-test', $quotedResult) -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Executable self-test failed with exit code $($process.ExitCode)" }
           $payload = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
           if ($payload.renweave_version -ne $env:RELEASE_VERSION) {

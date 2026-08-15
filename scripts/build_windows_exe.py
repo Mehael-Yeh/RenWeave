@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import sys
+from importlib.metadata import PackageNotFoundError, version as installed_version
 from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
@@ -27,6 +28,20 @@ def requested_version() -> str:
             f"Use the canonical PEP 440 version {str(parsed)!r} instead of {raw!r}"
         )
     return raw
+
+
+def require_matching_package_metadata(version: str) -> None:
+    try:
+        actual = installed_version("renweave")
+    except PackageNotFoundError as exc:
+        raise RuntimeError(
+            "Install RenWeave with the action-provided version before building the executable"
+        ) from exc
+    if actual != version:
+        raise RuntimeError(
+            f"Installed RenWeave metadata is {actual!r}, expected {version!r}. "
+            "Reinstall the package with SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RENWEAVE set."
+        )
 
 
 def write_version_resource(path: Path, version: str) -> None:
@@ -101,6 +116,7 @@ def main() -> int:
     if sys.platform != "win32":
         raise RuntimeError("The standalone executable must be built on Windows")
     version = requested_version()
+    require_matching_package_metadata(version)
     build_root = ROOT / "build" / "windows"
     release_root = ROOT / "release"
     version_resource = build_root / "version_info.txt"
