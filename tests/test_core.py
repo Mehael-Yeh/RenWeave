@@ -4,6 +4,7 @@ import json
 import hashlib
 import io
 import pickle
+import re
 import sys
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from renweave.build_validation import (
     RenpyBuildValidator,
     RenpyEngineValidator,
     RenpySdk,
+    RenpySdkLocator,
 )
 from renweave.decompiler import (
     FROZEN_UNRPYC_SWITCH,
@@ -43,7 +45,7 @@ from renweave.knowledge import DeterministicKnowledgeBuilder
 from renweave.models import TextChannel
 from renweave.narrative import NarrativeKnowledgeSynthesizer
 from renweave.packaging import TranslationPackager
-from renweave.pipeline import PipelineStage, RenWeavePipeline
+from renweave.pipeline import ANALYSIS_SCHEMA_VERSION, PipelineStage, RenWeavePipeline
 from renweave.provider import ModelProfile, OpenAICompatibleCatalog, OpenAICompatibleGateway
 from renweave.provider_presets import PROVIDER_PRESETS_BY_ID, get_provider_preset
 from renweave.runtime import CancellationToken, WorkspaceLease
@@ -139,6 +141,22 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(len(scene.text_units), 1)
         self.assertEqual(scene.text_units[0].channel, TextChannel.NARRATION)
         self.assertEqual(scene.text_units[0].source, "Use _('sample_key') in source code.")
+
+    def test_parser_excludes_label_free_resource_literals_but_keeps_explicit_ui(self) -> None:
+        (self.game / "resources.rpy").write_text(
+            "image synthetic composite:\n"
+            "    contains:\n"
+            "        'synthetic layer name'\n"
+            "text _('Synthetic setting')\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        resources = [
+            unit for unit in index.text_units if unit.location.relative_path == "resources.rpy"
+        ]
+        self.assertEqual(len(resources), 1)
+        self.assertEqual(resources[0].channel, TextChannel.UI)
+        self.assertEqual(resources[0].source, "Synthetic setting")
 
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
@@ -392,7 +410,8 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIn("预计 TOKEN 预算", review_text)
             self.assertIn("Token", review_text)
             self.assertIn("生成通过验证的 RPA 归档", review_text)
-            self.assertIn("标准 RPY 翻译文件也始终保留", review_text)
+            self.assertIn("标准 RPY 始终保留", review_text)
+            self.assertIn("编译并验证 RPYC", review_text)
 
             class ActiveWorker:
                 @staticmethod
@@ -463,6 +482,29 @@ class CorePipelineTests(unittest.TestCase):
         second, _ = pipeline.analyze(self.root)
         self.assertEqual(len(second.scenes), len(first.scenes) + 1)
         self.assertIn("added_later", {scene.label for scene in second.scenes})
+
+    def test_analysis_schema_upgrade_preserves_scene_checkpoints(self) -> None:
+        workspace = Path(self.temp.name) / "analysis-upgrade-workspace"
+        pipeline = RenWeavePipeline(workspace)
+        pipeline.analyze(self.root, source_language="en", target_language="fr")
+        state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
+        state["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION - 1
+        state["completed_scene_ids"] = ["synthetic-checkpoint"]
+        (workspace / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+        upgraded, _ = pipeline.analyze(
+            self.root,
+            source_language="en",
+            target_language="fr",
+        )
+        saved = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(upgraded.schema_version, 6)
+        self.assertEqual(saved["analysis_schema_version"], ANALYSIS_SCHEMA_VERSION)
+        self.assertEqual(saved["completed_scene_ids"], ["synthetic-checkpoint"])
+        self.assertIn(
+            "analysis_cache_upgraded",
+            (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"),
+        )
 
     def test_rpa3_safe_selective_extraction(self) -> None:
         archive_path = self.root / "game" / "scripts.rpa"
@@ -584,6 +626,28 @@ class CorePipelineTests(unittest.TestCase):
         with self.assertRaises(RpaError):
             TranslationPackager().package(manifest, output / "packages")
 
+    def test_packager_includes_verified_compiled_sidecars(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "compiled-package-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "de", output)
+        compiled_project = Path(self.temp.name) / "compiled-project"
+        compiled_root = compiled_project / "game" / "tl" / "de"
+        for emitted in manifest.files:
+            local = Path(emitted.relative_path).relative_to(Path("game", "tl", "de"))
+            target = (compiled_root / local).with_suffix(".rpyc")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"synthetic-rpyc")
+        packaged = TranslationPackager().package(
+            manifest,
+            output / "packages",
+            compiled_project=compiled_project,
+        )
+        self.assertTrue(packaged.runtime_ready)
+        self.assertEqual(packaged.compiled_members, len(manifest.files))
+        with RpaArchive(packaged.archive_path) as archive:
+            self.assertTrue(any(name.endswith(".rpyc") for name in archive.names()))
+
     def test_generated_script_validator_accepts_unicode_language_and_rejects_duplicate_ids(self) -> None:
         index = ProjectIndexer().build(self.root)
         translations = {unit.id: unit.source for unit in index.text_units}
@@ -622,6 +686,25 @@ class CorePipelineTests(unittest.TestCase):
         )
         self.assertEqual(report.status, "passed")
         self.assertEqual(report.return_code, 0)
+
+    def test_sdk_locator_accepts_game_bundled_windows_runtime(self) -> None:
+        runtime = Path(self.temp.name) / "distributed-runtime"
+        runner = runtime / "lib" / "py3-windows-x86_64" / "python.exe"
+        runner.parent.mkdir(parents=True)
+        runner.write_bytes(b"runner")
+        (runtime / "sample.exe").write_bytes(b"launcher")
+        (runtime / "sample.py").write_text("# launcher\n", encoding="utf-8")
+        located = RenpySdkLocator().resolve(project_root=runtime)
+        self.assertIsNotNone(located)
+        assert located is not None
+        resolved_runtime = runtime.resolve()
+        self.assertEqual(
+            located.command,
+            (
+                str(resolved_runtime / "lib" / "py3-windows-x86_64" / "python.exe"),
+                str(resolved_runtime / "sample.py"),
+            ),
+        )
 
     def test_required_engine_validation_rejects_invalid_sdk_with_report(self) -> None:
         index = ProjectIndexer().build(self.root)
@@ -678,6 +761,67 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(unit.literal_ordinal, 0)
         self.assertEqual(unit.condition, 'name == "Eileen"')
 
+    def test_parser_excludes_code_and_style_string_literals_inside_labels(self) -> None:
+        (self.game / "code_literals.rpy").write_text(
+            "label code_literals:\n"
+            "    $ result = renpy.call_screen('synthetic_screen', value)\n"
+            "    style synthetic_style:\n"
+            "        outlines ((1, 'abc123', 1, 1),)\n"
+            "    narrator 'Actual narration.'\n"
+            "    label _('Explicit interface text.')\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        sources = {unit.source for unit in index.text_units}
+        self.assertNotIn("synthetic_screen", sources)
+        self.assertNotIn("abc123", sources)
+        self.assertIn("Actual narration.", sources)
+        self.assertIn("Explicit interface text.", sources)
+
+    def test_parser_keeps_renpy_attribute_resets_as_dialogue(self) -> None:
+        (self.game / "attribute_reset.rpy").write_text(
+            "label attribute_reset:\n"
+            "    narrator calm @ -talk 'Synthetic dialogue.'\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "Synthetic dialogue.")
+        self.assertEqual(unit.channel, TextChannel.DIALOGUE)
+        self.assertEqual(unit.speaker, "narrator")
+
+    def test_extended_menu_syntax_is_emitted_as_string_translation(self) -> None:
+        (self.game / "extended_menu.rpy").write_text(
+            "label extended_menu:\n"
+            "    menu:\n"
+            "        'Synthetic choice'(score >= 5, '{icon}'):\n"
+            "            return\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "Synthetic choice")
+        self.assertEqual(unit.channel, TextChannel.MENU)
+        translations = {item.id: item.source for item in index.text_units}
+        translations[unit.id] = "Translated choice"
+        output = Path(self.temp.name) / "extended-menu-output"
+        RenpyTranslationEmitter().emit(index, translations, "es", output)
+        generated = (output / "game" / "tl" / "es" / "strings.rpy").read_text(encoding="utf-8")
+        self.assertIn('old "Synthetic choice"', generated)
+        self.assertIn('new "Translated choice"', generated)
+        self.assertNotIn("score >= 5", generated)
+
+    def test_multiline_menu_condition_starts_as_string_translation(self) -> None:
+        (self.game / "multiline_menu.rpy").write_text(
+            "label multiline_menu:\n"
+            "    menu:\n"
+            "        'Another choice' if (score >= 5 and\n"
+            "                enabled):\n"
+            "            return\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "Another choice")
+        self.assertEqual(unit.channel, TextChannel.MENU)
+
     def test_emitter_canonicalizes_explicit_say_statement_identifier(self) -> None:
         (self.game / "sayline.rpy").write_text(
             'label sayline:\n    say eve "Explicit syntax."\n',
@@ -691,6 +835,29 @@ class CorePipelineTests(unittest.TestCase):
         digest = hashlib.md5((canonical + "\r\n").encode("utf-8")).hexdigest()[:8]
         generated = (output / "game" / "tl" / "fr" / "sayline.rpy").read_text(encoding="utf-8")
         self.assertIn(f"translate fr sayline_{digest}:", generated)
+
+    def test_build_validator_accepts_digit_prefixed_translation_hash(self) -> None:
+        (self.game / "digit_hash.rpy").write_text(
+            'label digit_hash:\n    "Synthetic line."\n',
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: unit.source for unit in index.text_units}
+        output = Path(self.temp.name) / "digit-hash-output"
+        manifest = RenpyTranslationEmitter().emit(index, translations, "fr", output)
+        target = Path(manifest.output_dir) / "digit_hash.rpy"
+        text = target.read_text(encoding="utf-8")
+        text = re.sub(r"(translate fr )\w+(:)", r"\g<1>1deadbee\2", text, count=1)
+        emitted = next(item for item in manifest.files if item.relative_path.endswith("digit_hash.rpy"))
+        issues = GeneratedScriptValidator()._validate_text(
+            emitted.relative_path,
+            text,
+            "fr",
+            set(),
+            emitted.dialogue_blocks,
+            emitted.string_entries,
+        )
+        self.assertEqual(issues, [])
 
     def test_one_click_pipeline_translates_validates_and_builds(self) -> None:
         class FakeGateway:

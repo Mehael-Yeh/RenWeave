@@ -12,7 +12,10 @@ from .io import atomic_write_bytes, atomic_write_text
 from .parser import _quoted_segments
 
 
-TRANSLATE_HEADER_RE = re.compile(r"^translate\s+([^\W\d]\w*)\s+([^\W\d]\w*)\s*:$", re.UNICODE)
+# Ren'Py parses the translation identifier with Lexer.hash (``\w+``), not
+# Lexer.name. Generated MD5 identifiers may therefore legally begin with a
+# digit, while the language remains a normal Ren'Py name.
+TRANSLATE_HEADER_RE = re.compile(r"^translate\s+([^\W\d]\w*)\s+(\w+)\s*:$", re.UNICODE)
 
 
 @dataclass(slots=True, frozen=True)
@@ -52,7 +55,7 @@ class RenpySdk:
 
 
 class RenpySdkLocator:
-    """Locate a usable Ren'Py SDK without invoking a game executable."""
+    """Locate a Ren'Py SDK or the equivalent runtime bundled with a game."""
 
     def resolve(
         self,
@@ -80,19 +83,33 @@ class RenpySdkLocator:
     def _candidate(path: Path) -> RenpySdk | None:
         root = path.parent if path.is_file() and path.name.casefold() == "renpy.py" else path
         entrypoint = root / "renpy.py"
-        if not entrypoint.is_file():
-            return None
         windows_runners = (
             root / "lib" / "py3-windows-x86_64" / "python.exe",
             root / "lib" / "py3-windows-arm64" / "python.exe",
             root / "lib" / "py3-windows-i686" / "python.exe",
         )
-        for runner in windows_runners:
-            if runner.is_file():
-                return RenpySdk(root, (str(runner), str(entrypoint)))
-        shell_runner = root / "renpy.sh"
-        if shell_runner.is_file():
-            return RenpySdk(root, (str(shell_runner),))
+        if entrypoint.is_file():
+            for runner in windows_runners:
+                if runner.is_file():
+                    return RenpySdk(root, (str(runner), str(entrypoint)))
+            shell_runner = root / "renpy.sh"
+            if shell_runner.is_file():
+                return RenpySdk(root, (str(shell_runner),))
+
+        # Distributed Ren'Py games normally contain the same Python runtime
+        # and launcher code as the SDK, but name the launcher after the game.
+        # Match a launcher only when a same-stem executable exists so random
+        # project Python files are never selected.
+        for launcher in sorted(root.glob("*.py"), key=lambda item: item.name.casefold()):
+            if not (root / f"{launcher.stem}.exe").is_file():
+                continue
+            for runner in windows_runners:
+                if runner.is_file():
+                    return RenpySdk(root, (str(runner), str(launcher)))
+        for launcher in sorted(root.glob("*.sh"), key=lambda item: item.name.casefold()):
+            if (root / launcher.stem).is_file() or (root / f"{launcher.stem}.py").is_file():
+                return RenpySdk(root, (str(launcher),))
+
         return None
 
 
@@ -339,6 +356,19 @@ class RenpyBuildValidator:
                 issues.append(BuildValidationIssue(
                     "RENPY_COMPILE_FAILED", "", 0, "隔离项目未通过 Ren'Py compile",
                 ))
+            else:
+                compiled_root = staged / "game" / "tl" / build.renpy_language
+                output_prefix = Path("game", "tl", build.renpy_language)
+                for emitted in build.files:
+                    local = Path(emitted.relative_path).relative_to(output_prefix)
+                    compiled = (compiled_root / local).with_suffix(".rpyc")
+                    if not compiled.is_file() or compiled.is_symlink() or compiled.stat().st_size == 0:
+                        issues.append(BuildValidationIssue(
+                            "RENPY_COMPILED_SCRIPT_MISSING",
+                            emitted.relative_path,
+                            0,
+                            "Ren'Py compile 未生成对应的 RPYC，不能构建可直接加载的 RPA",
+                        ))
         return BuildValidationReport(
             schema_version=1,
             passed=not issues,

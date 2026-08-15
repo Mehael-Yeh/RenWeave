@@ -29,6 +29,9 @@ from .usage import estimate_index_tokens
 from .validation import TranslationValidator
 
 
+ANALYSIS_SCHEMA_VERSION = 6
+
+
 class PipelineStage(str, Enum):
     def __str__(self) -> str:
         return self.value
@@ -72,6 +75,7 @@ class PipelineState:
     build_validation_status: str = ""
     engine_validation_status: str = ""
     project_fingerprint: str = ""
+    analysis_schema_version: int = 0
     knowledge_model_calls: int = 0
     knowledge_cache_hits: int = 0
     knowledge_warnings: int = 0
@@ -164,6 +168,7 @@ class RenWeavePipeline:
         resolved_target = str(Path(target).expanduser().resolve())
         project = ProjectDiscovery().discover(target)
         project_fingerprint = self._project_fingerprint(project)
+        reusable_state: PipelineState | None = None
         if self.state_path.is_file() and self.index_path.is_file() and self.knowledge_path.is_file():
             try:
                 existing = self._load_state()
@@ -177,13 +182,14 @@ class RenWeavePipeline:
                     state_path=str(self.state_path),
                 )
             else:
-                if (
-                    existing.schema_version >= 2
+                same_inputs = (
+                    existing.schema_version >= 4
                     and existing.project_target == resolved_target
                     and existing.project_fingerprint == project_fingerprint
                     and existing.source_language == source_language
                     and existing.target_language == target_language
-                ):
+                )
+                if same_inputs and existing.analysis_schema_version == ANALYSIS_SCHEMA_VERSION:
                     existing.resumed_count += 1
                     existing.run_status = "running"
                     existing.pause_reason = ""
@@ -196,12 +202,32 @@ class RenWeavePipeline:
                     )
                     self._save_state(existing)
                     return cached_index, cached_knowledge
-        state = self._new_state(
-            target,
-            source_language,
-            target_language,
-            project_fingerprint=project_fingerprint,
-        )
+                if same_inputs:
+                    reusable_state = existing
+                    self.logger.event(
+                        "INFO",
+                        "analysis_cache_upgraded",
+                        "Rebuilding analysis for a newer parser while preserving scene checkpoints",
+                        previous_schema=existing.analysis_schema_version,
+                        current_schema=ANALYSIS_SCHEMA_VERSION,
+                        completed_scenes=len(existing.completed_scene_ids),
+                    )
+        if reusable_state is None:
+            state = self._new_state(
+                target,
+                source_language,
+                target_language,
+                project_fingerprint=project_fingerprint,
+            )
+        else:
+            state = reusable_state
+            state.analysis_schema_version = ANALYSIS_SCHEMA_VERSION
+            state.stage = PipelineStage.CREATED
+            state.run_status = "running"
+            state.pause_reason = ""
+            state.error = ""
+            state.current_operation = "Upgrading the project analysis"
+            self._save_state(state)
         try:
             state.stage = PipelineStage.DISCOVERED
             state.current_operation = "Discovering the Ren'Py project"
@@ -643,7 +669,16 @@ class RenWeavePipeline:
                     raise ValueError("生成的语言包未通过构建验证，详见 build-validation.json")
                 state.renpy_language = manifest.renpy_language
                 state.output_dir = manifest.output_dir
-                self._apply_package_choice(manifest, state, generate_rpa=generate_rpa)
+                self._apply_package_choice(
+                    manifest,
+                    state,
+                    generate_rpa=generate_rpa,
+                    compiled_project=(
+                        validation.staged_project
+                        if validation.engine.status == "passed"
+                        else None
+                    ),
+                )
                 if install:
                     installed = TranslationInstaller().install(
                         manifest,
@@ -738,7 +773,16 @@ class RenWeavePipeline:
             raise ValueError(state.error)
         state.renpy_language = manifest.renpy_language
         state.output_dir = manifest.output_dir
-        self._apply_package_choice(manifest, state, generate_rpa=generate_rpa)
+        self._apply_package_choice(
+            manifest,
+            state,
+            generate_rpa=generate_rpa,
+            compiled_project=(
+                validation.staged_project
+                if validation.engine.status == "passed"
+                else None
+            ),
+        )
         if install:
             installed = TranslationInstaller().install(
                 manifest,
@@ -757,10 +801,11 @@ class RenWeavePipeline:
         state: PipelineState,
         *,
         generate_rpa: bool,
+        compiled_project: str | Path | None = None,
     ) -> None:
         state.generate_rpa = bool(generate_rpa)
         if generate_rpa:
-            package = self._package(manifest)
+            package = self._package(manifest, compiled_project=compiled_project)
             state.package_path = package.archive_path
             state.package_sha256 = package.archive_sha256
             return
@@ -779,11 +824,23 @@ class RenWeavePipeline:
                 "archive_size": 0,
                 "archive_sha256": "",
                 "members": [],
+                "runtime_ready": False,
+                "source_members": 0,
+                "compiled_members": 0,
             },
         )
 
-    def _package(self, manifest: BuildManifest) -> PackageManifest:
-        package = TranslationPackager().package(manifest, self.packages_dir)
+    def _package(
+        self,
+        manifest: BuildManifest,
+        *,
+        compiled_project: str | Path | None = None,
+    ) -> PackageManifest:
+        package = TranslationPackager().package(
+            manifest,
+            self.packages_dir,
+            compiled_project=compiled_project,
+        )
         manifest.archive_path = package.archive_path
         manifest.archive_sha256 = package.archive_sha256
         atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
@@ -948,6 +1005,7 @@ class RenWeavePipeline:
             build_validation_status="",
             engine_validation_status="",
             project_fingerprint=project_fingerprint,
+            analysis_schema_version=ANALYSIS_SCHEMA_VERSION,
             knowledge_model_calls=0,
             knowledge_cache_hits=0,
             knowledge_warnings=0,
@@ -979,6 +1037,7 @@ class RenWeavePipeline:
         payload.setdefault("build_validation_status", "")
         payload.setdefault("engine_validation_status", "")
         payload.setdefault("project_fingerprint", "")
+        payload.setdefault("analysis_schema_version", 0)
         payload.setdefault("knowledge_model_calls", 0)
         payload.setdefault("knowledge_cache_hits", 0)
         payload.setdefault("knowledge_warnings", 0)

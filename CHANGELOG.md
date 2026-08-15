@@ -4,6 +4,10 @@ All notable changes to RenWeave are documented here.
 
 ## Unreleased
 
+- Tightened source parsing so Python calls, style values, image/ATL metadata, and other code literals cannot be emitted as dialogue while Ren'Py attribute resets and extended or multiline menu syntax remain supported.
+- Added parser-schema cache migration that preserves and revalidates compatible scene checkpoints instead of discarding an interrupted large-project run after parser upgrades.
+- Added isolated compilation through either a Ren'Py SDK or the runtime bundled with a distributed game; runtime-ready RPA packages now contain both retained RPY sources and verified RPYC sidecars.
+- Expanded RPA metadata with source/compiled member counts and an explicit `runtime_ready` result, followed by independent archive member and hash verification.
 - Updated the bundled decompiler to unrpyc 2.0.4, adding compatibility with newer Ren'Py AST signatures found during full-game validation.
 - Added a standalone, versioned Windows GUI executable to manual GitHub releases.
 - Made the Actions release input the only release-version source; packages and runtime metadata now receive the version during the build instead of storing it in source code.

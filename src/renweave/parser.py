@@ -23,6 +23,9 @@ FLOW_RE = re.compile(r"^\s*(call|jump)\s+(?:expression\s+)?([A-Za-z_][\w.]*)")
 TAG_RE = re.compile(r"\{/?[A-Za-z][^{}]*\}")
 PLACEHOLDER_RE = re.compile(r"\[[^\[\]\r\n]+\]|%(?:\([^)]+\))?[#0 +\-]?[0-9]*(?:\.[0-9]+)?[a-zA-Z]")
 UI_STRING_RE = re.compile(r"(?<![A-Za-z0-9_])_\(\s*(?P<literal>(?:[rubfRUBF]*)(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))\s*\)")
+DIALOGUE_PREFIX_RE = re.compile(
+    r"^(?:say\s+)?[A-Za-z_]\w*(?:\s+(?:@|-?[A-Za-z_]\w*))*$"
+)
 
 NON_SPEAKER_PREFIXES = frozenset({
     "$", "add", "at", "camera", "default", "define", "elif", "else", "for",
@@ -107,7 +110,19 @@ class RenpyParser:
                     location=SourceRef(relative, line_number),
                 ))
 
-            for unit in self._parse_text_units(raw, relative, line_number, current):
+            parsed_units = self._parse_text_units(raw, relative, line_number, current)
+            if current.label == "__preamble__":
+                # Label-free source is predominantly init, Python, screen, image,
+                # ATL, and metadata declarations. Quoted values in those blocks
+                # are not say/menu statements. Explicit _(...) UI strings remain
+                # eligible because Ren'Py intentionally marks those for string
+                # translation even outside a label.
+                parsed_units = [
+                    unit
+                    for unit in parsed_units
+                    if unit.channel in {TextChannel.UI, TextChannel.TRANSLATE_STRING}
+                ]
+            for unit in parsed_units:
                 current.text_units.append(unit)
 
         current.end_line = max(current.start_line, len(lines))
@@ -179,14 +194,25 @@ class RenpyParser:
             start, end, _literal, source = segments[1]
             after = stripped[end:].strip()
             channel = TextChannel.DIALOGUE
-        elif after.startswith("if ") and after.endswith(":"):
+        elif after.startswith(("if ", "(")) or after.endswith(":"):
+            # Menu entries may use standard ``if condition:`` syntax or
+            # project-defined argument syntax such as ``(condition, icon):``.
+            # They must be emitted through Ren'Py's old/new string table, not
+            # copied as statements into a dialogue translation block.
             channel = TextChannel.MENU
-            condition = after[3:-1].strip()
-        elif after == ":":
-            channel = TextChannel.MENU
+            condition = after.removesuffix(":").strip()
+            if condition.startswith("if "):
+                condition = condition[3:].strip()
         elif before == "":
             channel = TextChannel.NARRATION
         else:
+            # A Ren'Py say statement begins with a character identifier and
+            # optional text attributes. Do not treat arbitrary Python/style
+            # expressions that happen to contain a string as dialogue. This
+            # conservative boundary is important because emitted translation
+            # blocks may only contain translatable Ren'Py statements.
+            if DIALOGUE_PREFIX_RE.fullmatch(before) is None:
+                return self._parse_ui_strings(stripped, relative, line_number, scene)
             parts = before.split()
             if parts and parts[0] == "say" and len(parts) > 1:
                 parts = parts[1:]

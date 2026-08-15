@@ -19,7 +19,7 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 - A preflight Token budget before starting and a persistent provider-reported usage ledger while running.
 - Structural validation for Ren'Py tags, interpolation, placeholders, IDs, and generated scripts.
 - Selective cross-scene refinement instead of paying to resend every translated line.
-- Validated standard RPY language directories in every run, plus optional verified RPA 3.0 archives enabled by default.
+- Validated standard RPY language directories in every run, plus optional RPA 3.0 archives enabled by default. When a game-bundled Ren'Py runtime or SDK is available, the archive includes verified RPYC sidecars and is marked `runtime_ready`.
 - Original game files remain read-only unless installation is explicitly enabled.
 
 ## Quick start
@@ -90,7 +90,7 @@ renweave run "D:\Games\Example" `
   --target-language "Português do Brasil"
 ```
 
-Add `--install` only when you want the verified RPY output copied to `game/tl/<language>`. RPA creation is enabled by default; add `--no-rpa` to keep only the validated RPY files. Use `renweave build --workspace <path>` to rebuild outputs from validated checkpoints without another model call.
+Add `--install` only when you want the verified RPY output copied to `game/tl/<language>`. RPA creation is enabled by default; RenWeave automatically uses a compatible runtime bundled with the game, or `--renpy-sdk`, to compile and validate RPYC sidecars without modifying the original game. `package.json` records whether the archive is immediately loadable as `runtime_ready`. Add `--no-rpa` to keep only the validated RPY files. Use `renweave build --workspace <path>` to rebuild outputs from validated checkpoints without another model call.
 
 ## Progress, pause, and recovery
 

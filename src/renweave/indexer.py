@@ -39,4 +39,4 @@ class ProjectIndexer:
                 )
                 files.append(script)
                 scenes.extend(parsed_scenes)
-        return ProjectIndex(schema_version=1, project=project, files=files, scenes=scenes)
+        return ProjectIndex(schema_version=6, project=project, files=files, scenes=scenes)

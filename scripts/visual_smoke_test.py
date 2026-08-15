@@ -38,6 +38,19 @@ def capture_window(window, path: Path) -> None:
     image.save(path, format="PNG")
 
 
+def hide_provider_picker(app: RenWeaveDesktopApp) -> None:
+    """Keep transient-state captures focused when the model page is mounted."""
+    provider_grid = getattr(app, "provider_grid", None)
+    provider_more = getattr(app, "provider_more_button", None)
+    provider_description = getattr(app, "provider_description", None)
+    if provider_grid is not None and provider_grid.winfo_exists():
+        provider_grid.grid_remove()
+    if provider_more is not None and provider_more.winfo_exists():
+        provider_more.master.grid_remove()
+    if provider_description is not None and provider_description.winfo_exists():
+        provider_description.master.grid_remove()
+
+
 def verify_layout(output_dir: Path | None = None) -> None:
     import tkinter as tk
 
@@ -131,18 +144,14 @@ def verify_layout(output_dir: Path | None = None) -> None:
             app.connection_state = "connecting"
             app.connection_detail = {}
             app._render()
-            app.provider_grid.grid_remove()
-            app.provider_more_button.master.grid_remove()
-            app.provider_description.master.grid_remove()
+            hide_provider_picker(app)
             root.update()
             capture_window(root, output_dir / "en-model-connecting.png")
 
             app.connection_state = "failed"
             app.connection_detail = {"message": "Authentication failed. Check the key and try again."}
             app._render()
-            app.provider_grid.grid_remove()
-            app.provider_more_button.master.grid_remove()
-            app.provider_description.master.grid_remove()
+            hide_provider_picker(app)
             root.update()
             capture_window(root, output_dir / "en-model-retry.png")
 

@@ -19,7 +19,7 @@ Ren'Py 游戏的上下文感知一键翻译工具。织译会先理解场景、�
 - 开始前提供 Token 预算，运行中持续保存由提供商返回的用量账本。
 - 校验 Ren'Py 标签、插值、占位符、文本 ID 与生成脚本结构。
 - 只精修跨场景高风险文本，避免把全部译文重复发送给模型。
-- 每次都生成并保留通过验证的标准 RPY 语言目录；默认同时生成可关闭的 RPA 3.0 归档。
+- 每次都生成并保留通过验证的标准 RPY 语言目录；默认同时生成可关闭的 RPA 3.0 归档。发现游戏内置 Ren'Py 运行时或 SDK 时，归档会包含通过验证的 RPYC，并标记为 `runtime_ready`。
 - 除非用户明确开启安装，否则游戏原目录保持只读。
 
 ## 快速开始
@@ -90,7 +90,7 @@ renweave run "D:\Games\Example" `
   --target-language "Português do Brasil"
 ```
 
-只有需要把验证后的 RPY 输出复制到 `game/tl/<language>` 时才添加 `--install`。默认会生成 RPA；添加 `--no-rpa` 后只保留通过验证的 RPY 文件。使用 `renweave build --workspace <路径>` 可以从已经通过验证的检查点重新生成输出，不再调用模型。
+只有需要把验证后的 RPY 输出复制到 `game/tl/<language>` 时才添加 `--install`。默认会生成 RPA；RenWeave 会自动使用游戏内置的兼容 Ren'Py 运行时，或通过 `--renpy-sdk` 指定 SDK，在不修改原游戏的隔离项目中编译并验证 RPYC。`package.json` 会记录归档是否可直接加载为 `runtime_ready`。添加 `--no-rpa` 后只保留通过验证的 RPY 文件。使用 `renweave build --workspace <路径>` 可以从已经通过验证的检查点重新生成输出，不再调用模型。
 
 ## 进度、暂停与恢复
 
