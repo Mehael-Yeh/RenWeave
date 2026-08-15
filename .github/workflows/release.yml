@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Package version to release, without the v prefix
+        description: Canonical PEP 440 version, for example 2.0.0 or 2.0.0rc1
         required: true
         type: string
       prerelease:
@@ -25,14 +25,58 @@ concurrency:
   group: release-${{ inputs.version }}
   cancel-in-progress: false
 
+env:
+  RELEASE_VERSION: ${{ inputs.version }}
+  SETUPTOOLS_SCM_PRETEND_VERSION: ${{ inputs.version }}
+  SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RENWEAVE: ${{ inputs.version }}
+
 jobs:
-  build-and-release:
+  validate:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_VERSION: ${{ inputs.version }}
-      RELEASE_DRAFT: ${{ inputs.draft }}
-      RELEASE_PRERELEASE: ${{ inputs.prerelease }}
-      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install version validator
+        run: python -m pip install --upgrade packaging
+
+      - name: Validate requested version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os
+          from packaging.version import InvalidVersion, Version
+
+          requested = os.environ["RELEASE_VERSION"]
+          try:
+              parsed = Version(requested)
+          except InvalidVersion as exc:
+              raise SystemExit(f"Invalid PEP 440 release version: {requested!r}") from exc
+          if str(parsed) != requested:
+              raise SystemExit(
+                  f"Use canonical PEP 440 version {str(parsed)!r} instead of {requested!r}"
+              )
+          print(f"Validated action-provided RenWeave version {requested}")
+          PY
+          if git ls-remote --exit-code --tags origin "refs/tags/v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${RELEASE_VERSION} already exists" >&2
+            exit 1
+          fi
+          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "Release v${RELEASE_VERSION} already exists" >&2
+            exit 1
+          fi
+
+  python-distributions:
+    needs: validate
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
@@ -43,58 +87,107 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: Validate requested version
-        shell: bash
-        run: |
-          python - <<'PY'
-          import ast
-          import os
-          import re
-          import tomllib
-          from pathlib import Path
-
-          requested = os.environ["RELEASE_VERSION"]
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[a-zA-Z0-9.-]+)?", requested):
-              raise SystemExit(f"Invalid release version: {requested!r}")
-          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-          package_version = project["project"]["version"]
-          init_tree = ast.parse(Path("src/renweave/__init__.py").read_text(encoding="utf-8"))
-          runtime_version = next(
-              ast.literal_eval(node.value)
-              for node in init_tree.body
-              if isinstance(node, ast.Assign)
-              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
-          )
-          if requested != package_version or requested != runtime_version:
-              raise SystemExit(
-                  f"Requested {requested}, pyproject {package_version}, runtime {runtime_version}"
-              )
-          print(f"Validated RenWeave {requested}")
-          PY
-          if git ls-remote --exit-code --tags origin "refs/tags/v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${RELEASE_VERSION} already exists" >&2
-            exit 1
-          fi
-
       - name: Install build tools and package
         run: python -m pip install --upgrade pip build twine .
 
       - name: Run release tests
         run: |
           python -X utf8 -m unittest discover -s tests -v
-          python -m compileall -q src tests
+          python -m compileall -q src tests packaging
 
-      - name: Build and verify distributions
+      - name: Build and verify Python distributions
         run: |
           python -m build
           python -m twine check dist/*
           python scripts/verify_distribution.py dist
           python - <<'PY'
+          import email
+          import os
+          import zipfile
+          from pathlib import Path
+
+          wheel = next(Path("dist").glob("*.whl"))
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+              metadata = email.message_from_bytes(archive.read(metadata_name))
+          actual = metadata["Version"]
+          expected = os.environ["RELEASE_VERSION"]
+          if actual != expected:
+              raise SystemExit(f"Wheel version {actual!r} does not match action input {expected!r}")
+          print(f"Verified wheel metadata version {actual}")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
+
+  windows-executable:
+    needs: validate
+    runs-on: windows-latest
+    env:
+      RENWEAVE_BUILD_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install executable build tools and package
+        run: python -m pip install --upgrade pip pyinstaller pillow .
+
+      - name: Build standalone Windows GUI executable
+        run: python scripts/build_windows_exe.py
+
+      - name: Verify executable version and bundled decompiler
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem -LiteralPath release -Filter '*.exe' -File).FullName
+          if (-not $exe) { throw 'Windows executable was not created' }
+          $result = Join-Path $env:RUNNER_TEMP 'renweave-exe-self-test.json'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--renweave-self-test', $result) -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Executable self-test failed with exit code $($process.ExitCode)" }
+          $payload = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
+          if ($payload.renweave_version -ne $env:RELEASE_VERSION) {
+            throw "Executable version $($payload.renweave_version) does not match $env:RELEASE_VERSION"
+          }
+          if (-not $payload.bundled_tool -or $payload.unrpyc_subprocess_returncode -ne 0) {
+            throw 'Bundled unrpyc subprocess verification failed'
+          }
+          Get-Content -LiteralPath $result
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-executable
+          path: release/*.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [python-distributions, windows-executable]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_DRAFT: ${{ inputs.draft }}
+      RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          python - <<'PY'
           import hashlib
           from pathlib import Path
 
           lines = []
-          for artifact in sorted(Path("dist").iterdir()):
+          for artifact in sorted(Path("release").iterdir()):
               digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
               lines.append(f"{digest}  {artifact.name}")
           Path("SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -106,7 +199,7 @@ jobs:
           options=()
           if [[ "${RELEASE_DRAFT}" == "true" ]]; then options+=(--draft); fi
           if [[ "${RELEASE_PRERELEASE}" == "true" ]]; then options+=(--prerelease); fi
-          gh release create "v${RELEASE_VERSION}" dist/* SHA256SUMS \
+          gh release create "v${RELEASE_VERSION}" release/* SHA256SUMS \
             --target "${GITHUB_SHA}" \
             --title "RenWeave ${RELEASE_VERSION}" \
             --generate-notes \

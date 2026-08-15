@@ -1,5 +1,7 @@
 """RenWeave core package."""
 
+from importlib.metadata import PackageNotFoundError, version as package_version
+
 from .models import ProjectIndex, Scene, TextUnit
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelProfile
@@ -20,4 +22,7 @@ __all__ = [
     "TextUnit",
     "TokenBudget",
 ]
-__version__ = "1.9.0"
+try:
+    __version__ = package_version("renweave")
+except PackageNotFoundError:
+    __version__ = "development"

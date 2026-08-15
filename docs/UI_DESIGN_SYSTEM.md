@@ -1,22 +1,24 @@
 # RenWeave desktop design system
 
-RenWeave uses a Material 3–informed **Calm Technical Workspace** system for a focused desktop workflow. This document is normative: new UI code must use these tokens and component roles rather than creating page-specific widget styling.
+RenWeave uses an **Aurora Workbench** system: Windows 11–informed component rendering with Material 3 semantic states for a focused desktop workflow. This document is normative: new UI code must use these tokens and component roles rather than creating page-specific widget styling.
 
 ## Reference basis
 
 - [Material Design 3](https://m3.material.io/) informs semantic color roles, component states, hierarchy, and accessible interaction feedback.
+- [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) provides the bundled rounded Windows component layer.
 - [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) informs the explicit design-system workflow, responsive checks, and pre-delivery visual audit.
 - [Awesome Design Systems](https://github.com/alexpate/awesome-design-systems) was used as a catalog of mature system patterns rather than as a source of page-specific styling.
 
-These are design references, not bundled dependencies. RenWeave's Tk implementation, desktop workflow, tokens, and Calm Technical Workspace visual identity are project-specific.
+Material Design 3, UI UX Pro Max, and Awesome Design Systems are design references rather than runtime dependencies. Sun Valley ttk is bundled as a runtime dependency. RenWeave's Tk composition, desktop workflow, tokens, and Aurora Workbench identity are project-specific.
 
 ## Layout grid
 
-- Default window: `1180 × 820`; minimum: `900 × 640`.
-- Workflow rail: `268 px` by default and a numbered `88 px` rail below the narrow breakpoint.
+- Default window: `1240 × 840`; minimum: `900 × 640`.
+- Workflow rail: `232 px` by default and a compact `76 px` rail below the narrow breakpoint.
 - Main canvas horizontal inset: `36 px` by default and `24 px` in compact layouts.
 - Card inset: `18 px`; standard field gap: `6 px`.
 - Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
+- Interactive controls target a `44 px` visual height and use Microsoft YaHei UI for bilingual consistency.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
 - Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
 
@@ -86,3 +88,5 @@ Before merging UI changes, render all five workflow pages plus the model picker 
 4. Text fields, list rows, diagnostic text, and scrollbars use the documented styles.
 5. No control is hidden behind the fixed footer and no horizontal scrollbar is required.
 6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
+7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint.
+8. Windows builds render one GUI window with an integrated dark title bar and no console window.

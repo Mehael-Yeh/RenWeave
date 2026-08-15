@@ -27,6 +27,9 @@ jobs:
         run: python -X utf8 -m unittest discover -s tests -v
       - name: Compile modules
         run: python -m compileall -q src tests
+      - name: Verify desktop layouts
+        if: runner.os == 'Windows'
+        run: python scripts/visual_smoke_test.py
       - name: Build distributions
         run: python -m build
       - name: Verify bundled offline tools

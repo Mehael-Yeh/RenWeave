@@ -5,6 +5,7 @@ __pycache__/
 .coverage
 dist/
 build/
+release/
 .venv/
 .renweave/
 .renweave-run.lock

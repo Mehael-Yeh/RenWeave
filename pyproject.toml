@@ -1,16 +1,19 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "renweave"
-version = "1.9.0"
+dynamic = ["version"]
 description = "Context-aware, one-click Ren'Py localization pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "RenWeave contributors" }]
-dependencies = ["keyring>=25.0,<27"]
+dependencies = [
+  "keyring>=25.0,<27",
+  "sv-ttk>=2.6,<3",
+]
 keywords = ["renpy", "localization", "translation", "visual-novel", "ai"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -39,6 +42,9 @@ renweave-gui = "renweave.gui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/renweave"]
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

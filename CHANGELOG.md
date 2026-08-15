@@ -2,6 +2,15 @@
 
 All notable changes to RenWeave are documented here.
 
+## Unreleased
+
+- Added a standalone, versioned Windows GUI executable to manual GitHub releases.
+- Made the Actions release input the only release-version source; packages and runtime metadata now receive the version during the build instead of storing it in source code.
+- Added release-time executable self-tests for embedded version metadata, offline unrpyc resources, and the frozen subprocess route used by compiled-script decompilation.
+- Rebuilt the desktop visual system as Aurora Workbench with rounded Sun Valley controls, an integrated dark Windows title bar, bilingual typography, semantic connection states, and a generated application icon.
+- Replaced resize-driven page reconstruction with a stable responsive shell, preserving the active widget tree, focus, and scroll state across breakpoints.
+- Added a Windows visual smoke test covering five pages, three window sizes, and both interface languages.
+
 ## 1.9.0 - 2026-08-10
 
 - Added a desktop and CLI output choice for RPA creation, enabled by default.

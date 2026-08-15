@@ -573,33 +573,34 @@ for _locale, _strings in _BASE_COPY.items():
 
 
 class Colors:
-    PRIMARY = "#4F46E5"
-    PRIMARY_HOVER = "#4338CA"
+    PRIMARY = "#5B5CE2"
+    PRIMARY_HOVER = "#494AC8"
     ON_PRIMARY = "#FFFFFF"
-    PRIMARY_CONTAINER = "#EEF2FF"
-    ON_PRIMARY_CONTAINER = "#312E81"
-    SURFACE = "#F5F7FB"
-    SURFACE_CONTAINER = "#F8FAFC"
-    SURFACE_HIGH = "#E8ECF4"
+    PRIMARY_CONTAINER = "#EEF0FF"
+    ON_PRIMARY_CONTAINER = "#303176"
+    ACCENT = "#20B8CD"
+    SURFACE = "#F3F6FB"
+    SURFACE_CONTAINER = "#F7F9FC"
+    SURFACE_HIGH = "#E9EDF5"
     CARD = "#FFFFFF"
-    ON_SURFACE = "#111827"
-    ON_SURFACE_VARIANT = "#5B6475"
-    OUTLINE = "#94A3B8"
-    OUTLINE_VARIANT = "#DCE1EA"
-    SUCCESS = "#047857"
-    SUCCESS_CONTAINER = "#ECFDF5"
+    ON_SURFACE = "#101828"
+    ON_SURFACE_VARIANT = "#667085"
+    OUTLINE = "#98A2B3"
+    OUTLINE_VARIANT = "#E0E6EF"
+    SUCCESS = "#067647"
+    SUCCESS_CONTAINER = "#ECFDF3"
     ERROR = "#B42318"
     ERROR_CONTAINER = "#FEF3F2"
-    NAV = "#111827"
-    NAV_ACTIVE = "#232C3B"
-    NAV_MUTED = "#94A3B8"
-    NAV_TEXT = "#F8FAFC"
+    NAV = "#0B1020"
+    NAV_ACTIVE = "#1B2440"
+    NAV_MUTED = "#98A2B3"
+    NAV_TEXT = "#F9FAFB"
     WARNING = "#B45309"
     WARNING_CONTAINER = "#FFF7ED"
-    CONTROL_HOVER = "#E9EDFF"
-    CONTROL_PRESSED = "#DDE3FF"
-    SCROLL_THUMB = "#AAB3C2"
-    SCROLL_THUMB_HOVER = "#7C8799"
+    CONTROL_HOVER = "#E7E9FF"
+    CONTROL_PRESSED = "#D9DDFF"
+    SCROLL_THUMB = "#B2BBC9"
+    SCROLL_THUMB_HOVER = "#818B9B"
 
 
 class Metrics:
@@ -611,9 +612,9 @@ class Metrics:
     SPACE_4 = 16
     SPACE_5 = 20
     SPACE_6 = 24
-    CARD_PADDING = 18
+    CARD_PADDING = 22
     FIELD_GAP = 6
-    CONTROL_PADDING_Y = 10
+    CONTROL_PADDING_Y = 9
     BUTTON_WIDTH = 18
     FIELD_ACTION_WIDTH = 16
     DIALOG_ACTION_WIDTH = 15
@@ -622,10 +623,17 @@ class Metrics:
     FOOTER_SLOT_WIDTH = 180
     COMPACT_FOOTER_SLOT_WIDTH = 150
     LIST_ROW_HEIGHT = 38
-    COMPACT_BREAKPOINT = 1120
-    NARROW_BREAKPOINT = 980
-    SIDEBAR_WIDTH = 268
-    NARROW_SIDEBAR_WIDTH = 88
+    COMPACT_BREAKPOINT = 1100
+    NARROW_BREAKPOINT = 1020
+    SIDEBAR_WIDTH = 232
+    NARROW_SIDEBAR_WIDTH = 76
+
+
+class Typography:
+    """Cross-language font roles with a deliberate Windows CJK face."""
+
+    UI = "Microsoft YaHei UI"
+    MONO = "Cascadia Mono"
 
 
 class GuidedTooltip:
@@ -675,7 +683,7 @@ class GuidedTooltip:
             text=self.text,
             background=Colors.NAV,
             foreground=Colors.NAV_TEXT,
-            font=("Segoe UI", 9),
+            font=(Typography.UI, 9),
             justify="left",
             wraplength=330,
         ).pack()
@@ -777,6 +785,7 @@ class SettingsDialog:
         x = app.root.winfo_rootx() + max(0, (app.root.winfo_width() - self.window.winfo_width()) // 2)
         y = app.root.winfo_rooty() + max(0, (app.root.winfo_height() - self.window.winfo_height()) // 2)
         self.window.geometry(f"+{x}+{y}")
+        app._style_native_window(self.window, dark=False)
         close.focus_set()
 
     def _storage_changed(self) -> None:
@@ -837,6 +846,7 @@ class MaterialDialog:
         x = app.root.winfo_rootx() + max(0, (app.root.winfo_width() - self.window.winfo_width()) // 2)
         y = app.root.winfo_rooty() + max(0, (app.root.winfo_height() - self.window.winfo_height()) // 2)
         self.window.geometry(f"+{x}+{y}")
+        app._style_native_window(self.window, dark=False)
         close.focus_set()
 
 
@@ -907,6 +917,7 @@ class ModelPickerDialog:
         x = app.root.winfo_rootx() + max(0, (app.root.winfo_width() - self.window.winfo_width()) // 2)
         y = app.root.winfo_rooty() + max(0, (app.root.winfo_height() - self.window.winfo_height()) // 2)
         self.window.geometry(f"+{x}+{y}")
+        app._style_native_window(self.window, dark=False)
         search.focus_set()
 
     def _filter(self, *_args) -> None:
@@ -959,9 +970,11 @@ class RenWeaveDesktopApp:
         self.ttk = ttk
         self.root = root
         self.root.title("RenWeave")
-        self.root.geometry("1180x820")
+        self.root.geometry("1240x840")
         self.root.minsize(900, 640)
         self.root.configure(background=Colors.SURFACE)
+        self._configure_font_defaults()
+        self._install_app_icon()
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.worker: threading.Thread | None = None
@@ -1036,6 +1049,7 @@ class RenWeaveDesktopApp:
         self.nav = None
         self._configure_styles()
         self._build_shell()
+        self.root.after(250, lambda: self._style_native_window(self.root, dark=True))
         self._restore_api_key()
         self._bind_provider_changes()
         if initial_project and not initial_workspace:
@@ -1051,6 +1065,79 @@ class RenWeaveDesktopApp:
     def t(self, key: str, **values: object) -> str:
         text = COPY[self.locale.get()].get(key, COPY["en"].get(key, key))
         return text.format(**values) if values else text
+
+    def _configure_font_defaults(self) -> None:
+        from tkinter import font as tkfont
+
+        roles = {
+            "TkDefaultFont": 10,
+            "TkTextFont": 10,
+            "TkMenuFont": 10,
+            "TkHeadingFont": 10,
+            "TkCaptionFont": 10,
+            "TkSmallCaptionFont": 9,
+            "TkIconFont": 10,
+            "TkTooltipFont": 9,
+        }
+        for name, size in roles.items():
+            try:
+                tkfont.nametofont(name).configure(family=Typography.UI, size=size)
+            except self.tk.TclError:
+                continue
+        try:
+            tkfont.nametofont("TkFixedFont").configure(family=Typography.MONO, size=9)
+        except self.tk.TclError:
+            pass
+
+    def _install_app_icon(self) -> None:
+        icon = self.tk.PhotoImage(width=32, height=32)
+        icon.put(Colors.NAV, to=(0, 0, 32, 32))
+        icon.put(Colors.ACCENT, to=(5, 6, 10, 24))
+        icon.put(Colors.PRIMARY, to=(11, 10, 16, 28))
+        icon.put("#8B8CF6", to=(17, 6, 22, 24))
+        icon.put(Colors.ACCENT, to=(23, 10, 28, 28))
+        self.root.iconphoto(True, icon)
+        self._app_icon = icon
+
+    @staticmethod
+    def _style_native_window(window, *, dark: bool) -> None:
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
+            from tkinter import TclError
+
+            window.update_idletasks()
+            widget_hwnd = window.winfo_id()
+            wrapper_hwnd = ctypes.windll.user32.GetParent(widget_hwnd)
+
+            def colorref(value: str) -> int:
+                red, green, blue = (
+                    int(value[index:index + 2], 16) for index in (1, 3, 5)
+                )
+                return red | (green << 8) | (blue << 16)
+
+            for hwnd in {widget_hwnd, wrapper_hwnd}:
+                if not hwnd:
+                    continue
+                dark_mode = ctypes.c_int(1 if dark else 0)
+                border = ctypes.c_int(colorref(Colors.NAV if dark else Colors.OUTLINE_VARIANT))
+                caption = ctypes.c_int(colorref(Colors.NAV if dark else Colors.CARD))
+                text = ctypes.c_int(colorref(Colors.NAV_TEXT if dark else Colors.ON_SURFACE))
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 20, ctypes.byref(dark_mode), ctypes.sizeof(dark_mode)
+                )
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 34, ctypes.byref(border), ctypes.sizeof(border)
+                )
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 35, ctypes.byref(caption), ctypes.sizeof(caption)
+                )
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, 36, ctypes.byref(text), ctypes.sizeof(text)
+                )
+        except (AttributeError, OSError, TclError):
+            return
 
     def _load_desktop_settings(self) -> dict[str, object]:
         try:
@@ -1203,56 +1290,62 @@ class RenWeaveDesktopApp:
 
     def _configure_styles(self) -> None:
         style = self.ttk.Style(self.root)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
+        try:
+            import sv_ttk
+
+            sv_ttk.set_theme("light")
+        except (ImportError, self.tk.TclError):
+            if "clam" in style.theme_names():
+                style.theme_use("clam")
         style.configure("App.TFrame", background=Colors.SURFACE)
-        style.configure("TopBar.TFrame", background=Colors.CARD, padding=(32, 18))
+        style.configure("TopBar.TFrame", background=Colors.CARD)
         style.configure("Footer.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
         style.configure("FooterSlot.TFrame", background=Colors.SURFACE)
         style.configure("ActionBar.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
-        style.configure("LanguageGroup.TFrame", background=Colors.SURFACE_HIGH, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
+        style.configure("LanguageGroup.TFrame", background=Colors.SURFACE_HIGH, relief="flat", borderwidth=0)
         style.configure("Content.TFrame", background=Colors.SURFACE, padding=(36, 24))
         style.configure("Card.TFrame", background=Colors.CARD, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("CardBody.TFrame", background=Colors.CARD, relief="flat", borderwidth=0)
         style.configure("TintCard.TFrame", background=Colors.SURFACE_CONTAINER, relief="flat")
         style.configure("Dialog.TFrame", background=Colors.CARD)
-        style.configure("TopLabel.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9, "bold"))
-        style.configure("Headline.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE, font=("Segoe UI", 23, "bold"))
-        style.configure("Section.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 12, "bold"))
-        style.configure("Body.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10))
-        style.configure("SurfaceBody.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10))
-        style.configure("Hint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
-        style.configure("ActionHint.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
-        style.configure("AutoSave.TLabel", background=Colors.CARD, foreground=Colors.SUCCESS, font=("Segoe UI", 9, "bold"))
-        style.configure("Field.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"))
-        style.configure("DialogTitle.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 16, "bold"))
-        style.configure("DialogHint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
-        style.configure("ErrorBody.TLabel", background=Colors.CARD, foreground=Colors.ERROR, font=("Segoe UI", 10))
-        style.configure("Status.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"))
-        style.configure("StatusBody.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
-        style.configure("Primary.TButton", anchor="center", padding=(14, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=1, relief="flat")
+        style.configure("TopLabel.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9, "bold"))
+        style.configure("Headline.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE, font=(Typography.UI, 25, "bold"))
+        style.configure("Section.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 12, "bold"))
+        style.configure("Body.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 10))
+        style.configure("SurfaceBody.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 10))
+        style.configure("Hint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
+        style.configure("ActionHint.TLabel", background=Colors.SURFACE, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
+        style.configure("ActionWarning.TLabel", background=Colors.SURFACE, foreground=Colors.WARNING, font=(Typography.UI, 9, "bold"))
+        style.configure("AutoSave.TLabel", background=Colors.CARD, foreground=Colors.SUCCESS, font=(Typography.UI, 9, "bold"))
+        style.configure("Field.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"))
+        style.configure("DialogTitle.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 17, "bold"))
+        style.configure("DialogHint.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
+        style.configure("ErrorBody.TLabel", background=Colors.CARD, foreground=Colors.ERROR, font=(Typography.UI, 10))
+        style.configure("Status.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"))
+        style.configure("StatusBody.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
+        style.configure("Primary.TButton", anchor="center", padding=(16, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
         style.map("Primary.TButton", background=[("pressed", Colors.PRIMARY_HOVER), ("active", Colors.PRIMARY_HOVER), ("disabled", Colors.OUTLINE_VARIANT)], foreground=[("disabled", Colors.CARD)], bordercolor=[("focus", Colors.ON_PRIMARY_CONTAINER)])
-        style.configure("Secondary.TButton", anchor="center", padding=(14, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10, "bold"), foreground=Colors.PRIMARY, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
+        style.configure("Secondary.TButton", anchor="center", padding=(14, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10, "bold"), foreground=Colors.ON_SURFACE, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("Secondary.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("Ghost.TButton", anchor="center", padding=(14, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.CARD, borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, relief="flat")
+        style.configure("Ghost.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.CARD, borderwidth=0, relief="flat")
         style.map("Ghost.TButton", background=[("pressed", Colors.SURFACE_HIGH), ("active", Colors.SURFACE_CONTAINER), ("disabled", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)])
-        style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10, "bold"), foreground=Colors.PRIMARY, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
+        style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10, "bold"), foreground=Colors.PRIMARY, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("FieldAction.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("Language.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
+        style.configure("Language.TButton", anchor="center", padding=(9, 5), font=(Typography.UI, 9), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("Language.TButton", background=[("focus", Colors.SURFACE_CONTAINER), ("pressed", Colors.SURFACE_CONTAINER), ("active", Colors.SURFACE_CONTAINER)], foreground=[("focus", Colors.PRIMARY)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("LanguageActive.TButton", anchor="center", padding=(8, 5), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=0, relief="flat")
+        style.configure("LanguageActive.TButton", anchor="center", padding=(9, 5), font=(Typography.UI, 9, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
         style.map("LanguageActive.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("Provider.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9), foreground=Colors.ON_SURFACE, background=Colors.CARD, borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, relief="flat")
+        style.configure("Provider.TButton", anchor="w", padding=(14, 10), font=(Typography.UI, 9), foreground=Colors.ON_SURFACE, background=Colors.CARD, borderwidth=0, relief="flat")
         style.map("Provider.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.SURFACE_CONTAINER)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("ProviderSelected.TButton", anchor="w", padding=(12, 8), font=("Segoe UI", 9, "bold"), foreground=Colors.ON_PRIMARY_CONTAINER, background=Colors.PRIMARY_CONTAINER, borderwidth=1, relief="flat")
+        style.configure("ProviderSelected.TButton", anchor="w", padding=(14, 10), font=(Typography.UI, 9, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
         style.map("ProviderSelected.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("Nav.TButton", anchor="w", padding=(16, 12), font=("Segoe UI", 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
+        style.configure("Nav.TButton", anchor="w", padding=(16, 13), font=(Typography.UI, 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
         style.map("Nav.TButton", background=[("focus", Colors.NAV_ACTIVE), ("active", Colors.NAV_ACTIVE)], foreground=[("focus", Colors.NAV_TEXT), ("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
-        style.configure("NavActive.TButton", anchor="w", padding=(16, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
+        style.configure("NavActive.TButton", anchor="w", padding=(16, 13), font=(Typography.UI, 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
         style.map("NavActive.TButton", background=[("active", Colors.NAV_ACTIVE)], foreground=[("active", Colors.NAV_TEXT)])
-        style.configure("NavNarrow.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
+        style.configure("NavNarrow.TButton", anchor="center", padding=(8, 13), font=(Typography.UI, 10), foreground=Colors.NAV_MUTED, background=Colors.NAV, borderwidth=0, relief="flat")
         style.map("NavNarrow.TButton", background=[("focus", Colors.NAV_ACTIVE), ("active", Colors.NAV_ACTIVE)], foreground=[("focus", Colors.NAV_TEXT), ("active", Colors.NAV_TEXT), ("disabled", Colors.NAV_MUTED)])
-        style.configure("NavNarrowActive.TButton", anchor="center", padding=(8, 12), font=("Segoe UI", 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
+        style.configure("NavNarrowActive.TButton", anchor="center", padding=(8, 13), font=(Typography.UI, 10, "bold"), foreground=Colors.NAV_TEXT, background=Colors.NAV_ACTIVE, borderwidth=0, relief="flat")
         button_layout = [
             ("Button.border", {"sticky": "nswe", "children": [
                 ("Button.padding", {"sticky": "nswe", "children": [
@@ -1261,25 +1354,30 @@ class RenWeaveDesktopApp:
             ]}),
         ]
         for button_style in (
-            "Primary.TButton", "Secondary.TButton", "Ghost.TButton", "FieldAction.TButton",
-            "Language.TButton", "LanguageActive.TButton", "Provider.TButton",
-            "ProviderSelected.TButton", "Nav.TButton", "NavActive.TButton",
-            "NavNarrow.TButton", "NavNarrowActive.TButton",
+            "Nav.TButton", "NavActive.TButton", "NavNarrow.TButton", "NavNarrowActive.TButton",
         ):
             style.layout(button_style, button_layout)
-        style.configure("Workspace.TEntry", padding=(11, Metrics.CONTROL_PADDING_Y), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, insertcolor=Colors.ON_SURFACE)
+        try:
+            accent_layout = style.layout("Accent.TButton")
+            if accent_layout:
+                style.layout("Primary.TButton", accent_layout)
+                style.layout("ProviderSelected.TButton", accent_layout)
+                style.layout("LanguageActive.TButton", accent_layout)
+        except self.tk.TclError:
+            pass
+        style.configure("Workspace.TEntry", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, insertcolor=Colors.ON_SURFACE)
         style.map("Workspace.TEntry", bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)], fieldbackground=[("disabled", Colors.SURFACE_CONTAINER)], foreground=[("disabled", Colors.OUTLINE)])
-        style.configure("Workspace.TCombobox", padding=(11, Metrics.CONTROL_PADDING_Y - 1), font=("Segoe UI", 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, background=Colors.CARD, bordercolor=Colors.OUTLINE_VARIANT, arrowcolor=Colors.ON_SURFACE_VARIANT)
+        style.configure("Workspace.TCombobox", padding=(12, Metrics.CONTROL_PADDING_Y - 1), font=(Typography.UI, 10), fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, background=Colors.CARD, bordercolor=Colors.OUTLINE_VARIANT, arrowcolor=Colors.ON_SURFACE_VARIANT)
         style.map("Workspace.TCombobox", bordercolor=[("focus", Colors.PRIMARY)], fieldbackground=[("readonly", Colors.CARD), ("disabled", Colors.SURFACE_CONTAINER)], selectbackground=[("readonly", Colors.CARD)], selectforeground=[("readonly", Colors.ON_SURFACE)], arrowcolor=[("disabled", Colors.OUTLINE)])
-        style.configure("Material.TCheckbutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10), padding=(0, 4), focuscolor=Colors.CARD)
+        style.configure("Material.TCheckbutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10), padding=(0, 5), focuscolor=Colors.CARD)
         style.map("Material.TCheckbutton", background=[("active", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)])
-        style.configure("Material.TRadiobutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10), padding=(0, 4), focuscolor=Colors.CARD)
+        style.configure("Material.TRadiobutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10), padding=(0, 5), focuscolor=Colors.CARD)
         style.map("Material.TRadiobutton", background=[("active", Colors.CARD)], foreground=[("focus", Colors.PRIMARY)])
-        style.configure("ModelList.Treeview", background=Colors.CARD, fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, rowheight=Metrics.LIST_ROW_HEIGHT, font=("Segoe UI", 10), relief="flat")
+        style.configure("ModelList.Treeview", background=Colors.CARD, fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, rowheight=Metrics.LIST_ROW_HEIGHT, font=(Typography.UI, 10), relief="flat")
         style.map("ModelList.Treeview", background=[("selected", Colors.PRIMARY_CONTAINER)], foreground=[("selected", Colors.ON_PRIMARY_CONTAINER)])
-        style.configure("Workspace.Vertical.TScrollbar", background=Colors.SCROLL_THUMB, troughcolor=Colors.SURFACE_CONTAINER, bordercolor=Colors.SURFACE_CONTAINER, arrowcolor=Colors.ON_SURFACE_VARIANT, lightcolor=Colors.SCROLL_THUMB, darkcolor=Colors.SCROLL_THUMB, width=13, arrowsize=12, relief="flat")
+        style.configure("Workspace.Vertical.TScrollbar", background=Colors.SCROLL_THUMB, troughcolor=Colors.SURFACE, bordercolor=Colors.SURFACE, arrowcolor=Colors.ON_SURFACE_VARIANT, lightcolor=Colors.SCROLL_THUMB, darkcolor=Colors.SCROLL_THUMB, width=10, arrowsize=10, relief="flat")
         style.map("Workspace.Vertical.TScrollbar", background=[("active", Colors.SCROLL_THUMB_HOVER), ("pressed", Colors.SCROLL_THUMB_HOVER)])
-        style.configure("Horizontal.TProgressbar", background=Colors.PRIMARY, troughcolor=Colors.SURFACE_HIGH, bordercolor=Colors.SURFACE_HIGH, lightcolor=Colors.PRIMARY, darkcolor=Colors.PRIMARY, thickness=12)
+        style.configure("Horizontal.TProgressbar", background=Colors.PRIMARY, troughcolor=Colors.SURFACE_HIGH, bordercolor=Colors.SURFACE_HIGH, lightcolor=Colors.PRIMARY, darkcolor=Colors.PRIMARY, thickness=8)
 
     def _build_shell(self) -> None:
         self.shell = self.ttk.Frame(self.root, style="App.TFrame")
@@ -1296,27 +1394,35 @@ class RenWeaveDesktopApp:
         self.sidebar.rowconfigure(2, weight=1)
 
         self.brand = self.tk.Frame(self.sidebar, background=Colors.NAV)
-        self.brand.grid(row=0, column=0, sticky="ew", padx=24, pady=(28, 24))
+        self.brand.grid(row=0, column=0, sticky="ew", padx=20, pady=(24, 20))
+        self.brand.columnconfigure(1, weight=1)
+        self.brand_mark = self.tk.Label(
+            self.brand,
+            image=self._app_icon,
+            background=Colors.NAV,
+            borderwidth=0,
+        )
+        self.brand_mark.grid(row=0, column=0, sticky="w")
         self.brand_title = self.tk.Label(
             self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_TEXT,
-            font=("Segoe UI", 20, "bold"),
+            font=(Typography.UI, 18, "bold"),
             anchor="w",
             justify="left",
             wraplength=215,
         )
-        self.brand_title.grid(row=0, column=0, sticky="w")
+        self.brand_title.grid(row=0, column=1, sticky="w", padx=(10, 0))
         self.brand_subtitle = self.tk.Label(
             self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_MUTED,
-            font=("Segoe UI", 9),
+            font=(Typography.UI, 9),
             anchor="w",
             justify="left",
             wraplength=215,
         )
-        self.brand_subtitle.grid(row=1, column=0, sticky="w", pady=(7, 0))
+        self.brand_subtitle.grid(row=1, column=0, columnspan=2, sticky="w", pady=(10, 0))
 
         self.nav = self.tk.Frame(self.sidebar, background=Colors.NAV)
         self.nav.grid(row=1, column=0, sticky="ew", padx=14)
@@ -1324,7 +1430,7 @@ class RenWeaveDesktopApp:
             self.sidebar,
             background=Colors.NAV_ACTIVE,
             foreground=Colors.NAV_MUTED,
-            font=("Segoe UI", 9),
+            font=(Typography.UI, 9),
             justify="left",
             anchor="w",
             wraplength=200,
@@ -1417,7 +1523,7 @@ class RenWeaveDesktopApp:
 
     def _render_responsive(self) -> None:
         self._responsive_render_id = None
-        self._render()
+        self._apply_responsive_shell()
 
     def _on_content_mousewheel(self, event) -> None:
         if not self.content_canvas or not self.content_scrollbar or not self.content_scrollbar.winfo_ismapped():
@@ -1459,22 +1565,29 @@ class RenWeaveDesktopApp:
             self.content_scrollbar.grid_remove()
             self.content_canvas.yview_moveto(0.0)
 
-    def _render(self) -> None:
+    def _apply_responsive_shell(self) -> None:
         sidebar_width = Metrics.NARROW_SIDEBAR_WIDTH if self.narrow_layout else Metrics.SIDEBAR_WIDTH
         self.sidebar.configure(width=sidebar_width)
-        self.brand.grid_configure(padx=14 if self.narrow_layout else 24, pady=(24, 20) if self.narrow_layout else (28, 24))
+        self.brand.grid_configure(
+            padx=12 if self.narrow_layout else 20,
+            pady=(20, 18) if self.narrow_layout else (24, 20),
+        )
         brand_text = "RW" if self.narrow_layout and self.locale.get() == "en" else self.t("app_title")
-        brand_size = 17 if self.narrow_layout else (18 if self.locale.get() == "zh" else 20)
+        brand_size = 16 if self.narrow_layout else 18
         self.brand_title.configure(
             text=brand_text,
-            font=("Segoe UI", brand_size, "bold"),
-            wraplength=60 if self.narrow_layout else 215,
+            font=(Typography.UI, brand_size, "bold"),
+            wraplength=52 if self.narrow_layout else 188,
         )
         self.brand_subtitle.configure(text=self.t("app_subtitle"))
         if self.narrow_layout:
+            self.brand_mark.grid_remove()
+            self.brand_title.grid_configure(column=0, columnspan=2, sticky="ew", padx=0)
             self.brand_subtitle.grid_remove()
             self.privacy_label.grid_remove()
         else:
+            self.brand_mark.grid()
+            self.brand_title.grid_configure(column=1, columnspan=1, sticky="w", padx=(10, 0))
             self.brand_subtitle.grid()
             self.privacy_label.grid()
         self.workspace_label.configure(text=self.t("workspace_label"))
@@ -1486,6 +1599,20 @@ class RenWeaveDesktopApp:
         self.top.configure(padding=(inset, 10, inset, 10))
         self.content.configure(padding=(inset, 0, inset, 0))
         self.footer.configure(padding=(inset, 6, inset, 8))
+        for index, button in enumerate(self.nav.winfo_children()):
+            is_current = index == self.step
+            prefix = f"{index + 1:02d}"
+            if self.narrow_layout:
+                text = prefix
+                button_style = "NavNarrowActive.TButton" if is_current else "NavNarrow.TButton"
+            else:
+                text = f"{prefix}    {self.t(f'steps.{self.STEPS[index]}')}"
+                button_style = "NavActive.TButton" if is_current else "Nav.TButton"
+            button.configure(text=text, style=button_style)
+        self._schedule_content_layout()
+
+    def _render(self) -> None:
+        self._apply_responsive_shell()
         self.next_button = None
         self.back_button = None
         self.start_button = None
@@ -1528,7 +1655,7 @@ class RenWeaveDesktopApp:
             text=self.t("step_count", current=self.step + 1, total=len(self.STEPS)),
             background=Colors.PRIMARY_CONTAINER,
             foreground=Colors.ON_PRIMARY_CONTAINER,
-            font=("Segoe UI", 9, "bold"),
+            font=(Typography.UI, 9, "bold"),
             padx=10,
             pady=5,
         )
@@ -1562,7 +1689,7 @@ class RenWeaveDesktopApp:
         return entry
 
     def _render_model(self) -> None:
-        card = self._card(padding=14)
+        card = self._card(padding=20)
         card.columnconfigure(0, weight=1)
 
         title_row = self.ttk.Frame(card, style="CardBody.TFrame")
@@ -1574,11 +1701,11 @@ class RenWeaveDesktopApp:
             text=self.t("model.settings_saved"),
             style="AutoSave.TLabel",
         ).grid(row=0, column=1, sticky="e")
-        self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 6))
+        self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 10))
 
-        sequence = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=12, pady=5)
-        sequence.grid(row=2, column=0, sticky="ew", pady=(0, 6))
-        self.tk.Label(sequence, text=self.t("model.sequence"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 9, "bold"), anchor="w").pack(fill="x")
+        sequence = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=7)
+        sequence.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        self.tk.Label(sequence, text=self.t("model.sequence"), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9, "bold"), anchor="w").pack(fill="x")
 
         preset_grid = self.tk.Frame(card, background=Colors.CARD)
         preset_grid.grid(row=3, column=0, sticky="ew")
@@ -1602,37 +1729,39 @@ class RenWeaveDesktopApp:
                 row=index // provider_columns,
                 column=provider_column,
                 sticky="ew",
-                padx=(0, 5 if provider_column < provider_columns - 1 else 0),
-                pady=(0, 5),
+                padx=(0, 8 if provider_column < provider_columns - 1 else 0),
+                pady=(0, 8),
             )
             self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
 
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
-        selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=12, pady=7)
-        selection.grid(row=4, column=0, sticky="ew", pady=(2, 7))
+        selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=9)
+        selection.grid(row=4, column=0, sticky="ew", pady=(2, 14))
         category = self.t(f"provider.{preset.category}")
-        self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=("Segoe UI", 8, "bold"), padx=7, pady=3)
+        self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=(Typography.UI, 8, "bold"), padx=7, pady=3)
         self.provider_category.pack(side="left")
         self.provider_description = self.tk.Label(
             selection,
             text=preset.localized_description(self.locale.get()),
             background=Colors.SURFACE_CONTAINER,
             foreground=Colors.ON_SURFACE_VARIANT,
-            font=("Segoe UI", 9),
+            font=(Typography.UI, 9),
             anchor="w",
             justify="left",
             wraplength=420 if self.compact_layout else 650,
         )
         self.provider_description.pack(side="left", fill="x", expand=True, padx=(10, 0))
 
+        separator = self.tk.Frame(card, background=Colors.OUTLINE_VARIANT, height=1)
+        separator.grid(row=5, column=0, sticky="ew", pady=(2, 16))
         config = self.ttk.Frame(card, style="CardBody.TFrame")
-        config.grid(row=5, column=0, sticky="nsew")
+        config.grid(row=6, column=0, sticky="nsew")
         config.columnconfigure(0, weight=1)
         if not self.compact_layout:
             config.columnconfigure(1, weight=1)
         left = self.ttk.Frame(config, style="CardBody.TFrame")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 0 if self.compact_layout else 14))
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 0 if self.compact_layout else 16))
         left.columnconfigure(0, weight=1)
         self.ttk.Label(left, text=self.t("model.config"), style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
         self.ttk.Label(left, text=self.t("model.endpoint"), style="Field.TLabel").grid(row=1, column=0, sticky="w")
@@ -1660,8 +1789,8 @@ class RenWeaveDesktopApp:
             row=1 if self.compact_layout else 0,
             column=0 if self.compact_layout else 1,
             sticky="nsew",
-            padx=(0, 0) if self.compact_layout else (14, 0),
-            pady=(14, 0) if self.compact_layout else (0, 0),
+            padx=(0, 0) if self.compact_layout else (16, 0),
+            pady=(16, 0) if self.compact_layout else (0, 0),
         )
         right.columnconfigure(0, weight=1)
         self.ttk.Label(right, text=self.t("model.validation"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 7))
@@ -1698,6 +1827,7 @@ class RenWeaveDesktopApp:
 
         status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
         status_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(7, 0))
+        status_card.columnconfigure(1, weight=1)
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
         details = dict(self.connection_detail)
         detail_key = f"model.{state_key}_body"
@@ -1705,16 +1835,35 @@ class RenWeaveDesktopApp:
         body = self.t(detail_key, **details) if detail_key in COPY[self.locale.get()] else str(details.get("message", ""))
         if state_key == "failed":
             body = str(details.get("message", ""))
+        self.model_status_indicator = self.tk.Frame(
+            status_card,
+            background=self._connection_state_color(state_key),
+            width=4,
+        )
+        self.model_status_indicator.grid(row=0, column=0, rowspan=2, sticky="ns", padx=(0, 10))
+        self.model_status_indicator.grid_propagate(False)
         self.model_status_title = self.ttk.Label(status_card, text=title, style="Status.TLabel")
-        self.model_status_title.grid(row=0, column=0, sticky="w")
+        self.model_status_title.grid(row=0, column=1, sticky="w")
         self.model_status_body = self.ttk.Label(status_card, text=body, style="StatusBody.TLabel", wraplength=360, justify="left")
-        self.model_status_body.grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.model_status_body.grid(row=1, column=1, sticky="w", pady=(4, 0))
 
         self._refresh_model_panel()
 
     def _browse_models(self) -> None:
         if self.model_choices:
             ModelPickerDialog(self)
+
+    @staticmethod
+    def _connection_state_color(state: str) -> str:
+        if state in {"connected", "verified"}:
+            return Colors.SUCCESS
+        if state in {"failed", "discovery_failed"}:
+            return Colors.ERROR
+        if state in {"connecting", "verifying"}:
+            return Colors.PRIMARY
+        if state == "changed":
+            return Colors.WARNING
+        return Colors.OUTLINE
 
     def _refresh_model_panel(self) -> None:
         """Refresh model setup in place so button clicks never rebuild or jump the page."""
@@ -1752,7 +1901,14 @@ class RenWeaveDesktopApp:
             body = str(details.get("message", ""))
         self.model_status_title.configure(text=title)
         self.model_status_body.configure(text=body)
+        self.model_status_indicator.configure(background=self._connection_state_color(state_key))
         busy = state_key in {"connecting", "verifying"}
+        self.connect_button.configure(
+            text=self.t("model.connecting") if state_key == "connecting" else self.t("model.load")
+        )
+        self.verify_button.configure(
+            text=self.t("model.verifying") if state_key == "verifying" else self.t("model.verify")
+        )
         self.connect_button.configure(state="disabled" if busy else "normal")
         self.verify_button.configure(state="disabled" if busy or not self.model.get().strip() else "normal")
         if self.next_button is not None:
@@ -1830,13 +1986,13 @@ class RenWeaveDesktopApp:
         self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(12, 0))
         safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
         safety.grid(row=11, column=0, sticky="ew", pady=(16, 0))
-        self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=("Segoe UI", 10, "bold")).pack(side="left")
+        self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, 10, "bold")).pack(side="left")
         self.tk.Label(
             safety,
             text=self.t("game.safety_note"),
             background=Colors.SUCCESS_CONTAINER,
             foreground=Colors.ON_SURFACE_VARIANT,
-            font=("Segoe UI", 9),
+            font=(Typography.UI, 9),
             wraplength=540 if self.compact_layout else 700,
             justify="left",
             anchor="w",
@@ -1902,11 +2058,11 @@ class RenWeaveDesktopApp:
         budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
         budget_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         budget_card.columnconfigure(0, weight=1)
-        self.tk.Label(budget_card, text=self.t("budget.title").upper(), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+        self.tk.Label(budget_card, text=self.t("budget.title").upper(), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, 9, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
         if budget:
             low = self._format_token_count(budget.estimated_total_low)
             high = self._format_token_count(budget.estimated_total_high)
-            self.tk.Label(budget_card, text=self.t("budget.range", low=low, high=high), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=("Segoe UI", 18, "bold"), anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.tk.Label(budget_card, text=self.t("budget.range", low=low, high=high), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, 18, "bold"), anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
             self.tk.Label(
                 budget_card,
                 text=self.t(
@@ -1918,7 +2074,7 @@ class RenWeaveDesktopApp:
                 ),
                 background=Colors.PRIMARY_CONTAINER,
                 foreground=Colors.ON_PRIMARY_CONTAINER,
-                font=("Segoe UI", 9, "bold"),
+                font=(Typography.UI, 9, "bold"),
                 anchor="w",
             ).grid(row=2, column=0, sticky="w", pady=(4, 0))
             self.tk.Label(
@@ -1930,13 +2086,13 @@ class RenWeaveDesktopApp:
                 ),
                 background=Colors.PRIMARY_CONTAINER,
                 foreground=Colors.ON_SURFACE_VARIANT,
-                font=("Segoe UI", 9),
+                font=(Typography.UI, 9),
                 wraplength=560 if self.compact_layout else 720,
                 justify="left",
                 anchor="w",
             ).grid(row=3, column=0, sticky="w", pady=(5, 0))
         else:
-            self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 10), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
+            self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 10), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
 
         self.ttk.Checkbutton(
             card,
@@ -1991,7 +2147,7 @@ class RenWeaveDesktopApp:
             text=f"{percent:.0f}%",
             background=Colors.CARD,
             foreground=Colors.PRIMARY,
-            font=("Segoe UI", 22, "bold"),
+            font=(Typography.UI, 22, "bold"),
         ).grid(row=0, column=1, rowspan=2, sticky="e")
         self.ttk.Label(heading, textvariable=self.status, style="Section.TLabel", wraplength=650).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.progress = self.ttk.Progressbar(card, mode="determinate", maximum=100, value=percent)
@@ -2011,7 +2167,7 @@ class RenWeaveDesktopApp:
                 text=("●  " if active else "○  ") + self.t(f"progress.phase.{name}"),
                 background=Colors.CARD,
                 foreground=Colors.PRIMARY if active else Colors.OUTLINE,
-                font=("Segoe UI", 9, "bold" if active else "normal"),
+                font=(Typography.UI, 9, "bold" if active else "normal"),
             ).grid(row=0, column=column, sticky="w")
 
         stats = self.tk.Frame(card, background=Colors.CARD)
@@ -2045,8 +2201,8 @@ class RenWeaveDesktopApp:
                 padx=(0 if column == 0 else 5, 0),
                 pady=(0 if row == 0 else 5, 0),
             )
-            self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 8, "bold"), anchor="w").pack(fill="x")
-            self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=("Segoe UI", 10, "bold"), anchor="w", wraplength=175, justify="left").pack(fill="x", pady=(5, 0))
+            self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 8, "bold"), anchor="w").pack(fill="x")
+            self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"), anchor="w", wraplength=175, justify="left").pack(fill="x", pady=(5, 0))
 
         usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
         if usage_status not in {"reported", "unavailable", "pending"}:
@@ -2070,20 +2226,20 @@ class RenWeaveDesktopApp:
             text=self.t("budget.actual", total=self._format_token_count(tokens), input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
             background=strip_background,
             foreground=strip_foreground,
-            font=("Segoe UI", 9, "bold"),
+            font=(Typography.UI, 9, "bold"),
         )
         actual_usage.grid(row=0, column=0, columnspan=2 if self.compact_layout else 1, sticky="w")
         projected = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t("progress.estimating")
-        projected_usage = self.tk.Label(token_strip, text=projected, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9))
+        projected_usage = self.tk.Label(token_strip, text=projected, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
         projected_usage.grid(row=1 if self.compact_layout else 0, column=0 if self.compact_layout else 1, sticky="w", padx=(0 if self.compact_layout else 18, 0), pady=(4, 0) if self.compact_layout else (0, 0))
-        reporting = self.tk.Label(token_strip, text=self.t(f"budget.reporting.{usage_status}"), background=strip_background, foreground=strip_foreground, font=("Segoe UI", 9, "bold"))
+        reporting = self.tk.Label(token_strip, text=self.t(f"budget.reporting.{usage_status}"), background=strip_background, foreground=strip_foreground, font=(Typography.UI, 9, "bold"))
         reporting.grid(row=2 if self.compact_layout else 0, column=0 if self.compact_layout else 2, columnspan=2 if self.compact_layout else 1, sticky="w" if self.compact_layout else "e", pady=(4, 0) if self.compact_layout else (0, 0))
 
         if self.last_stage == "paused":
             notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
             notice.grid(row=5, column=0, sticky="ew", pady=(0, 12))
-            self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=("Segoe UI", 9, "bold")).pack(side="left")
-            self.tk.Label(notice, text=self.t("progress.paused_body"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=("Segoe UI", 9), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
+            self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=(Typography.UI, 9, "bold")).pack(side="left")
+            self.tk.Label(notice, text=self.t("progress.paused_body"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
 
         log_header = self.ttk.Frame(card, style="CardBody.TFrame")
         log_header.grid(row=6, column=0, sticky="ew")
@@ -2115,7 +2271,7 @@ class RenWeaveDesktopApp:
             selectbackground=Colors.PRIMARY_CONTAINER,
             selectforeground=Colors.ON_PRIMARY_CONTAINER,
             insertbackground=Colors.ON_SURFACE,
-            font=("Cascadia Mono", 9),
+            font=(Typography.MONO, 9),
             padx=12,
             pady=10,
             takefocus=True,
@@ -2140,10 +2296,11 @@ class RenWeaveDesktopApp:
         left_slot.grid(row=0, column=0, sticky="w")
         right_slot = self.ttk.Frame(action_bar, style="FooterSlot.TFrame")
         right_slot.grid(row=0, column=2, sticky="e")
+        model_blocked = self.step == 0 and self.connection_state != "verified"
         effect = self.ttk.Label(
             action_bar,
-            text=self.t(f"footer.effect.{self.STEPS[self.step]}"),
-            style="ActionHint.TLabel",
+            text=self.t("model.required") if model_blocked else self.t(f"footer.effect.{self.STEPS[self.step]}"),
+            style="ActionWarning.TLabel" if model_blocked else "ActionHint.TLabel",
             wraplength=260 if self.compact_layout else 560,
             justify="left",
         )
@@ -2608,6 +2765,13 @@ class RenWeaveDesktopApp:
 
 
 def launch_gui(*, initial_project: str = "", initial_workspace: str = "") -> int:
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except (AttributeError, OSError):
+            pass
     try:
         import tkinter as tk
     except ImportError as exc:

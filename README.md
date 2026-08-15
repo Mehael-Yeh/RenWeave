@@ -24,7 +24,9 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 
 ## Quick start
 
-Requirements: Python 3.10 or newer and an API key for a supported provider.
+Windows users can download the versioned `RenWeave-<version>-windows-x64.exe` from the latest GitHub Release and launch it directly; Python is not required. You still need an API key for a supported provider.
+
+To run from source instead, use Python 3.10 or newer:
 
 ```powershell
 git clone https://github.com/Mehael-Yeh/RenWeave.git
@@ -118,13 +120,13 @@ Diagnostics are always retained under the workspace:
 
 ## Interface design
 
-RenWeave uses a **Calm Technical Workspace** design: a persistent dark workflow rail, a high-contrast light work canvas, compact provider tiles, and one restrained indigo accent. The same 8-point spacing rhythm, field treatment, status panels, dialog structure, and three-level button hierarchy are used throughout:
+RenWeave uses an **Aurora Workbench** design: Windows 11–informed rounded controls, an obsidian workflow rail, a cloud-gray work canvas, and restrained indigo/cyan accents. Microsoft YaHei UI and system-native typography keep English and Chinese aligned, while one stable responsive shell prevents resize-driven page rebuilds. The same 8-point spacing rhythm, field treatment, semantic status panels, dialog structure, and three-level button hierarchy are used throughout:
 
 - **Primary** for the single next or confirming action.
 - **Secondary** for back, cancellation, pause, and other non-destructive alternatives.
 - **Field action** for browse, choose, copy, and controls attached to a specific field.
 
-The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and implementation. Model setup remains the first step, built-in provider presets replace profile importing, every endpoint stays editable, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
+The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Component rendering uses the bundled [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme); semantic states and accessibility follow Material 3 principles. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and workflow. Model setup remains the first step, built-in provider presets replace profile importing, every endpoint stays editable, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 
 Keyboard focus uses a solid color border and state contrast—never a dotted focus rectangle. The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
 
@@ -163,7 +165,7 @@ python -m pip install build
 python -m build
 ```
 
-CI tests Python 3.10 and 3.13 on Windows and Linux. Maintainers can publish a tagged GitHub release from **Actions → Release → Run workflow** after the requested version matches the package version.
+CI tests Python 3.10 and 3.13 on Windows and Linux. Maintainers publish from **Actions → Release → Run workflow**. The canonical PEP 440 version entered there is the single release-version source: Actions injects it into the wheel, source archive, standalone Windows GUI executable, filenames, and release tag. The workflow verifies the embedded versions and bundled decompiler before publishing; no source file needs a version edit.
 
 ## Project information
 

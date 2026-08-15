@@ -24,7 +24,9 @@ Ren'Py 游戏的上下文感知一键翻译工具。织译会先理解场景、�
 
 ## 快速开始
 
-需要 Python 3.10 或更高版本，以及任一受支持提供商的 API 密钥。
+Windows 用户可以从最新 GitHub Release 下载带版本号的 `RenWeave-<version>-windows-x64.exe` 并直接启动，不需要安装 Python；仍需准备任一受支持提供商的 API 密钥。
+
+如果要从源码运行，请使用 Python 3.10 或更高版本：
 
 ```powershell
 git clone https://github.com/Mehael-Yeh/RenWeave.git
@@ -118,13 +120,13 @@ renweave run "D:\Games\Example" `
 
 ## 界面设计
 
-织译采用 **Calm Technical Workspace（沉静技术工作台）** 风格：固定的深色流程导航、清晰的浅色工作画布、紧凑的提供商卡片，以及克制的靛蓝强调色。所有页面统一使用 8 点间距节奏、输入框样式、状态面板、弹窗结构和三级按钮逻辑：
+织译采用 **Aurora Workbench（极光工作台）** 风格：具有 Windows 11 质感的圆润控件、黑曜石色流程导航、云灰色工作画布，以及克制的靛蓝/青色强调。Microsoft YaHei UI 与系统字体让中英文保持一致的字重和基线，稳定的响应式外壳则避免因窗口尺寸变化而重建页面。所有页面统一使用 8 点间距节奏、输入框样式、语义状态面板、弹窗结构和三级按钮逻辑：
 
 - **主按钮**：每个界面唯一的下一步或确认操作。
 - **次按钮**：返回、取消、暂停及其他非破坏性替代操作。
 - **字段按钮**：浏览、选择、复制等紧邻特定字段的操作。
 
-它借鉴现代开发工具和编辑型工作区，而不是装饰性的游戏启动器。提供商选择流程的研究参考了 [CC Switch](https://github.com/farion1231/cc-switch)，但织译使用独立的任务型视觉系统与实现。模型设置始终是第一步；内置提供商预设取代配置文件导入，所有端点均可编辑，非密钥 API 设置自动保存。五个页面及弹窗使用同一套视觉与交互语言。关键字段和按钮同时提供行内后果说明与延迟提示，明确用户应填写什么、是否会访问 API、是否可能消耗 Token，以及下一步会改变什么。
+它借鉴现代开发工具和编辑型工作区，而不是装饰性的游戏启动器。控件渲染使用随程序打包的 [Sun Valley ttk 主题](https://github.com/rdbende/Sun-Valley-ttk-theme)，语义状态与无障碍规则遵循 Material 3 原则。提供商选择流程的研究参考了 [CC Switch](https://github.com/farion1231/cc-switch)，但织译使用独立的任务型视觉系统与工作流。模型设置始终是第一步；内置提供商预设取代配置文件导入，所有端点均可编辑，非密钥 API 设置自动保存。五个页面及弹窗使用同一套视觉与交互语言。关键字段和按钮同时提供行内后果说明与延迟提示，明确用户应填写什么、是否会访问 API、是否可能消耗 Token，以及下一步会改变什么。
 
 强制执行的组件、对齐、状态和视觉验收规则见[桌面设计系统](UI_DESIGN_SYSTEM.md)。
 
@@ -163,7 +165,7 @@ python -m pip install build
 python -m build
 ```
 
-CI 会在 Windows 与 Linux 上测试 Python 3.10 和 3.13。维护者可在 **Actions → Release → Run workflow** 中填写与项目版本一致的版本号，手动发布带标签的 GitHub Release。
+CI 会在 Windows 与 Linux 上测试 Python 3.10 和 3.13。维护者可在 **Actions → Release → Run workflow** 中填写规范的 PEP 440 版本号。该输入是唯一的发行版本来源：Actions 会把它注入 wheel、源码包、Windows 独立 GUI 程序、文件名和 Release 标签，并在发布前校验内嵌版本与随附反编译器；不再需要修改任何源码版本号。
 
 ## 项目信息
 

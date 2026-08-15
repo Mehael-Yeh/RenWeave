@@ -22,6 +22,7 @@ from renweave.build_validation import (
     RenpySdk,
 )
 from renweave.decompiler import (
+    FROZEN_UNRPYC_SWITCH,
     UNRPYC_BUNDLED_FILES,
     UNRPYC_BUNDLED_TREE_SHA256,
     DecompilationError,
@@ -130,7 +131,8 @@ class CorePipelineTests(unittest.TestCase):
     def test_public_api_exposes_pipeline_and_model_profile(self) -> None:
         import renweave
 
-        self.assertEqual(renweave.__version__, "1.9.0")
+        self.assertTrue(renweave.__version__)
+        self.assertRegex(renweave.__version__, r"^(?:development|\d)")
         self.assertIs(renweave.RenWeavePipeline, RenWeavePipeline)
         self.assertIs(renweave.ModelProfile, ModelProfile)
 
@@ -280,8 +282,9 @@ class CorePipelineTests(unittest.TestCase):
                 tuple(app.reasoning_box.cget("values")),
                 ("Automatic (provider default)", "Low", "High", "Maximum"),
             )
-            self.assertIn("Button.border", str(app.ttk.Style(root).layout("Primary.TButton")))
-            self.assertNotIn("Button.focus", str(app.ttk.Style(root).layout("Primary.TButton")))
+            primary_layout = str(app.ttk.Style(root).layout("Primary.TButton"))
+            self.assertIn("AccentButton", primary_layout)
+            self.assertNotIn("focus", primary_layout.casefold())
             settings_dialog = app._open_settings()
             root.update_idletasks()
             self.assertEqual(settings_dialog.window.title(), "Settings")
@@ -324,8 +327,8 @@ class CorePipelineTests(unittest.TestCase):
             root.update_idletasks()
             self.assertEqual(app.locale.get(), "zh")
             self.assertEqual(app.brand_title.cget("text"), "织译")
-            self.assertEqual(int(app.brand_title.cget("wraplength")), 215)
-            self.assertLessEqual(app.brand_title.winfo_reqwidth(), 220)
+            self.assertEqual(int(app.brand_title.cget("wraplength")), 188)
+            self.assertLessEqual(app.brand_title.winfo_reqwidth(), 192)
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
             self.assertEqual(app.language_buttons["zh"].cget("style"), "LanguageActive.TButton")
 
@@ -1564,6 +1567,19 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(metadata["tree_sha256"], UNRPYC_BUNDLED_TREE_SHA256)
         self.assertEqual(UnrpycDecompiler(entrypoint).version(), "Unrpyc v2.0.2")
         self.assertEqual(manager.resolve(), entrypoint)
+
+    def test_frozen_executable_routes_unrpyc_through_internal_entry(self) -> None:
+        entrypoint = UnrpycToolManager(Path(self.temp.name) / "frozen-tools").resolve()
+        executable = Path(sys.executable).resolve()
+        decompiler = UnrpycDecompiler(entrypoint, python_executable=executable)
+        with mock.patch.object(sys, "frozen", True, create=True):
+            self.assertEqual(decompiler.version(), "Unrpyc v2.0.2")
+            self.assertEqual(decompiler._base_command(), [
+                str(executable),
+                FROZEN_UNRPYC_SWITCH,
+                str(entrypoint.parent),
+                str(entrypoint),
+            ])
 
     def test_failed_decompilation_keeps_diagnostic_manifest(self) -> None:
         project = Path(self.temp.name) / "BrokenCompiledGame"

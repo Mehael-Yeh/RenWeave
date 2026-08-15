@@ -41,6 +41,7 @@ ISOLATED_BOOTSTRAP = (
     "sys.argv[0]=entry;"
     "runpy.run_path(entry,run_name='__main__')"
 )
+FROZEN_UNRPYC_SWITCH = "--renweave-internal-unrpyc"
 
 
 class DecompilationError(RuntimeError):
@@ -190,6 +191,8 @@ class UnrpycDecompiler:
         self.timeout_seconds = timeout_seconds
 
     def version(self) -> str:
+        if self._uses_frozen_launcher():
+            return f"Unrpyc v{UNRPYC_VERSION}"
         process = subprocess.run(
             [*self._base_command(), "--version"],
             cwd=self.entrypoint.parent,
@@ -315,6 +318,13 @@ class UnrpycDecompiler:
         return manifest
 
     def _base_command(self) -> list[str]:
+        if self._uses_frozen_launcher():
+            return [
+                self.python_executable,
+                FROZEN_UNRPYC_SWITCH,
+                str(self.entrypoint.parent),
+                str(self.entrypoint),
+            ]
         return [
             self.python_executable,
             "-I",
@@ -324,6 +334,11 @@ class UnrpycDecompiler:
             str(self.entrypoint.parent),
             str(self.entrypoint),
         ]
+
+    def _uses_frozen_launcher(self) -> bool:
+        return bool(getattr(sys, "frozen", False)) and (
+            Path(self.python_executable) == Path(sys.executable).resolve()
+        )
 
     @staticmethod
     def _subprocess_environment() -> dict[str, str]:
