@@ -21,18 +21,10 @@ from .usage import TokenBudget, estimate_project_tokens
 from .update_check import UpdateResult, check_for_updates
 
 
-FEATURED_PROVIDER_IDS = (
-    "openai",
-    "google",
-    "anthropic",
-    "deepseek",
-    "minimax",
-    "openrouter",
-)
-
 PROVIDER_SHORT_NAMES_EN = {
     "alibaba": "Alibaba Cloud",
     "custom": "Custom API",
+    "custom2": "Custom API 2",
 }
 
 
@@ -420,7 +412,7 @@ _BASE_COPY = {
         "steps.game": "Game",
         "steps.languages": "Languages",
         "steps.review": "Review",
-        "steps.progress": "Progress",
+        "steps.progress": "Translation",
         "step_count": "Step {current} of {total}",
         "back": "Back",
         "continue": "Continue",
@@ -505,6 +497,11 @@ _BASE_COPY = {
         "progress.rpa_output": "RPA archive",
         "progress.failed": "Translation stopped",
         "progress.failed_body": "The workspace, checkpoints, and diagnostics were kept so the task can be retried.",
+        "progress.back_warning_title": "Review before resuming",
+        "progress.back_warning_body": "The translation has stopped, so you can return to setup. Changes to the game, workspace, provider, endpoint, model, languages, or engine validation can affect the entire translation chain.",
+        "progress.config_changed_title": "Critical translation settings changed",
+        "progress.config_changed_body": "These settings changed since this run started:\n{fields}\n\nContinuing may combine saved checkpoints with a different translation setup. Continue only if this is intentional.",
+        "progress.continue_changed": "Continue anyway",
         "dialog.cannot_continue": "Cannot continue",
         "dialog.cannot_start": "Cannot start",
         "dialog.complete": "RenWeave finished",
@@ -518,7 +515,7 @@ _BASE_COPY = {
         "steps.game": "游戏",
         "steps.languages": "语言",
         "steps.review": "确认",
-        "steps.progress": "进度",
+        "steps.progress": "翻译",
         "step_count": "第 {current} 步，共 {total} 步",
         "back": "返回",
         "continue": "继续",
@@ -603,6 +600,11 @@ _BASE_COPY = {
         "progress.rpa_output": "RPA 归档",
         "progress.failed": "翻译已停止",
         "progress.failed_body": "工作区、检查点与诊断信息均已保留，可以重试。",
+        "progress.back_warning_title": "恢复翻译前请检查",
+        "progress.back_warning_body": "翻译已经停止，现在可以返回修改设置。游戏、工作区、提供商、接口地址、模型、语言或引擎验证一旦改变，都可能影响整个翻译链路。",
+        "progress.config_changed_title": "翻译关键设置已改变",
+        "progress.config_changed_body": "以下设置与本次任务开始时不同：\n{fields}\n\n继续可能会把已有检查点与不同的翻译设置混合。请确认这是有意修改后再继续。",
+        "progress.continue_changed": "仍然继续",
         "dialog.cannot_continue": "无法继续",
         "dialog.cannot_start": "无法开始",
         "dialog.complete": "织译已完成",
@@ -659,6 +661,7 @@ class Metrics:
     CONTROL_PADDING_Y = 9
     ANIMATION_FRAME_MS = 16
     ANIMATION_DURATION_MS = 160
+    SCROLL_INCREMENT = 44
     BUTTON_WIDTH = 18
     FIELD_ACTION_WIDTH = 16
     DIALOG_ACTION_WIDTH = 15
@@ -860,6 +863,9 @@ class MaterialDialog:
         *,
         error: bool = False,
         details: str = "",
+        warning: bool = False,
+        confirm_text: str = "",
+        on_confirm: Callable[[], None] | None = None,
     ) -> None:
         tk, ttk = app.tk, app.ttk
         self.window = tk.Toplevel(app.root)
@@ -871,7 +877,8 @@ class MaterialDialog:
         card = ttk.Frame(self.window, style="Dialog.TFrame", padding=24)
         card.grid(sticky="nsew")
         card.columnconfigure(1, weight=1)
-        accent = tk.Frame(card, background=Colors.ERROR if error else Colors.SUCCESS, width=4)
+        accent_color = Colors.ERROR if error else (Colors.WARNING if warning else Colors.SUCCESS)
+        accent = tk.Frame(card, background=accent_color, width=4)
         accent.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(0, 16))
         accent.grid_propagate(False)
         ttk.Label(card, text=title, style="DialogTitle.TLabel").grid(row=0, column=1, sticky="w")
@@ -901,17 +908,40 @@ class MaterialDialog:
                 width=Metrics.DIALOG_ACTION_WIDTH,
             )
             copy.pack(side="left", padx=(0, 8))
-        close = app._button(actions, app.t("close"), self.window.destroy, width=Metrics.DIALOG_ACTION_WIDTH)
-        close.pack(side="left")
+        def confirm() -> None:
+            self.window.destroy()
+            if on_confirm is not None:
+                on_confirm()
+
+        if on_confirm is not None:
+            close = app._button(
+                actions,
+                app.t("cancel"),
+                self.window.destroy,
+                kind="secondary",
+                width=Metrics.DIALOG_ACTION_WIDTH,
+            )
+            close.pack(side="left", padx=(0, 8))
+            primary = app._button(
+                actions,
+                confirm_text or app.t("continue"),
+                confirm,
+                width=Metrics.DIALOG_ACTION_WIDTH,
+            )
+            primary.pack(side="left")
+        else:
+            close = app._button(actions, app.t("close"), self.window.destroy, width=Metrics.DIALOG_ACTION_WIDTH)
+            close.pack(side="left")
+            primary = close
         self.window.bind("<Escape>", lambda _event: self.window.destroy())
-        self.window.bind("<Return>", lambda _event: self.window.destroy())
+        self.window.bind("<Return>", lambda _event: confirm() if on_confirm is not None else self.window.destroy())
         self.window.protocol("WM_DELETE_WINDOW", self.window.destroy)
         self.window.update_idletasks()
         x = app.root.winfo_rootx() + max(0, (app.root.winfo_width() - self.window.winfo_width()) // 2)
         y = app.root.winfo_rooty() + max(0, (app.root.winfo_height() - self.window.winfo_height()) // 2)
         self.window.geometry(f"+{x}+{y}")
         app._style_native_window(self.window, dark=False)
-        close.focus_set()
+        primary.focus_set()
 
 
 class ModelPickerDialog:
@@ -1058,11 +1088,11 @@ class RenWeaveDesktopApp:
         self.narrow_layout = False
         self._responsive_render_id = None
         self._content_layout_id = None
-        self._provider_animation_id = None
         self._progress_animation_id = None
         self._restore_redraw_id = None
         self._restore_hidden = False
         self._displayed_progress_percent = 0.0
+        self.translation_baseline: dict[str, str] | None = None
         self._settings_save_id = None
         self._session_keys: dict[tuple[str, str], str] = {}
         self._tooltips: list[GuidedTooltip] = []
@@ -1080,7 +1110,6 @@ class RenWeaveDesktopApp:
         initial_preset = get_provider_preset(saved_provider_id if saved_provider_id in PROVIDER_PRESETS_BY_ID else "openai")
         self.provider = tk.StringVar()
         self.selected_provider_id = tk.StringVar(value=initial_preset.id)
-        self.providers_expanded = initial_preset.id not in FEATURED_PROVIDER_IDS
         self.provider_name = tk.StringVar(value=str(saved_settings.get("provider_name", initial_preset.name)))
         self.base_url = tk.StringVar(value=str(saved_settings.get("base_url", initial_preset.base_url)))
         self.api_key_env = tk.StringVar(value=str(saved_settings.get("api_key_env", initial_preset.api_key_env)))
@@ -1596,6 +1625,7 @@ class RenWeaveDesktopApp:
             borderwidth=0,
             highlightthickness=0,
             takefocus=False,
+            yscrollincrement=Metrics.SCROLL_INCREMENT,
         )
         self.content_canvas.grid(row=0, column=0, sticky="nsew")
         self.content_scrollbar = self._scrollbar(content_host, command=self.content_canvas.yview)
@@ -1641,7 +1671,9 @@ class RenWeaveDesktopApp:
                 self.root.after_cancel(self._responsive_render_id)
             except self.tk.TclError:
                 pass
-        self._responsive_render_id = self.root.after(100, self._render_responsive)
+        # Breakpoint work is lightweight. Apply it on the next event-loop turn so
+        # the shell follows the resize gesture instead of trailing it by 100 ms.
+        self._responsive_render_id = self.root.after(0, self._render_responsive)
 
     def _on_window_unmapped(self, event) -> None:
         """Hide the compositor layer while an iconified window has stale pixels."""
@@ -1725,16 +1757,18 @@ class RenWeaveDesktopApp:
             return
         if pointed is not None and pointed.winfo_class() in {"Text", "Treeview", "TCombobox"}:
             return
-        units = -1 if event.delta > 0 else 1
-        self.content_canvas.yview_scroll(units * 3, "units")
+        if not event.delta:
+            return
+        notches = max(1, abs(int(event.delta)) // 120)
+        units = -notches if event.delta > 0 else notches
+        self.content_canvas.yview_scroll(units, "units")
 
     def _schedule_content_layout(self, _event=None) -> None:
         if self._content_layout_id is not None:
-            try:
-                self.root.after_cancel(self._content_layout_id)
-            except self.tk.TclError:
-                pass
-        self._content_layout_id = self.root.after_idle(self._sync_content_layout)
+            return
+        # Coalesce layout storms to one update per frame. Cancelling and
+        # rescheduling here starved redraws until the resize gesture stopped.
+        self._content_layout_id = self.root.after(Metrics.ANIMATION_FRAME_MS, self._sync_content_layout)
 
     def _sync_content_layout(self) -> None:
         self._content_layout_id = None
@@ -1809,7 +1843,6 @@ class RenWeaveDesktopApp:
         self._schedule_content_layout()
 
     def _render(self) -> None:
-        self._cancel_provider_animation()
         if self._progress_animation_id is not None:
             try:
                 self.root.after_cancel(self._progress_animation_id)
@@ -1835,7 +1868,10 @@ class RenWeaveDesktopApp:
         for index, step in enumerate(self.STEPS):
             prefix = "✓" if index < self.step else f"{index + 1:02d}"
             is_current = index == self.step
-            is_available = index <= self.step and self.step < 4
+            is_available = (
+                (self.step < 4 and index <= self.step)
+                or (self._can_leave_translation() and index < 4)
+            )
             if self.narrow_layout:
                 button_text = prefix
                 button_style = "NavNarrowActive.TButton" if is_current else "NavNarrow.TButton"
@@ -1934,12 +1970,8 @@ class RenWeaveDesktopApp:
             wraplength=680 if self.compact_layout else 760,
         ).pack(fill="x")
 
-        provider_viewport = self.tk.Frame(card, background=Colors.CARD)
-        provider_viewport.grid(row=3, column=0, sticky="ew")
-        provider_viewport.columnconfigure(0, weight=1)
-        preset_grid = self.tk.Frame(provider_viewport, background=Colors.CARD)
-        preset_grid.grid(row=0, column=0, sticky="ew")
-        self.provider_viewport = provider_viewport
+        preset_grid = self.tk.Frame(card, background=Colors.CARD)
+        preset_grid.grid(row=3, column=0, sticky="ew")
         self.provider_grid = preset_grid
         self.provider_columns = 3 if self.compact_layout else 4
         for column in range(self.provider_columns):
@@ -1964,25 +1996,10 @@ class RenWeaveDesktopApp:
             self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
         self._layout_provider_buttons()
-        self.root.update_idletasks()
-        provider_viewport.configure(height=max(1, preset_grid.winfo_reqheight()))
-        provider_viewport.grid_propagate(False)
-
-        provider_toggle = self.ttk.Frame(card, style="CardBody.TFrame")
-        provider_toggle.grid(row=4, column=0, sticky="w", pady=(0, 8))
-        self.provider_more_button = self._button(
-            provider_toggle,
-            "",
-            self._toggle_provider_list,
-            kind="ghost",
-            width=24,
-        )
-        self.provider_more_button.pack(side="left")
-        self._refresh_provider_toggle()
 
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
         selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=9)
-        selection.grid(row=5, column=0, sticky="ew", pady=(2, 14))
+        selection.grid(row=4, column=0, sticky="ew", pady=(2, 14))
         category = self.t(f"provider.{preset.category}")
         self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=(Typography.UI, 8, "bold"), padx=7, pady=3)
         self.provider_category.pack(side="left")
@@ -1999,9 +2016,9 @@ class RenWeaveDesktopApp:
         self.provider_description.pack(side="left", fill="x", expand=True, padx=(10, 0))
 
         separator = self.tk.Frame(card, background=Colors.OUTLINE_VARIANT, height=1)
-        separator.grid(row=6, column=0, sticky="ew", pady=(2, 16))
+        separator.grid(row=5, column=0, sticky="ew", pady=(2, 16))
         config = self.ttk.Frame(card, style="CardBody.TFrame")
-        config.grid(row=7, column=0, sticky="nsew")
+        config.grid(row=6, column=0, sticky="nsew")
         config.columnconfigure(0, weight=1)
         if not self.compact_layout:
             config.columnconfigure(1, weight=1)
@@ -2117,22 +2134,11 @@ class RenWeaveDesktopApp:
 
         self._refresh_model_panel()
 
-    def _visible_provider_presets(self):
-        selected_id = self.selected_provider_id.get()
-        if self.providers_expanded:
-            return PROVIDER_PRESETS
-        return tuple(
-            preset
-            for preset in PROVIDER_PRESETS
-            if preset.id in FEATURED_PROVIDER_IDS or preset.id == selected_id
-        )
-
     def _layout_provider_buttons(self) -> None:
         for button in getattr(self, "provider_buttons", {}).values():
             button.grid_remove()
-        visible = self._visible_provider_presets()
         columns = max(1, getattr(self, "provider_columns", 4))
-        for index, preset in enumerate(visible):
+        for index, preset in enumerate(PROVIDER_PRESETS):
             column = index % columns
             self.provider_buttons[preset.id].grid(
                 row=index // columns,
@@ -2141,67 +2147,6 @@ class RenWeaveDesktopApp:
                 padx=(0, 8 if column < columns - 1 else 0),
                 pady=(0, 8),
             )
-
-    def _refresh_provider_toggle(self) -> None:
-        if not hasattr(self, "provider_more_button"):
-            return
-        if self.providers_expanded:
-            text = self.t("provider.less")
-        else:
-            visible_ids = {preset.id for preset in self._visible_provider_presets()}
-            count = sum(preset.id not in visible_ids for preset in PROVIDER_PRESETS)
-            text = self.t("provider.more", count=count)
-        self.provider_more_button.configure(text=text)
-
-    def _toggle_provider_list(self) -> None:
-        self._cancel_provider_animation()
-        start_height = max(1, self.provider_viewport.winfo_height())
-        self.providers_expanded = not self.providers_expanded
-        if self.providers_expanded:
-            self._layout_provider_buttons()
-            self.root.update_idletasks()
-            target_height = max(1, self.provider_grid.winfo_reqheight())
-        else:
-            visible_count = len(self._visible_provider_presets())
-            rows = (visible_count + self.provider_columns - 1) // self.provider_columns
-            row_height = max(button.winfo_reqheight() for button in self.provider_buttons.values()) + 8
-            target_height = max(1, rows * row_height)
-        self._refresh_provider_toggle()
-        self.provider_more_button.configure(state="disabled")
-        self._animate_provider_height(start_height, target_height, 0)
-
-    def _cancel_provider_animation(self) -> None:
-        if self._provider_animation_id is not None:
-            try:
-                self.root.after_cancel(self._provider_animation_id)
-            except self.tk.TclError:
-                pass
-            self._provider_animation_id = None
-
-    def _animate_provider_height(self, start: int, target: int, frame: int) -> None:
-        frames = max(1, Metrics.ANIMATION_DURATION_MS // Metrics.ANIMATION_FRAME_MS)
-        progress = min(1.0, frame / frames)
-        eased = 1.0 - (1.0 - progress) ** 3
-        height = round(start + (target - start) * eased)
-        try:
-            self.provider_viewport.configure(height=max(1, height))
-        except self.tk.TclError:
-            self._provider_animation_id = None
-            return
-        self._schedule_content_layout()
-        if frame < frames:
-            self._provider_animation_id = self.root.after(
-                Metrics.ANIMATION_FRAME_MS,
-                lambda: self._animate_provider_height(start, target, frame + 1),
-            )
-            return
-        self._provider_animation_id = None
-        if not self.providers_expanded:
-            self._layout_provider_buttons()
-            self.root.update_idletasks()
-            self.provider_viewport.configure(height=max(1, self.provider_grid.winfo_reqheight()))
-        self.provider_more_button.configure(state="normal")
-        self._schedule_content_layout()
 
     def _browse_models(self) -> None:
         if self.model_choices:
@@ -2793,11 +2738,11 @@ class RenWeaveDesktopApp:
         )
         effect_padding = Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4
         effect.grid(row=0, column=1, sticky="w", padx=effect_padding)
-        if self.step > 0 and self.step < 4:
+        if (self.step > 0 and self.step < 4) or self._can_leave_translation():
             self.back_button = self._button(
                 left_slot,
                 self.t("back"),
-                lambda: self._go_to_step(self.step - 1),
+                lambda: self._go_to_step(3 if self.step == 4 else self.step - 1),
                 kind="secondary",
                 width=Metrics.FOOTER_BACK_WIDTH,
             )
@@ -2944,10 +2889,60 @@ class RenWeaveDesktopApp:
             self.renpy_sdk.set(selected)
 
     def _go_to_step(self, selected: int) -> None:
-        if 0 <= selected <= self.step and self.step < 4:
-            self.step = selected
-            self.content_canvas.yview_moveto(0.0)
-            self._render()
+        leaving_translation = self.step == 4 and selected < 4 and self._can_leave_translation()
+        if not (0 <= selected <= self.step and (self.step < 4 or leaving_translation)):
+            return
+        self.step = selected
+        self.content_canvas.yview_moveto(0.0)
+        self._render()
+        if leaving_translation:
+            self._dialog(
+                self.t("progress.back_warning_title"),
+                self.t("progress.back_warning_body"),
+                warning=True,
+            )
+
+    def _can_leave_translation(self) -> bool:
+        running = bool(self.worker and self.worker.is_alive())
+        return self.step == 4 and not running and self.last_stage in {"paused", "failed"}
+
+    @staticmethod
+    def _normalized_path(value: str) -> str:
+        if not value.strip():
+            return ""
+        return os.path.normcase(str(Path(value.strip()).expanduser().resolve(strict=False)))
+
+    def _critical_translation_config(self) -> dict[str, str]:
+        return {
+            "game": self._normalized_path(self.project.get()),
+            "workspace": self._normalized_path(self.workspace.get()),
+            "provider": self.selected_provider_id.get().strip(),
+            "endpoint": self.base_url.get().strip().rstrip("/"),
+            "model": self.model.get().strip(),
+            "reasoning": self.reasoning_level.get().strip(),
+            "source_language": self.source_language.get().strip() or "auto",
+            "target_language": self.target_language.get().strip(),
+            "renpy_sdk": self._normalized_path(self.renpy_sdk.get()),
+            "engine_validation": str(bool(self.require_engine.get())),
+        }
+
+    def _critical_config_changes(self) -> tuple[str, ...]:
+        if self.translation_baseline is None:
+            return ()
+        current = self._critical_translation_config()
+        labels = {
+            "game": self.t("game.project"),
+            "workspace": self.t("game.workspace"),
+            "provider": self.t("provider.selected"),
+            "endpoint": self.t("model.endpoint"),
+            "model": self.t("model.model"),
+            "reasoning": self.t("model.reasoning"),
+            "source_language": self.t("languages.source"),
+            "target_language": self.t("languages.target"),
+            "renpy_sdk": self.t("game.sdk"),
+            "engine_validation": self.t("game.advanced"),
+        }
+        return tuple(labels[key] for key, value in current.items() if self.translation_baseline.get(key) != value)
 
     def _continue(self) -> None:
         if self.step == 0:
@@ -3052,7 +3047,6 @@ class RenWeaveDesktopApp:
             self._save_desktop_settings()
         for after_id in (
             self._content_layout_id,
-            self._provider_animation_id,
             self._progress_animation_id,
             self._responsive_render_id,
             self._restore_redraw_id,
@@ -3066,8 +3060,18 @@ class RenWeaveDesktopApp:
         self._save_api_key()
         self.root.destroy()
 
-    def _start(self) -> None:
+    def _start(self, *, skip_config_warning: bool = False) -> None:
         if self.worker and self.worker.is_alive():
+            return
+        changes = self._critical_config_changes()
+        if changes and not skip_config_warning:
+            self._dialog(
+                self.t("progress.config_changed_title"),
+                self.t("progress.config_changed_body", fields="\n".join(f"• {field}" for field in changes)),
+                warning=True,
+                confirm_text=self.t("progress.continue_changed"),
+                on_confirm=lambda: self._start(skip_config_warning=True),
+            )
             return
         try:
             if self.connection_state != "verified":
@@ -3077,6 +3081,7 @@ class RenWeaveDesktopApp:
         except (OSError, ValueError, TypeError) as exc:
             self._dialog(self.t("dialog.cannot_start"), str(exc), error=True)
             return
+        self.translation_baseline = self._critical_translation_config()
         existing = self._resume_state()
         self.step = 4
         self.content_canvas.yview_moveto(0.0)
@@ -3270,8 +3275,20 @@ class RenWeaveDesktopApp:
         *,
         error: bool = False,
         details: str = "",
+        warning: bool = False,
+        confirm_text: str = "",
+        on_confirm: Callable[[], None] | None = None,
     ) -> MaterialDialog:
-        return MaterialDialog(self, title, body, error=error, details=details)
+        return MaterialDialog(
+            self,
+            title,
+            body,
+            error=error,
+            details=details,
+            warning=warning,
+            confirm_text=confirm_text,
+            on_confirm=on_confirm,
+        )
 
 
 def _show_startup_error(root, exception: Exception, details: str) -> None:

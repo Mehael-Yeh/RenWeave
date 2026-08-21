@@ -48,7 +48,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Combo box | `_combobox(...)` | Same visual height as text fields; editable unless explicitly read-only |
 | Checkbox | `Material.TCheckbutton` | Left-aligned with the form text column |
 | Model list | `ModelList.Treeview` | `38 px` rows, single selection, consistent selected state |
-| Provider gallery | `_layout_provider_buttons()` | Six featured providers first; additional live-endpoint presets expand in place without rebuilding the page |
+| Provider gallery | `_layout_provider_buttons()` | All provider presets stay visible in a stable grid; there is no fold control or height animation |
 | Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
 | Diagnostic text | styled `tk.Text` | Same border/focus/selection colors as form controls |
 | Outer card | `Card.TFrame` | The only bordered content container |

@@ -350,10 +350,10 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.next_button.cget("text"), "Continue")
             self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
             self.assertTrue(all(button.winfo_class() == "TButton" for button in app.nav_buttons))
-            self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 6)
+            self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 12)
             self.assertTrue(all(button.cget("image") for button in app.provider_buttons.values()))
-            app._toggle_provider_list()
-            self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 11)
+            self.assertFalse(hasattr(app, "provider_more_button"))
+            self.assertIn("custom2", app.provider_buttons)
             self.assertTrue(app.next_button.instate(["disabled"]))
             self.assertEqual(root.minsize()[0], 900)
             self.assertEqual(app.source_language.get(), "auto")
@@ -390,6 +390,7 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
             self.assertEqual(app.language_buttons["zh"].cget("style"), "LanguageActive.TButton")
             self.assertIn("系统加密", app.t(settings_tooltip.translation_key))
+            self.assertEqual(app.t("steps.progress"), "翻译")
 
             app.model.set("translation-model")
             app.connection_state = "verified"
@@ -491,6 +492,24 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(saved_settings["locale"], "zh")
             self.assertNotIn("api_key", saved_settings)
             self.assertEqual(app._load_desktop_settings()["provider_id"], "minimax")
+            app.worker = None
+            app.last_stage = "failed"
+            app.translation_baseline = app._critical_translation_config()
+            app.target_language.set("Deutsch")
+            self.assertIn("目标语言", app._critical_config_changes())
+            app._render()
+            self.assertIsNotNone(app.back_button)
+            with mock.patch.object(app, "_dialog") as back_notice:
+                app.back_button.invoke()
+            self.assertEqual(app.step, 3)
+            back_notice.assert_called_once()
+            self.assertTrue(back_notice.call_args.kwargs["warning"])
+            with mock.patch.object(app, "_dialog") as changed_warning:
+                app._start()
+            changed_warning.assert_called_once()
+            self.assertEqual(changed_warning.call_args.args[0], "翻译关键设置已改变")
+            self.assertEqual(changed_warning.call_args.kwargs["confirm_text"], "仍然继续")
+            self.assertTrue(callable(changed_warning.call_args.kwargs["on_confirm"]))
             app.narrow_layout = True
             app._render()
             self.assertEqual(int(app.sidebar.cget("width")), Metrics.NARROW_SIDEBAR_WIDTH)
@@ -1336,7 +1355,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_provider_presets_cover_required_official_and_aggregator_apis(self) -> None:
         required = {
             "openai", "google", "anthropic", "deepseek", "minimax", "alibaba",
-            "zhipu", "moonshot", "siliconflow", "openrouter", "custom",
+            "zhipu", "moonshot", "siliconflow", "openrouter", "custom", "custom2",
         }
         self.assertTrue(required.issubset(PROVIDER_PRESETS_BY_ID))
         self.assertEqual(get_provider_preset("openai").base_url, "https://api.openai.com/v1")
@@ -1354,6 +1373,9 @@ class CorePipelineTests(unittest.TestCase):
         self.assertTrue(all(not hasattr(preset, "default_models") for preset in PROVIDER_PRESETS_BY_ID.values()))
         self.assertEqual(get_provider_preset("openrouter").category, "aggregator")
         self.assertEqual(get_provider_preset("custom").category, "custom")
+        self.assertEqual(get_provider_preset("custom2").category, "custom")
+        self.assertEqual(get_provider_preset("custom2").base_url, "http://127.0.0.1:8001/v1")
+        self.assertEqual(get_provider_preset("custom2").api_key_env, "RENWEAVE_API_KEY_2")
         with self.assertRaisesRegex(ValueError, "Unknown provider preset"):
             get_provider_preset("missing")
 

@@ -187,6 +187,20 @@ PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
         description="Any third-party or local OpenAI-compatible endpoint.",
         description_zh="任意第三方或本地 OpenAI 兼容接口。",
     ),
+    ProviderPreset(
+        id="custom2",
+        name="Custom endpoint 2",
+        name_zh="自定义接口 2",
+        category="custom",
+        base_urls=("http://127.0.0.1:8001/v1",),
+        api_key_env="RENWEAVE_API_KEY_2",
+        supports_json_parameter=True,
+        reasoning_control="effort",
+        accent="#475569",
+        mark="API2",
+        description="A second independent third-party or local OpenAI-compatible endpoint.",
+        description_zh="第二个独立的第三方或本地 OpenAI 兼容接口。",
+    ),
 )
 
 PROVIDER_PRESETS_BY_ID = {preset.id: preset for preset in PROVIDER_PRESETS}
