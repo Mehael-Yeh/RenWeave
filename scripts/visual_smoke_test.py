@@ -26,14 +26,19 @@ class MemoryCredentialBackend:
 def capture_window(window, path: Path) -> None:
     from PIL import ImageGrab
 
-    window.update()
-    left = window.winfo_rootx()
-    top = window.winfo_rooty()
-    right = left + window.winfo_width()
-    bottom = top + window.winfo_height()
-    if right - left < 100 or bottom - top < 40:
-        raise RuntimeError(f"Window is too small to capture: {right - left}x{bottom - top}")
-    image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+    window.lift()
+    window.attributes("-topmost", True)
+    try:
+        window.update()
+        left = window.winfo_rootx()
+        top = window.winfo_rooty()
+        right = left + window.winfo_width()
+        bottom = top + window.winfo_height()
+        if right - left < 100 or bottom - top < 40:
+            raise RuntimeError(f"Window is too small to capture: {right - left}x{bottom - top}")
+        image = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
+    finally:
+        window.attributes("-topmost", False)
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path, format="PNG")
 

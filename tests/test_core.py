@@ -37,6 +37,7 @@ from renweave.gui import (
     STAGE_LABELS,
     RenWeaveDesktopApp,
     TranslationRequest,
+    default_desktop_settings_path,
     execute_translation,
 )
 from renweave.indexer import ProjectIndexer
@@ -266,6 +267,19 @@ class CorePipelineTests(unittest.TestCase):
     def test_desktop_progress_labels_cover_every_pipeline_stage(self) -> None:
         self.assertEqual({str(stage) for stage in PipelineStage} - set(STAGE_LABELS), set())
 
+    def test_desktop_settings_path_survives_missing_home_environment(self) -> None:
+        fallback = Path(self.temp.name) / "fallback"
+        with (
+            mock.patch.dict("renweave.gui.os.environ", {}, clear=True),
+            mock.patch("renweave.gui.os.name", "nt"),
+            mock.patch("renweave.gui.Path.home", side_effect=RuntimeError("home unavailable")),
+            mock.patch("renweave.gui.tempfile.gettempdir", return_value=str(fallback)),
+        ):
+            self.assertEqual(
+                default_desktop_settings_path(),
+                fallback / "AppData" / "Roaming" / "RenWeave" / "settings.json",
+            )
+
     def test_desktop_window_starts_with_model_setup_and_switches_language(self) -> None:
         try:
             import tkinter as tk
@@ -347,6 +361,10 @@ class CorePipelineTests(unittest.TestCase):
             self.assertFalse(hasattr(app, "_browse_provider"))
             self.assertEqual(set(app.language_buttons), {"en", "zh"})
             self.assertEqual(app.language_buttons["en"].cget("style"), "LanguageActive.TButton")
+            self.assertEqual(
+                app.settings_button.winfo_reqheight(),
+                app.language_buttons["en"].winfo_reqheight(),
+            )
             settings_tooltip = next(
                 tooltip
                 for tooltip in app._tooltips
@@ -438,6 +456,8 @@ class CorePipelineTests(unittest.TestCase):
             }
             app.status.set("正在翻译")
             app._render()
+            progress_page = app.page
+            progress_widget = app.progress
             self.assertEqual(float(app.progress["maximum"]), 100)
             self.assertEqual(float(app.progress["value"]), 58.5)
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
@@ -456,6 +476,12 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIn("提供商已报告 1.2K", progress_text)
             self.assertIn("预计项目总量 12K–18K", progress_text)
             self.assertIn("提供商已返回 Token 用量", progress_text)
+            updated_payload = dict(app.progress_payload)
+            updated_payload.update(progress_percent=61.0, completed_scenes=11)
+            app._apply_progress_payload(updated_payload)
+            self.assertIs(app.page, progress_page)
+            self.assertIs(app.progress, progress_widget)
+            self.assertEqual(app.progress_stat_value_labels[1].cget("text"), "11 / 20")
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)
             self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")

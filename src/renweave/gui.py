@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import queue
+import tempfile
 import threading
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -34,12 +36,33 @@ PROVIDER_SHORT_NAMES_EN = {
 }
 
 
+def _user_home_fallback() -> Path:
+    """Resolve a writable user location even in stripped frozen environments."""
+    candidates = [
+        os.environ.get("USERPROFILE"),
+        (
+            f"{os.environ.get('HOMEDRIVE', '')}{os.environ.get('HOMEPATH', '')}"
+            if os.environ.get("HOMEDRIVE") and os.environ.get("HOMEPATH")
+            else None
+        ),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return Path(candidate)
+    try:
+        return Path.home()
+    except (OSError, RuntimeError):
+        return Path(tempfile.gettempdir())
+
+
 def default_desktop_settings_path() -> Path:
     """Return the per-user, non-secret desktop settings path."""
-    if os.name == "nt" and os.environ.get("APPDATA"):
-        base = Path(os.environ["APPDATA"])
+    if os.name == "nt":
+        configured = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        base = Path(configured) if configured else _user_home_fallback() / "AppData" / "Roaming"
     else:
-        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+        configured = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(configured) if configured else _user_home_fallback() / ".config"
     return base / "RenWeave" / "settings.json"
 
 
@@ -634,6 +657,8 @@ class Metrics:
     CARD_PADDING = 22
     FIELD_GAP = 6
     CONTROL_PADDING_Y = 9
+    ANIMATION_FRAME_MS = 16
+    ANIMATION_DURATION_MS = 160
     BUTTON_WIDTH = 18
     FIELD_ACTION_WIDTH = 16
     DIALOG_ACTION_WIDTH = 15
@@ -827,7 +852,15 @@ class SettingsDialog:
 class MaterialDialog:
     """A consistent workspace modal used instead of platform-mixed message boxes."""
 
-    def __init__(self, app: "RenWeaveDesktopApp", title: str, body: str, *, error: bool = False) -> None:
+    def __init__(
+        self,
+        app: "RenWeaveDesktopApp",
+        title: str,
+        body: str,
+        *,
+        error: bool = False,
+        details: str = "",
+    ) -> None:
         tk, ttk = app.tk, app.ttk
         self.window = tk.Toplevel(app.root)
         self.window.title(title)
@@ -860,7 +893,13 @@ class MaterialDialog:
         actions = ttk.Frame(card, style="Dialog.TFrame")
         actions.grid(row=3, column=0, columnspan=2, sticky="e")
         if error:
-            copy = app._button(actions, app.t("dialog.copy_details"), lambda: app._copy_text(body), kind="secondary", width=Metrics.DIALOG_ACTION_WIDTH)
+            copy = app._button(
+                actions,
+                app.t("dialog.copy_details"),
+                lambda: app._copy_text(details or body),
+                kind="secondary",
+                width=Metrics.DIALOG_ACTION_WIDTH,
+            )
             copy.pack(side="left", padx=(0, 8))
         close = app._button(actions, app.t("close"), self.window.destroy, width=Metrics.DIALOG_ACTION_WIDTH)
         close.pack(side="left")
@@ -1018,6 +1057,12 @@ class RenWeaveDesktopApp:
         self.compact_layout = False
         self.narrow_layout = False
         self._responsive_render_id = None
+        self._content_layout_id = None
+        self._provider_animation_id = None
+        self._progress_animation_id = None
+        self._restore_redraw_id = None
+        self._restore_hidden = False
+        self._displayed_progress_percent = 0.0
         self._settings_save_id = None
         self._session_keys: dict[tuple[str, str], str] = {}
         self._tooltips: list[GuidedTooltip] = []
@@ -1076,6 +1121,7 @@ class RenWeaveDesktopApp:
         self.nav = None
         self._configure_styles()
         self._build_shell()
+        self.root.report_callback_exception = self._report_callback_exception
         self.root.after(250, lambda: self._style_native_window(self.root, dark=True))
         self._restore_api_key()
         self._bind_provider_changes()
@@ -1084,6 +1130,9 @@ class RenWeaveDesktopApp:
         self._render()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
+        self.root.bind("<Map>", self._on_window_restored, add="+")
+        self.root.bind("<Visibility>", self._on_window_restored, add="+")
+        self.root.bind("<Unmap>", self._on_window_unmapped, add="+")
         self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
         if self.update_checks_enabled.get():
@@ -1115,6 +1164,17 @@ class RenWeaveDesktopApp:
             tkfont.nametofont("TkFixedFont").configure(family=Typography.MONO, size=9)
         except self.tk.TclError:
             pass
+
+    def _report_callback_exception(self, exception_type, exception, exception_traceback) -> None:
+        """Keep Tk callback failures inside the RenWeave visual system."""
+        details = "".join(traceback.format_exception(exception_type, exception, exception_traceback))
+        self._append_log(f"Error: {exception}")
+        self._dialog(
+            self.t("dialog.failed"),
+            f"{self.t('progress.failed_body')}\n\n{exception}",
+            error=True,
+            details=details,
+        )
 
     def _install_app_icon(self) -> None:
         icon = self.tk.PhotoImage(width=32, height=32)
@@ -1391,9 +1451,9 @@ class RenWeaveDesktopApp:
         style.map("Ghost.TButton", background=[("pressed", Colors.SURFACE_HIGH), ("active", Colors.SURFACE_CONTAINER), ("disabled", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)])
         style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, 10, "bold"), foreground=Colors.PRIMARY, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("FieldAction.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("Language.TButton", anchor="center", padding=(9, 5), font=(Typography.UI, 9), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
+        style.configure("Language.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y, 12, Metrics.CONTROL_PADDING_Y + 1), font=(Typography.UI, 10), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("Language.TButton", background=[("focus", Colors.SURFACE_CONTAINER), ("pressed", Colors.SURFACE_CONTAINER), ("active", Colors.SURFACE_CONTAINER)], foreground=[("focus", Colors.PRIMARY)], bordercolor=[("focus", Colors.PRIMARY)])
-        style.configure("LanguageActive.TButton", anchor="center", padding=(9, 5), font=(Typography.UI, 9, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
+        style.configure("LanguageActive.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y, 12, Metrics.CONTROL_PADDING_Y + 1), font=(Typography.UI, 10, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
         style.map("LanguageActive.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Provider.TButton", anchor="w", padding=(14, 10), font=(Typography.UI, 9), foreground=Colors.ON_SURFACE, background=Colors.CARD, borderwidth=0, relief="flat")
         style.map("Provider.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.SURFACE_CONTAINER)], bordercolor=[("focus", Colors.PRIMARY)])
@@ -1509,7 +1569,7 @@ class RenWeaveDesktopApp:
         )
         self.settings_button.grid(row=0, column=2, sticky="e", padx=(0, 10))
         self._guide(self.settings_button, "tip.settings")
-        language_box = self.ttk.Frame(self.top, style="LanguageGroup.TFrame", padding=2)
+        language_box = self.ttk.Frame(self.top, style="LanguageGroup.TFrame")
         language_box.grid(row=0, column=3, sticky="e")
         self.language_buttons = {}
         for column, (code, label) in enumerate((("en", "English"), ("zh", "中文"))):
@@ -1518,11 +1578,11 @@ class RenWeaveDesktopApp:
                 text=label,
                 command=lambda selected=code: self._set_locale(selected),
                 style="LanguageActive.TButton" if code == self.locale.get() else "Language.TButton",
-                width=8 if code == "en" else 6,
+                width=9 if code == "en" else 7,
                 cursor="hand2",
                 takefocus=True,
             )
-            button.grid(row=0, column=column, padx=(0 if column == 0 else 4, 0))
+            button.grid(row=0, column=column, padx=(0 if column == 0 else 2, 0))
             self.language_buttons[code] = button
 
         content_host = self.ttk.Frame(self.shell, style="App.TFrame")
@@ -1583,6 +1643,68 @@ class RenWeaveDesktopApp:
                 pass
         self._responsive_render_id = self.root.after(100, self._render_responsive)
 
+    def _on_window_unmapped(self, event) -> None:
+        """Hide the compositor layer while an iconified window has stale pixels."""
+        if event.widget is not self.root:
+            return
+        self._restore_hidden = True
+        try:
+            self.root.attributes("-alpha", 0.0)
+        except self.tk.TclError:
+            self._restore_hidden = False
+
+    def _on_window_restored(self, event) -> None:
+        """Coalesce restore/visibility notifications into one immediate repaint."""
+        if event.widget is not self.root:
+            return
+        try:
+            if self.root.state() not in {"normal", "zoomed"}:
+                return
+        except self.tk.TclError:
+            return
+        if self._restore_redraw_id is not None:
+            try:
+                self.root.after_cancel(self._restore_redraw_id)
+            except self.tk.TclError:
+                pass
+        self._restore_redraw_id = self.root.after_idle(self._redraw_after_restore)
+
+    def _redraw_after_restore(self) -> None:
+        self._restore_redraw_id = None
+        try:
+            if not self.root.winfo_exists() or self.root.state() not in {"normal", "zoomed"}:
+                return
+            self.root.update_idletasks()
+            self._sync_content_layout()
+        except self.tk.TclError:
+            return
+        try:
+            if os.name == "nt":
+                import ctypes
+
+                widget_hwnd = self.root.winfo_id()
+                wrapper_hwnd = ctypes.windll.user32.GetParent(widget_hwnd) or widget_hwnd
+                # Invalidate all child surfaces without erasing cached pixels first.
+                redraw_flags = 0x0001 | 0x0080 | 0x0100
+                ctypes.windll.user32.RedrawWindow(wrapper_hwnd, None, None, redraw_flags)
+                ctypes.windll.user32.UpdateWindow(wrapper_hwnd)
+                self.root.update_idletasks()
+                ctypes.windll.dwmapi.DwmFlush()
+        except (AttributeError, OSError, self.tk.TclError):
+            pass
+        finally:
+            if self._restore_hidden:
+                try:
+                    self.root.attributes("-alpha", 1.0)
+                    self.root.update_idletasks()
+                    if os.name == "nt":
+                        import ctypes
+
+                        ctypes.windll.dwmapi.DwmFlush()
+                except (AttributeError, OSError, self.tk.TclError):
+                    pass
+                self._restore_hidden = False
+
     def _render_responsive(self) -> None:
         self._responsive_render_id = None
         self._apply_responsive_shell()
@@ -1607,9 +1729,15 @@ class RenWeaveDesktopApp:
         self.content_canvas.yview_scroll(units * 3, "units")
 
     def _schedule_content_layout(self, _event=None) -> None:
-        self.root.after_idle(self._sync_content_layout)
+        if self._content_layout_id is not None:
+            try:
+                self.root.after_cancel(self._content_layout_id)
+            except self.tk.TclError:
+                pass
+        self._content_layout_id = self.root.after_idle(self._sync_content_layout)
 
     def _sync_content_layout(self) -> None:
+        self._content_layout_id = None
         if not self.content_canvas or not self.content_window or not self.content_scrollbar:
             return
         try:
@@ -1619,7 +1747,11 @@ class RenWeaveDesktopApp:
         except self.tk.TclError:
             return
         content_height = max(viewport_height, requested_height)
-        self.content_canvas.itemconfigure(self.content_window, width=viewport_width, height=content_height)
+        bounds = self.content_canvas.bbox(self.content_window)
+        current_width = 0 if bounds is None else bounds[2] - bounds[0]
+        current_height = 0 if bounds is None else bounds[3] - bounds[1]
+        if current_width != viewport_width or current_height != content_height:
+            self.content_canvas.itemconfigure(self.content_window, width=viewport_width, height=content_height)
         self.content_canvas.configure(scrollregion=(0, 0, viewport_width, content_height))
         if requested_height > viewport_height + 1:
             self.content_scrollbar.grid()
@@ -1677,6 +1809,13 @@ class RenWeaveDesktopApp:
         self._schedule_content_layout()
 
     def _render(self) -> None:
+        self._cancel_provider_animation()
+        if self._progress_animation_id is not None:
+            try:
+                self.root.after_cancel(self._progress_animation_id)
+            except self.tk.TclError:
+                pass
+            self._progress_animation_id = None
         self._apply_responsive_shell()
         self.next_button = None
         self.back_button = None
@@ -1795,8 +1934,12 @@ class RenWeaveDesktopApp:
             wraplength=680 if self.compact_layout else 760,
         ).pack(fill="x")
 
-        preset_grid = self.tk.Frame(card, background=Colors.CARD)
-        preset_grid.grid(row=3, column=0, sticky="ew")
+        provider_viewport = self.tk.Frame(card, background=Colors.CARD)
+        provider_viewport.grid(row=3, column=0, sticky="ew")
+        provider_viewport.columnconfigure(0, weight=1)
+        preset_grid = self.tk.Frame(provider_viewport, background=Colors.CARD)
+        preset_grid.grid(row=0, column=0, sticky="ew")
+        self.provider_viewport = provider_viewport
         self.provider_grid = preset_grid
         self.provider_columns = 3 if self.compact_layout else 4
         for column in range(self.provider_columns):
@@ -1821,6 +1964,9 @@ class RenWeaveDesktopApp:
             self.provider_buttons[preset.id] = button
             self._guide(button, "tip.provider")
         self._layout_provider_buttons()
+        self.root.update_idletasks()
+        provider_viewport.configure(height=max(1, preset_grid.winfo_reqheight()))
+        provider_viewport.grid_propagate(False)
 
         provider_toggle = self.ttk.Frame(card, style="CardBody.TFrame")
         provider_toggle.grid(row=4, column=0, sticky="w", pady=(0, 8))
@@ -2008,9 +2154,53 @@ class RenWeaveDesktopApp:
         self.provider_more_button.configure(text=text)
 
     def _toggle_provider_list(self) -> None:
+        self._cancel_provider_animation()
+        start_height = max(1, self.provider_viewport.winfo_height())
         self.providers_expanded = not self.providers_expanded
-        self._layout_provider_buttons()
+        if self.providers_expanded:
+            self._layout_provider_buttons()
+            self.root.update_idletasks()
+            target_height = max(1, self.provider_grid.winfo_reqheight())
+        else:
+            visible_count = len(self._visible_provider_presets())
+            rows = (visible_count + self.provider_columns - 1) // self.provider_columns
+            row_height = max(button.winfo_reqheight() for button in self.provider_buttons.values()) + 8
+            target_height = max(1, rows * row_height)
         self._refresh_provider_toggle()
+        self.provider_more_button.configure(state="disabled")
+        self._animate_provider_height(start_height, target_height, 0)
+
+    def _cancel_provider_animation(self) -> None:
+        if self._provider_animation_id is not None:
+            try:
+                self.root.after_cancel(self._provider_animation_id)
+            except self.tk.TclError:
+                pass
+            self._provider_animation_id = None
+
+    def _animate_provider_height(self, start: int, target: int, frame: int) -> None:
+        frames = max(1, Metrics.ANIMATION_DURATION_MS // Metrics.ANIMATION_FRAME_MS)
+        progress = min(1.0, frame / frames)
+        eased = 1.0 - (1.0 - progress) ** 3
+        height = round(start + (target - start) * eased)
+        try:
+            self.provider_viewport.configure(height=max(1, height))
+        except self.tk.TclError:
+            self._provider_animation_id = None
+            return
+        self._schedule_content_layout()
+        if frame < frames:
+            self._provider_animation_id = self.root.after(
+                Metrics.ANIMATION_FRAME_MS,
+                lambda: self._animate_provider_height(start, target, frame + 1),
+            )
+            return
+        self._provider_animation_id = None
+        if not self.providers_expanded:
+            self._layout_provider_buttons()
+            self.root.update_idletasks()
+            self.provider_viewport.configure(height=max(1, self.provider_grid.winfo_reqheight()))
+        self.provider_more_button.configure(state="normal")
         self._schedule_content_layout()
 
     def _browse_models(self) -> None:
@@ -2322,6 +2512,9 @@ class RenWeaveDesktopApp:
     def _render_progress(self) -> None:
         payload = self.progress_payload
         percent = float(payload.get("progress_percent", 0.0) or 0.0)
+        self._displayed_progress_percent = percent
+        self.progress_value = self.tk.DoubleVar(value=percent)
+        self.progress_percent_text = self.tk.StringVar(value=f"{percent:.0f}%")
         card = self._card(padding=18)
         card.columnconfigure(0, weight=1)
         heading = self.ttk.Frame(card, style="CardBody.TFrame")
@@ -2330,13 +2523,18 @@ class RenWeaveDesktopApp:
         self.ttk.Label(heading, text=self.t("progress.overall"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
         self.tk.Label(
             heading,
-            text=f"{percent:.0f}%",
+            textvariable=self.progress_percent_text,
             background=Colors.CARD,
             foreground=Colors.PRIMARY,
             font=(Typography.UI, 22, "bold"),
         ).grid(row=0, column=1, rowspan=2, sticky="e")
         self.ttk.Label(heading, textvariable=self.status, style="Section.TLabel", wraplength=650).grid(row=1, column=0, sticky="w", pady=(4, 0))
-        self.progress = self.ttk.Progressbar(card, mode="determinate", maximum=100, value=percent)
+        self.progress = self.ttk.Progressbar(
+            card,
+            mode="determinate",
+            maximum=100,
+            variable=self.progress_value,
+        )
         self.progress.grid(row=1, column=0, sticky="ew", pady=(12, 12))
 
         phases = (
@@ -2345,16 +2543,19 @@ class RenWeaveDesktopApp:
         )
         phase_row = self.tk.Frame(card, background=Colors.CARD)
         phase_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        self.progress_phase_labels = []
         for column, (name, threshold) in enumerate(phases):
             phase_row.columnconfigure(column, weight=1)
             active = percent >= threshold or (threshold == 0 and self.last_stage)
-            self.tk.Label(
+            phase_label = self.tk.Label(
                 phase_row,
                 text=("●  " if active else "○  ") + self.t(f"progress.phase.{name}"),
                 background=Colors.CARD,
                 foreground=Colors.PRIMARY if active else Colors.OUTLINE,
                 font=(Typography.UI, 9, "bold" if active else "normal"),
-            ).grid(row=0, column=column, sticky="w")
+            )
+            phase_label.grid(row=0, column=column, sticky="w")
+            self.progress_phase_labels.append((name, threshold, phase_label))
 
         stats = self.tk.Frame(card, background=Colors.CARD)
         stats.grid(row=3, column=0, sticky="ew", pady=(0, 12))
@@ -2376,6 +2577,7 @@ class RenWeaveDesktopApp:
             (self.t("progress.eta"), eta),
             (self.t("progress.model_usage"), self.t("progress.calls_tokens", calls=calls, tokens=self._format_token_count(tokens))),
         )
+        self.progress_stat_value_labels = []
         for index, (label, value) in enumerate(values):
             column = index % stat_columns
             row = index // stat_columns
@@ -2388,7 +2590,9 @@ class RenWeaveDesktopApp:
                 pady=(0 if row == 0 else 5, 0),
             )
             self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 8, "bold"), anchor="w").pack(fill="x")
-            self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"), anchor="w", wraplength=175, justify="left").pack(fill="x", pady=(5, 0))
+            value_label = self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"), anchor="w", wraplength=175, justify="left")
+            value_label.pack(fill="x", pady=(5, 0))
+            self.progress_stat_value_labels.append(value_label)
 
         usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
         if usage_status not in {"reported", "unavailable", "pending"}:
@@ -2400,6 +2604,7 @@ class RenWeaveDesktopApp:
             pady=9,
         )
         token_strip.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        self.progress_token_strip = token_strip
         token_strip.columnconfigure(1, weight=1)
         input_tokens = int(payload.get("total_prompt_tokens", 0) or 0)
         output_tokens = int(payload.get("total_completion_tokens", 0) or 0)
@@ -2415,11 +2620,14 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, 9, "bold"),
         )
         actual_usage.grid(row=0, column=0, columnspan=2 if self.compact_layout else 1, sticky="w")
+        self.progress_actual_usage = actual_usage
         projected = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t("progress.estimating")
         projected_usage = self.tk.Label(token_strip, text=projected, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 9))
         projected_usage.grid(row=1 if self.compact_layout else 0, column=0 if self.compact_layout else 1, sticky="w", padx=(0 if self.compact_layout else 18, 0), pady=(4, 0) if self.compact_layout else (0, 0))
+        self.progress_projected_usage = projected_usage
         reporting = self.tk.Label(token_strip, text=self.t(f"budget.reporting.{usage_status}"), background=strip_background, foreground=strip_foreground, font=(Typography.UI, 9, "bold"))
         reporting.grid(row=2 if self.compact_layout else 0, column=0 if self.compact_layout else 2, columnspan=2 if self.compact_layout else 1, sticky="w" if self.compact_layout else "e", pady=(4, 0) if self.compact_layout else (0, 0))
+        self.progress_reporting = reporting
 
         if self.last_stage == "paused":
             notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
@@ -2470,6 +2678,99 @@ class RenWeaveDesktopApp:
             self.log.insert("end", line.rstrip() + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def _refresh_progress_panel(self, *, animate: bool = True) -> None:
+        """Update mounted progress widgets without rebuilding the page tree."""
+        if self.step != 4 or self.progress is None or not self.progress.winfo_exists():
+            return
+        payload = self.progress_payload
+        percent = float(payload.get("progress_percent", 0.0) or 0.0)
+        if animate:
+            self._animate_progress_to(percent)
+        else:
+            self._set_displayed_progress(percent)
+
+        for name, threshold, label in self.progress_phase_labels:
+            active = percent >= threshold or (threshold == 0 and self.last_stage)
+            label.configure(
+                text=("●  " if active else "○  ") + self.t(f"progress.phase.{name}"),
+                foreground=Colors.PRIMARY if active else Colors.OUTLINE,
+                font=(Typography.UI, 9, "bold" if active else "normal"),
+            )
+
+        completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
+        total = int(payload.get("total_scenes", 0) or 0)
+        raw_eta = payload.get("eta_seconds", -1)
+        eta = self._format_duration(int(raw_eta) if isinstance(raw_eta, (int, float)) else -1)
+        calls = int(payload.get("total_model_calls", 0) or 0)
+        input_tokens = int(payload.get("total_prompt_tokens", 0) or 0)
+        output_tokens = int(payload.get("total_completion_tokens", 0) or 0)
+        tokens = input_tokens + output_tokens
+        stage_labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
+        scene_label = str(payload.get("current_scene_label", "") or "")
+        current = scene_label or stage_labels.get(self.last_stage, str(payload.get("current_operation", "") or "—"))
+        values = (
+            current,
+            f"{completed} / {total or '—'}",
+            eta,
+            self.t("progress.calls_tokens", calls=calls, tokens=self._format_token_count(tokens)),
+        )
+        for label, value in zip(self.progress_stat_value_labels, values):
+            label.configure(text=value)
+
+        usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
+        if usage_status not in {"reported", "unavailable", "pending"}:
+            usage_status = "pending"
+        estimate_low = int(payload.get("estimated_total_tokens_low", 0) or 0)
+        estimate_high = int(payload.get("estimated_total_tokens_high", 0) or 0)
+        background = Colors.WARNING_CONTAINER if usage_status == "unavailable" else Colors.PRIMARY_CONTAINER
+        foreground = Colors.WARNING if usage_status == "unavailable" else Colors.ON_PRIMARY_CONTAINER
+        projected = (
+            self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high))
+            if estimate_high
+            else self.t("progress.estimating")
+        )
+        self.progress_token_strip.configure(background=background)
+        self.progress_actual_usage.configure(
+            text=self.t("budget.actual", total=self._format_token_count(tokens), input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
+            background=background,
+            foreground=foreground,
+        )
+        self.progress_projected_usage.configure(text=projected, background=background)
+        self.progress_reporting.configure(
+            text=self.t(f"budget.reporting.{usage_status}"),
+            background=background,
+            foreground=foreground,
+        )
+
+    def _set_displayed_progress(self, value: float) -> None:
+        self._displayed_progress_percent = max(0.0, min(100.0, value))
+        self.progress_value.set(self._displayed_progress_percent)
+        self.progress_percent_text.set(f"{self._displayed_progress_percent:.0f}%")
+
+    def _animate_progress_to(self, target: float) -> None:
+        if self._progress_animation_id is not None:
+            try:
+                self.root.after_cancel(self._progress_animation_id)
+            except self.tk.TclError:
+                pass
+        start = self._displayed_progress_percent
+        target = max(0.0, min(100.0, target))
+        frames = max(1, Metrics.ANIMATION_DURATION_MS // Metrics.ANIMATION_FRAME_MS)
+
+        def advance(frame: int) -> None:
+            progress = min(1.0, frame / frames)
+            eased = 1.0 - (1.0 - progress) ** 3
+            self._set_displayed_progress(start + (target - start) * eased)
+            if frame < frames:
+                self._progress_animation_id = self.root.after(
+                    Metrics.ANIMATION_FRAME_MS,
+                    lambda: advance(frame + 1),
+                )
+            else:
+                self._progress_animation_id = None
+
+        advance(1)
 
     def _render_footer(self) -> None:
         slot_width = Metrics.COMPACT_FOOTER_SLOT_WIDTH if self.compact_layout else Metrics.FOOTER_SLOT_WIDTH
@@ -2625,7 +2926,7 @@ class RenWeaveDesktopApp:
     def _suggest_workspace(self, project: str) -> None:
         source = Path(project).expanduser()
         name = source.parent.name if source.name.casefold() == "game" else source.name
-        base = Path.home() / "Documents" / "RenWeaveWork"
+        base = _user_home_fallback() / "Documents" / "RenWeaveWork"
         self.workspace.set(str(base / (name or "project")))
 
     def _browse_workspace(self) -> None:
@@ -2749,6 +3050,19 @@ class RenWeaveDesktopApp:
             except self.tk.TclError:
                 pass
             self._save_desktop_settings()
+        for after_id in (
+            self._content_layout_id,
+            self._provider_animation_id,
+            self._progress_animation_id,
+            self._responsive_render_id,
+            self._restore_redraw_id,
+        ):
+            if after_id is None:
+                continue
+            try:
+                self.root.after_cancel(after_id)
+            except self.tk.TclError:
+                pass
         self._save_api_key()
         self.root.destroy()
 
@@ -2786,7 +3100,7 @@ class RenWeaveDesktopApp:
             )
             self.events.put(("paused" if state.stage == PipelineStage.PAUSED else "complete", state))
         except BaseException as exc:
-            self.events.put(("translation_error", exc))
+            self.events.put(("translation_error", (exc, traceback.format_exc())))
 
     def _poll_events(self) -> None:
         if self.step == 4 and self.worker and self.worker.is_alive():
@@ -2883,13 +3197,19 @@ class RenWeaveDesktopApp:
                 self._append_log(self.t("progress.paused_body"))
                 self._render()
             elif kind == "translation_error":
+                error, details = value
                 self.worker = None
                 self._read_pipeline_state()
                 self.last_stage = "failed"
                 self.status.set(self.t("progress.failed"))
-                self._append_log(f"Error: {value}")
+                self._append_log(f"Error: {error}")
                 self._render()
-                self._dialog(self.t("dialog.failed"), f"{self.t('progress.failed_body')}\n\n{value}", error=True)
+                self._dialog(
+                    self.t("dialog.failed"),
+                    f"{self.t('progress.failed_body')}\n\n{error}",
+                    error=True,
+                    details=details,
+                )
         try:
             if self.root.winfo_exists():
                 self.root.after(150, self._poll_events)
@@ -2931,7 +3251,7 @@ class RenWeaveDesktopApp:
             suffix = f" · {completed}/{total}" if total else ""
             self._append_log(f"{label}{suffix} — {operation}")
         if self.step == 4:
-            self._render()
+            self._refresh_progress_panel(animate=True)
 
     def _append_log(self, text: str) -> None:
         self.logs.append(text.rstrip())
@@ -2943,8 +3263,74 @@ class RenWeaveDesktopApp:
             self.log.see("end")
             self.log.configure(state="disabled")
 
-    def _dialog(self, title: str, body: str, *, error: bool = False) -> MaterialDialog:
-        return MaterialDialog(self, title, body, error=error)
+    def _dialog(
+        self,
+        title: str,
+        body: str,
+        *,
+        error: bool = False,
+        details: str = "",
+    ) -> MaterialDialog:
+        return MaterialDialog(self, title, body, error=error, details=details)
+
+
+def _show_startup_error(root, exception: Exception, details: str) -> None:
+    """Render a last-resort branded error surface instead of a bootloader popup."""
+    import tkinter as tk
+
+    for child in root.winfo_children():
+        child.destroy()
+    root.title("RenWeave")
+    root.configure(background=Colors.SURFACE)
+    root.geometry("720x360")
+    root.minsize(620, 320)
+    root.resizable(True, True)
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(0, weight=1)
+    card = tk.Frame(
+        root,
+        background=Colors.CARD,
+        highlightbackground=Colors.OUTLINE_VARIANT,
+        highlightthickness=1,
+        padx=28,
+        pady=24,
+    )
+    card.grid(row=0, column=0, sticky="nsew", padx=32, pady=32)
+    card.columnconfigure(1, weight=1)
+    accent = tk.Frame(card, background=Colors.ERROR, width=4)
+    accent.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(0, 18))
+    accent.grid_propagate(False)
+    locale_zh = os.environ.get("LANG", "").casefold().startswith("zh")
+    title = "RenWeave 无法启动" if locale_zh else "RenWeave could not start"
+    body = (
+        f"桌面界面启动时遇到问题。复制详细信息后可用于诊断。\n\n{exception}"
+        if locale_zh
+        else f"The desktop interface encountered a startup problem. Copy the details for diagnosis.\n\n{exception}"
+    )
+    tk.Label(card, text=title, background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, 17, "bold"), anchor="w").grid(row=0, column=1, sticky="ew")
+    tk.Label(card, text=body, background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 10), anchor="w", justify="left", wraplength=560).grid(row=1, column=1, sticky="ew", pady=(12, 20))
+    actions = tk.Frame(card, background=Colors.CARD)
+    actions.grid(row=2, column=1, sticky="e")
+
+    def copy_details() -> None:
+        root.clipboard_clear()
+        root.clipboard_append(details)
+
+    button_options = {
+        "font": (Typography.UI, 10, "bold"),
+        "relief": "flat",
+        "borderwidth": 0,
+        "cursor": "hand2",
+        "padx": 18,
+        "pady": 10,
+    }
+    tk.Button(actions, text="复制详细信息" if locale_zh else "Copy details", command=copy_details, background=Colors.SURFACE_HIGH, foreground=Colors.ON_SURFACE, activebackground=Colors.CONTROL_HOVER, **button_options).pack(side="left", padx=(0, 8))
+    close = tk.Button(actions, text="关闭" if locale_zh else "Close", command=root.destroy, background=Colors.PRIMARY, foreground=Colors.ON_PRIMARY, activebackground=Colors.PRIMARY_HOVER, **button_options)
+    close.pack(side="left")
+    root.bind("<Escape>", lambda _event: root.destroy())
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+    RenWeaveDesktopApp._style_native_window(root, dark=False)
+    close.focus_set()
 
 
 def launch_gui(*, initial_project: str = "", initial_workspace: str = "") -> int:
@@ -2963,7 +3349,18 @@ def launch_gui(*, initial_project: str = "", initial_workspace: str = "") -> int
         root = tk.Tk()
     except Exception as exc:
         raise RuntimeError(f"Unable to start the desktop interface: {exc}") from exc
-    RenWeaveDesktopApp(root, initial_project=initial_project, initial_workspace=initial_workspace)
+    root.withdraw()
+    try:
+        RenWeaveDesktopApp(root, initial_project=initial_project, initial_workspace=initial_workspace)
+    except Exception as exc:
+        details = traceback.format_exc()
+        _show_startup_error(root, exc, details)
+        root.update_idletasks()
+        root.deiconify()
+        root.mainloop()
+        return 1
+    root.update_idletasks()
+    root.deiconify()
     root.mainloop()
     return 0
 
