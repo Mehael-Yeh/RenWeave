@@ -1,19 +1,20 @@
-name: Release
+name: 发布 RenWeave
+run-name: 发布 RenWeave ${{ inputs.version }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Canonical PEP 440 version, for example 2.0.0 or 2.0.0rc1
+        description: "发行版本号（必填，例如 2.0.0 或 2.0.0rc1；不能与已有标签重复）"
         required: true
         type: string
       prerelease:
-        description: Mark this release as a prerelease
+        description: "是否标记为预发行版（测试版选中，正式版不选）"
         required: true
         default: false
         type: boolean
       draft:
-        description: Create a draft instead of publishing immediately
+        description: "是否只创建草稿（选中后不会立即公开发布）"
         required: true
         default: false
         type: boolean
@@ -32,6 +33,7 @@ env:
 
 jobs:
   validate:
+    name: 校验发行版本
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -42,10 +44,10 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install version validator
+      - name: 安装版本校验工具
         run: python -m pip install --upgrade packaging
 
-      - name: Validate requested version
+      - name: 校验版本号且确认未重复
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,15 +68,16 @@ jobs:
           print(f"Validated action-provided RenWeave version {requested}")
           PY
           if git ls-remote --exit-code --tags origin "refs/tags/v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${RELEASE_VERSION} already exists" >&2
+            echo "::error title=发行版本号已存在::标签 v${RELEASE_VERSION} 已存在，请填写一个尚未使用的新版本号。"
             exit 1
           fi
-          if gh release view "v${RELEASE_VERSION}" >/dev/null 2>&1; then
-            echo "Release v${RELEASE_VERSION} already exists" >&2
+          if gh release view --repo "${GITHUB_REPOSITORY}" "v${RELEASE_VERSION}" >/dev/null 2>&1; then
+            echo "::error title=发行版本号已存在::发行版 v${RELEASE_VERSION} 已存在，请填写一个尚未使用的新版本号。"
             exit 1
           fi
 
   python-distributions:
+    name: 构建 Python 安装包
     needs: validate
     runs-on: ubuntu-latest
     steps:
@@ -87,15 +90,15 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: Install build tools and package
+      - name: 安装构建工具与 RenWeave
         run: python -m pip install --upgrade pip build twine .
 
-      - name: Run release tests
+      - name: 运行发行测试
         run: |
           python -X utf8 -m unittest discover -s tests -v
           python -m compileall -q src tests packaging
 
-      - name: Build and verify Python distributions
+      - name: 构建并验证 Python 安装包
         run: |
           python -m build
           python -m twine check dist/*
@@ -124,6 +127,7 @@ jobs:
           if-no-files-found: error
 
   windows-executable:
+    name: 构建并自检 Windows EXE
     needs: validate
     runs-on: windows-latest
     env:
@@ -138,13 +142,13 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: Install executable build tools and package
+      - name: 安装 EXE 构建工具与 RenWeave
         run: python -m pip install --upgrade pip pyinstaller pillow .
 
-      - name: Build standalone Windows GUI executable
+      - name: 构建独立 Windows 图形界面 EXE
         run: python scripts/build_windows_exe.py
 
-      - name: Verify executable version and bundled decompiler
+      - name: 验证 EXE 版本与内置反编译器
         shell: pwsh
         run: |
           $exe = (Get-ChildItem -LiteralPath release -Filter '*.exe' -File).FullName
@@ -169,6 +173,7 @@ jobs:
           if-no-files-found: error
 
   publish:
+    name: 创建 GitHub 发行版并上传全部文件
     needs: [python-distributions, windows-executable]
     runs-on: ubuntu-latest
     env:
@@ -181,26 +186,43 @@ jobs:
           path: release
           merge-multiple: true
 
-      - name: Generate checksums
+      - name: 检查发行文件并生成校验和
         run: |
           python - <<'PY'
           import hashlib
+          import os
           from pathlib import Path
 
+          release = Path("release")
+          expected_exe = release / f"RenWeave-{os.environ['RELEASE_VERSION']}-windows-x64.exe"
+          wheels = list(release.glob("renweave-*.whl"))
+          source_archives = list(release.glob("renweave-*.tar.gz"))
+          if not expected_exe.is_file():
+              raise SystemExit(f"Missing required Windows executable: {expected_exe.name}")
+          if len(wheels) != 1 or len(source_archives) != 1:
+              raise SystemExit(
+                  "Expected exactly one wheel and one source archive; "
+                  f"found {len(wheels)} wheel(s) and {len(source_archives)} source archive(s)"
+              )
+
           lines = []
-          for artifact in sorted(Path("release").iterdir()):
+          for artifact in sorted(release.iterdir()):
+              if not artifact.is_file() or artifact.stat().st_size == 0:
+                  raise SystemExit(f"Invalid release artifact: {artifact}")
               digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
               lines.append(f"{digest}  {artifact.name}")
           Path("SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print("Ready to publish:")
+          print("\n".join(f"- {artifact.name}" for artifact in sorted(release.iterdir())))
           PY
 
-      - name: Create GitHub release
+      - name: 创建 GitHub 发行版
         shell: bash
         run: |
           options=()
           if [[ "${RELEASE_DRAFT}" == "true" ]]; then options+=(--draft); fi
           if [[ "${RELEASE_PRERELEASE}" == "true" ]]; then options+=(--prerelease); fi
-          gh release create "v${RELEASE_VERSION}" release/* SHA256SUMS \
+          gh release create --repo "${GITHUB_REPOSITORY}" "v${RELEASE_VERSION}" release/* SHA256SUMS \
             --target "${GITHUB_SHA}" \
             --title "RenWeave ${RELEASE_VERSION}" \
             --generate-notes \
