@@ -74,6 +74,7 @@ class TranslationRequest:
     overwrite_existing: bool = False
     renpy_sdk: str = ""
     require_engine_validation: bool = False
+    knowledge_consent: str = "auto"
 
     def validate(self) -> None:
         project = Path(self.project).expanduser()
@@ -115,6 +116,7 @@ def execute_translation(
             generate_rpa=request.generate_rpa,
             renpy_sdk_path=request.renpy_sdk or None,
             require_engine_validation=request.require_engine_validation,
+            knowledge_consent=request.knowledge_consent,
             cancel_token=cancel_token,
             progress_callback=progress_callback,
         )
@@ -527,6 +529,8 @@ _BASE_COPY = {
         "review.engine_yes": "Ren'Py engine validation required",
         "review.engine_no": "Built-in validation",
         "review.key_safe": "API key stays in encrypted system storage or session memory",
+        "review.incremental_scope": "Incremental scope: {units} text units in {scenes} scenes / {files} files",
+        "review.incremental_scope_unknown": "Incremental scope will be scanned before model work",
         "progress.title": "Translation in progress",
         "progress.body": "You can follow each stage here. Checkpoints make interrupted work resumable.",
         "progress.ready": "Preparing the one-click pipeline…",
@@ -640,6 +644,8 @@ _BASE_COPY = {
         "review.engine_yes": "必须通过 Ren'Py 引擎验证",
         "review.engine_no": "使用内置验证",
         "review.key_safe": "API 密钥仅保存在系统加密凭据库或会话内存",
+        "review.incremental_scope": "增量范围：{units} 个文本单元，{scenes} 个场景，{files} 个文件",
+        "review.incremental_scope_unknown": "将在调用模型前扫描并确认实际增量范围",
         "progress.title": "正在翻译",
         "progress.body": "可在这里查看每个阶段；检查点让中断后的任务能够恢复。",
         "progress.ready": "正在准备一键翻译流程…",
@@ -2515,6 +2521,22 @@ class RenWeaveDesktopApp:
         localized = names.get(language.casefold())
         return f"{localized[1 if self.locale.get() == 'zh' else 0]} ({language})" if localized else language
 
+    def _incremental_preview(self) -> str:
+        """Show the last deterministic scan on the confirmation page when available."""
+        workspace = self.workspace.get().strip()
+        if not workspace:
+            return self.t("review.incremental_scope_unknown")
+        try:
+            payload = json.loads((Path(workspace).expanduser() / "existing-translations.json").read_text(encoding="utf-8-sig"))
+            units = int(payload.get("missing_units", 0)) + int(payload.get("invalid_units", 0)) + int(payload.get("source_fallback_units", 0))
+            scenes = max(0, int(payload.get("partial_scenes", 0)) + int(payload.get("missing_scenes", 0)))
+            files = int(payload.get("files_scanned", 0))
+            if units or payload.get("complete"):
+                return self.t("review.incremental_scope", units=units, scenes=scenes, files=files)
+        except (OSError, ValueError, TypeError):
+            pass
+        return self.t("review.incremental_scope_unknown")
+
     def _select_existing_language(self, language: str) -> None:
         self.target_language.set(language)
         self._render()
@@ -2529,6 +2551,9 @@ class RenWeaveDesktopApp:
         language_summary = f"{self.source_language.get() or 'auto'}  →  {self.target_language.get()}"
         if incremental:
             language_summary += f"\n{self.t('languages.incremental_selected')}"
+            preview = self._incremental_preview()
+            if preview:
+                language_summary += f"\n{preview}"
         summaries = (
             (self.t("review.model"), f"{self.provider_name.get()}  ·  {self.model.get()}\n{self.base_url.get()}"),
             (

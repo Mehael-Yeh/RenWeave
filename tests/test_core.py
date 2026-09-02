@@ -754,6 +754,8 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.existing_reused_units, len(index.text_units))
         self.assertEqual(state.existing_missing_units, 0)
         self.assertEqual(state.total_model_calls, 0)
+        self.assertEqual(state.workflow_mode, "incremental")
+        self.assertEqual(state.incremental_units_to_translate, 0)
         self.assertEqual(state.remaining_files, 0)
         report = json.loads(
             (Path(self.temp.name) / "existing-complete-workspace" / "existing-translations.json").read_text(encoding="utf-8")
@@ -812,6 +814,8 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(state.stage, PipelineStage.COMPLETE)
         self.assertEqual(gateway.requested, [{missing_unit.id}])
         self.assertEqual(state.existing_missing_units, 1)
+        self.assertEqual(state.workflow_mode, "incremental")
+        self.assertEqual(state.incremental_units_to_translate, 1)
         self.assertEqual(state.total_model_calls, 1)
 
     def test_emitter_rejects_conflicting_global_string_translations(self) -> None:

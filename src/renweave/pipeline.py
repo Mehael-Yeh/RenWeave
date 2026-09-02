@@ -128,6 +128,12 @@ class PipelineState:
     existing_missing_units: int = 0
     existing_invalid_units: int = 0
     existing_source_fallback_units: int = 0
+    workflow_mode: str = "full"
+    knowledge_strategy: str = "lightweight"
+    knowledge_consent: str = "auto"
+    incremental_scenes_to_translate: int = 0
+    incremental_files_to_translate: int = 0
+    incremental_units_to_translate: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -354,6 +360,7 @@ class RenWeavePipeline:
         unrpyc_path: str | Path | None = None,
         allow_tool_download: bool = False,
         synthesize_knowledge: bool = True,
+        knowledge_consent: str = "auto",
         refine_translations: bool = True,
         generate_rpa: bool = True,
         renpy_sdk_path: str | Path | None = None,
@@ -417,6 +424,26 @@ class RenWeavePipeline:
             target_language,
         )
         self._reconcile_completed_scenes(index, candidates, state, validator)
+        state.workflow_mode = "incremental" if existing_inventory.has_existing_language else "full"
+        state.knowledge_consent = knowledge_consent if knowledge_consent in {"auto", "approved", "declined"} else "auto"
+        # Imported translations are checkpoints. The model should only see scenes
+        # that still contain missing or structurally invalid units.
+        work_candidates = [scene for scene in candidates if scene.id not in state.completed_scene_ids]
+        state.incremental_scenes_to_translate = len(work_candidates) if state.workflow_mode == "incremental" else 0
+        state.incremental_files_to_translate = len({scene.relative_path for scene in work_candidates}) if state.workflow_mode == "incremental" else 0
+        state.incremental_units_to_translate = (
+            sum(
+                len(set(unit.id for unit in scene.text_units) - set(
+                    self._load_partial_scene_translations(index, scene.id, validator)
+                ))
+                for scene in work_candidates
+            )
+            if state.workflow_mode == "incremental"
+            else 0
+        )
+        candidates = work_candidates if state.workflow_mode == "incremental" else candidates
+        state.total_scenes = len(candidates)
+        state.total_text_units = sum(len(scene.text_units) for scene in candidates)
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
         reuse_completed_model_outputs = (
             completed_run_before_resume
@@ -442,7 +469,14 @@ class RenWeavePipeline:
             return self._pause(state, "Cancellation requested before model work")
         text_scene_count = len(candidates)
         all_text_available = expected_scene_ids <= set(state.completed_scene_ids) and not state.failed_scene_ids
-        if synthesize_knowledge and text_scene_count >= 4 and not reuse_completed_model_outputs and not all_text_available:
+        should_synthesize = (
+            synthesize_knowledge
+            and text_scene_count >= 4
+            and not reuse_completed_model_outputs
+            and not all_text_available
+            and not (state.workflow_mode == "incremental" and state.knowledge_consent != "approved")
+        )
+        if should_synthesize:
             state.stage = PipelineStage.SYNTHESIZING
             state.current_operation = "Understanding storylines, characters, and terminology"
             state.phase_completed = 0
@@ -634,7 +668,11 @@ class RenWeavePipeline:
                     completed_scenes=len(state.completed_scene_ids),
                     total_model_calls=state.total_model_calls,
                 )
-            if refine_translations and not reuse_completed_model_outputs:
+            if (
+                refine_translations
+                and not reuse_completed_model_outputs
+                and not (state.workflow_mode == "incremental" and state.knowledge_consent != "approved")
+            ):
                 if self._cancelled(cancel_token):
                     return self._pause(state, "Cancellation requested before global refinement")
                 state.stage = PipelineStage.REFINING
@@ -1227,6 +1265,12 @@ class RenWeavePipeline:
         payload.setdefault("existing_missing_units", 0)
         payload.setdefault("existing_invalid_units", 0)
         payload.setdefault("existing_source_fallback_units", 0)
+        payload.setdefault("workflow_mode", "full")
+        payload.setdefault("knowledge_strategy", "lightweight")
+        payload.setdefault("knowledge_consent", "auto")
+        payload.setdefault("incremental_scenes_to_translate", 0)
+        payload.setdefault("incremental_files_to_translate", 0)
+        payload.setdefault("incremental_units_to_translate", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
