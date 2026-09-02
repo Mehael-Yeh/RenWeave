@@ -316,8 +316,7 @@ class CorePipelineTests(unittest.TestCase):
     def test_desktop_settings_path_survives_missing_home_environment(self) -> None:
         fallback = Path(self.temp.name) / "fallback"
         with (
-            mock.patch.dict("renweave.gui.os.environ", {}, clear=True),
-            mock.patch("renweave.gui.os.name", "nt"),
+            mock.patch("renweave.gui.os", SimpleNamespace(name="nt", environ={})),
             mock.patch("renweave.gui.Path.home", side_effect=RuntimeError("home unavailable")),
             mock.patch("renweave.gui.tempfile.gettempdir", return_value=str(fallback)),
         ):
