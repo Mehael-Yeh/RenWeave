@@ -78,7 +78,15 @@ def verify_layout(output_dir: Path | None = None) -> None:
         app.connection_state = "verified"
         app.connection_detail = {"model": "visual-smoke-model", "latency": 20}
         app.model.set("visual-smoke-model")
-        app.project.set(str(Path(directory) / "SampleGame"))
+        sample_game = Path(directory) / "SampleGame"
+        sample_language = sample_game / "game" / "tl" / "zh_hans"
+        sample_language.mkdir(parents=True)
+        (sample_language / "script.rpy").write_text(
+            'translate zh_hans strings:\n\n    old "Settings"\n    new "设置"\n',
+            encoding="utf-8",
+        )
+        app.project.set(str(sample_game))
+        app._inspect_project_selection()
         app.workspace.set(str(Path(directory) / "workspace"))
         app.source_language.set("English")
         app.target_language.set("日本語")
@@ -96,6 +104,10 @@ def verify_layout(output_dir: Path | None = None) -> None:
             "estimated_total_tokens_high": 18000,
             "usage_reporting_status": "reported",
             "current_scene_label": "chapter_two",
+            "current_file": "src/plot/chapter_two.rpy",
+            "total_files": 28,
+            "completed_files": 12,
+            "remaining_files": 16,
         }
 
         checked = 0

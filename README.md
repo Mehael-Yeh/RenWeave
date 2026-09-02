@@ -18,6 +18,7 @@ Line-by-line translation loses callbacks, character voice, running jokes, and te
 - Evidence-backed story and character understanding with compact, relevant prompts.
 - A preflight Token budget before starting and a persistent provider-reported usage ledger while running.
 - Structural validation for Ren'Py tags, interpolation, placeholders, IDs, and generated scripts.
+- Existing `game/tl/<language>` folders are detected before translation. Valid user translations are preserved, while only missing, empty, structurally damaged, or source-changed units are sent for incremental translation.
 - Selective cross-scene refinement instead of paying to resend every translated line.
 - Validated standard RPY language directories in every run, plus optional RPA 3.0 archives enabled by default. When a game-bundled Ren'Py runtime or SDK is available, the archive includes verified RPYC sidecars and is marked `runtime_ready`.
 - Original game files remain read-only unless installation is explicitly enabled.
@@ -38,8 +39,8 @@ renweave-gui
 The desktop app guides you through five steps:
 
 1. Choose a provider, enter its API key, load its model list, and verify the selected model.
-2. Choose the Ren'Py game and an isolated workspace.
-3. Choose any source and target languages.
+2. Choose the Ren'Py game and an isolated workspace. A bundled compatible Ren'Py runtime is filled in automatically; the interface explains the built-in static fallback when none exists.
+3. Choose an existing language for incremental translation, or choose any new source and target languages.
 4. Review the automatically selected pipeline, output options, and estimated Token budget.
 5. Start once and follow unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
 
@@ -96,7 +97,7 @@ Add `--install` only when you want the verified RPY output copied to `game/tl/<l
 
 The review screen estimates an input/output/total Token range before any translation call. Loose source scripts produce the strongest preflight estimate; compiled scripts and archives use a deliberately wider proxy until indexing reveals the exact translatable text. The range includes narrative synthesis, scene context, target output, likely repairs, and risk-only refinement. It excludes provider retries and currency pricing because prices differ by model and provider.
 
-During translation, the progress screen separates progress from diagnostics: a continuously moving activity bar confirms the worker is alive, an exact `n/15` pipeline-stage indicator and completed/current/pending phase track show where the job is, and the weighted 0–100% bar shows overall completion. Scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and adaptive remaining time remain visible above the separate log area. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
+During translation, the progress screen separates progress from diagnostics: a continuously moving activity bar confirms the worker is alive, an exact `n/15` pipeline-stage indicator and completed/current/pending phase track show where the job is, and the weighted 0–100% bar shows overall completion. A separate file counter names the file currently being understood, translated, or refined and shows completed and remaining files. Scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and adaptive remaining time remain visible above the separate log area. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
 
 `usage.json` is updated atomically in the workspace after every state save. It records the estimate, successful calls, attempted requests, reported input/output totals, and separate knowledge, scene translation/repair, and refinement usage. This is a Token ledger, not a billing statement; the provider dashboard remains authoritative for money charged.
 
@@ -107,6 +108,7 @@ Before reusing work, RenWeave verifies:
 - the content fingerprint of source scripts, compiled scripts, and archives;
 - the saved project and language settings;
 - every completed scene artifact against the current structural validator.
+- every matching existing-language unit against the current English/source statement, Ren'Py tags, interpolation variables, and placeholders.
 
 Missing, damaged, or stale scene artifacts are translated again; valid scenes are not resent. A workspace lock prevents concurrent writers, and three consecutive scene failures open a circuit breaker instead of repeatedly calling an unavailable API.
 
@@ -115,6 +117,7 @@ Diagnostics are always retained under the workspace:
 - `state.json` — resumable task state, progress, ETA, usage, and current operation;
 - `usage.json` — preflight/indexed estimate and provider-reported Token ledger by phase;
 - `translations/` and `reports/` — atomic scene checkpoints and validation reports;
+- `existing-translations.json` — detected language, reusable/missing/invalid unit counts, and non-secret issue summaries;
 - `logs/renweave.log` — readable chronological log;
 - `logs/events.jsonl` — structured events with exception type and traceback.
 
