@@ -165,6 +165,7 @@ class RenWeavePipeline:
         self.validation_dir = self.workspace / "validation"
         self.build_validation_path = self.workspace / "build-validation.json"
         self.existing_translations_path = self.workspace / "existing-translations.json"
+        self.translation_memory_path = self.workspace / "translation-memory.json"
         self.usage_path = self.workspace / "usage.json"
         self.logger = RunLogger(self.workspace)
         self._progress_callback: Callable[[PipelineState], None] | None = None
@@ -523,6 +524,7 @@ class RenWeavePipeline:
         translator = SceneTranslator(gateway)
         planner = ContextPlanner()
         string_memory = self._load_string_memory(index, state.completed_scene_ids)
+        translation_memory = self._load_translation_memory()
         self.translations_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         consecutive_failures = 0
@@ -584,6 +586,8 @@ class RenWeavePipeline:
                     "translations": result.translations,
                 })
                 atomic_write_json(self.reports_dir / f"{scene.id}.json", report.to_dict())
+                self._update_translation_memory(scene, result.translations, translation_memory)
+                atomic_write_json(self.translation_memory_path, translation_memory)
                 if report.passed:
                     consecutive_failures = 0
                     if scene.id in state.failed_scene_ids:
@@ -1138,6 +1142,35 @@ class RenWeavePipeline:
                 if unit.id in translations:
                     memory.setdefault(unit.source, str(translations[unit.id]))
         return memory
+
+    def _load_translation_memory(self) -> dict[str, dict[str, str]]:
+        try:
+            payload = read_json(self.translation_memory_path)
+        except (OSError, ValueError, TypeError):
+            payload = {}
+        return {
+            "strings": {str(k): str(v) for k, v in dict(payload.get("strings", {})).items()},
+            "speakers": {str(k): str(v) for k, v in dict(payload.get("speakers", {})).items()},
+            "terms": {str(k): str(v) for k, v in dict(payload.get("terms", {})).items()},
+        }
+
+    @staticmethod
+    def _update_translation_memory(
+        scene,
+        translations: dict[str, str],
+        memory: dict[str, dict[str, str]],
+    ) -> None:
+        for unit in scene.text_units:
+            translated = translations.get(unit.id)
+            if not translated:
+                continue
+            if unit.channel in {TextChannel.MENU, TextChannel.UI, TextChannel.TRANSLATE_STRING}:
+                memory["strings"].setdefault(unit.source, translated)
+            if unit.speaker:
+                memory["speakers"].setdefault(unit.speaker, unit.speaker)
+            for token in unit.source.split():
+                if len(token) >= 3 and token[:1].isupper():
+                    memory["terms"].setdefault(token.strip(".,!?;:()[]{}\"'"), token.strip(".,!?;:()[]{}\"'"))
 
     @staticmethod
     def _apply_string_memory(
