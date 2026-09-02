@@ -40,7 +40,7 @@ def require_matching_package_metadata(version: str) -> None:
     if actual != version:
         raise RuntimeError(
             f"Installed RenWeave metadata is {actual!r}, expected {version!r}. "
-            "Reinstall the package with SETUPTOOLS_SCM_PRETEND_VERSION_FOR_RENWEAVE set."
+            "Reinstall the package with SETUPTOOLS_SCM_PRETEND_VERSION set."
         )
 
 
