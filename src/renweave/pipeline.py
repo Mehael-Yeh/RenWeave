@@ -425,6 +425,7 @@ class RenWeavePipeline:
         )
         self._reconcile_completed_scenes(index, candidates, state, validator)
         state.workflow_mode = "incremental" if existing_inventory.has_existing_language else "full"
+        state.knowledge_strategy = "reuse-existing" if state.workflow_mode == "incremental" else "lightweight-route-map"
         state.knowledge_consent = knowledge_consent if knowledge_consent in {"auto", "approved", "declined"} else "auto"
         # Imported translations are checkpoints. The model should only see scenes
         # that still contain missing or structurally invalid units.

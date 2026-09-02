@@ -85,6 +85,9 @@ class NarrativeKnowledge:
     terms: list[TermProfile]
     usage: KnowledgeUsage
     warnings: list[str] = field(default_factory=list)
+    mainline_scene_ids: list[str] = field(default_factory=list)
+    side_story_scene_ids: list[str] = field(default_factory=list)
+    ordered_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -103,6 +106,9 @@ class NarrativeKnowledge:
             terms=[TermProfile(**item) for item in payload.get("terms", [])],
             usage=KnowledgeUsage(**payload.get("usage", {})),
             warnings=[str(item) for item in payload.get("warnings", [])],
+            mainline_scene_ids=[str(item) for item in payload.get("mainline_scene_ids", [])],
+            side_story_scene_ids=[str(item) for item in payload.get("side_story_scene_ids", [])],
+            ordered_files=[str(item) for item in payload.get("ordered_files", [])],
         )
 
 
@@ -196,6 +202,7 @@ class NarrativeKnowledgeSynthesizer:
         *,
         project_fingerprint: str,
         source_language: str,
+        lightweight: bool = True,
     ) -> NarrativeKnowledge:
         scene_map = {scene.id: scene for scene in index.scenes}
         allowed_scene_ids = set(scene_map)
@@ -222,7 +229,14 @@ class NarrativeKnowledgeSynthesizer:
                         for edge in scene.edges[:12]
                     ],
                 })
-            for ordinal, rows in enumerate(self._scene_chunks(scene_rows)):
+            # The first pass only needs a route map. Sample the beginning and end
+            # of each storyline instead of sending every scene for deep analysis.
+            if lightweight and len(scene_rows) > 10:
+                scene_rows = scene_rows[:8] + scene_rows[-2:]
+            chunks = self._scene_chunks(scene_rows)
+            if lightweight:
+                chunks = chunks[:1]
+            for ordinal, rows in enumerate(chunks):
                 scene_ids = [str(row["id"]) for row in rows]
                 recurring = self._relevant_terms(deterministic, rows)
                 request = {
@@ -248,6 +262,11 @@ class NarrativeKnowledgeSynthesizer:
                 )
 
         storylines = self._merge_storylines(chunk_results, allowed_scene_ids)
+        ranked = sorted(storylines, key=lambda item: len(item.scene_ids), reverse=True)
+        mainline_scene_ids = ranked[0].scene_ids if ranked else []
+        mainline_set = set(mainline_scene_ids)
+        side_story_scene_ids = [scene.id for scene in index.scenes if scene.id not in mainline_set and scene.id in allowed_scene_ids]
+        ordered_files = list(dict.fromkeys(scene.relative_path for scene in index.scenes if scene.id in allowed_scene_ids))
         world_facts = self._merge_facts(chunk_results, allowed_scene_ids)
         characters = self._merge_characters(chunk_results, allowed_scene_ids)
         terms = self._merge_terms(chunk_results, allowed_scene_ids)
@@ -272,6 +291,9 @@ class NarrativeKnowledgeSynthesizer:
             terms=terms,
             usage=self.caller.usage,
             warnings=warnings,
+            mainline_scene_ids=mainline_scene_ids,
+            side_story_scene_ids=side_story_scene_ids,
+            ordered_files=ordered_files,
         )
 
     def _scene_chunks(self, rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
