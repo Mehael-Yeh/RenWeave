@@ -80,6 +80,49 @@ class TranslationConflict(ValueError):
 class RenpyTranslationEmitter:
     """Emits validated translations as standard Ren'Py translation scripts."""
 
+    @classmethod
+    def dialogue_identifiers(cls, index: ProjectIndex) -> dict[str, str]:
+        """Return the standard Ren'Py translation id for every say unit.
+
+        The same mapping is also used when importing an existing ``game/tl``
+        language, so an already translated block can be matched without
+        relying on source line numbers.
+        """
+        units = index.text_units
+        explicit_ids = {
+            match.group(1)
+            for unit in units
+            if unit.channel in {TextChannel.DIALOGUE, TextChannel.NARRATION}
+            for match in [EXPLICIT_ID_RE.search(cls._suffix_after_literal(unit))]
+            if match is not None
+        }
+        scene_labels: dict[str, str] = {}
+        primary_label = ""
+        previous_file = ""
+        for scene in index.scenes:
+            if scene.relative_path != previous_file:
+                primary_label = ""
+                previous_file = scene.relative_path
+            if scene.label.startswith("_") and primary_label:
+                scene_labels[scene.id] = primary_label
+            else:
+                primary_label = "" if scene.label == "__preamble__" else scene.label
+                scene_labels[scene.id] = primary_label
+
+        emitter = cls()
+        identifiers: set[str] = set()
+        result: dict[str, str] = {}
+        for unit in units:
+            if unit.channel not in {TextChannel.DIALOGUE, TextChannel.NARRATION}:
+                continue
+            result[unit.id] = emitter._translation_identifier(
+                unit,
+                scene_labels.get(unit.scene_id, ""),
+                identifiers,
+                explicit_ids,
+            )
+        return result
+
     def emit(
         self,
         index: ProjectIndex,
@@ -114,37 +157,13 @@ class RenpyTranslationEmitter:
                 )
             string_rows.setdefault(unit.source, (translated, unit))
 
-        explicit_ids = {
-            match.group(1)
-            for unit in units
-            if unit.channel in {TextChannel.DIALOGUE, TextChannel.NARRATION}
-            for match in [EXPLICIT_ID_RE.search(self._suffix_after_literal(unit))]
-            if match is not None
-        }
-        scene_labels: dict[str, str] = {}
-        primary_label = ""
-        previous_file = ""
-        for scene in index.scenes:
-            if scene.relative_path != previous_file:
-                primary_label = ""
-                previous_file = scene.relative_path
-            if scene.label.startswith("_") and primary_label:
-                scene_labels[scene.id] = primary_label
-            else:
-                primary_label = "" if scene.label == "__preamble__" else scene.label
-                scene_labels[scene.id] = primary_label
-        identifiers: set[str] = set()
+        dialogue_identifiers = self.dialogue_identifiers(index)
         emitted: list[EmittedFile] = []
 
         for relative_path, rows in dialogue_by_file.items():
             blocks = []
             for unit, translated in rows:
-                identifier = self._translation_identifier(
-                    unit,
-                    scene_labels.get(unit.scene_id, ""),
-                    identifiers,
-                    explicit_ids,
-                )
+                identifier = dialogue_identifiers[unit.id]
                 blocks.append(self._dialogue_block(language, identifier, unit, translated))
             destination = language_dir / self._output_relative_path(relative_path)
             content = self._header(index, requested_language, language) + "".join(blocks)

@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Callable
 
 from . import __version__
+from .build_validation import RenpySdkLocator
 from .credentials import CredentialStorageError, SecureCredentialStore
+from .discovery import ProjectDiscovery
+from .existing_translations import ExistingLanguageSummary, discover_existing_languages
 from .io import atomic_write_json, read_json
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
@@ -221,6 +224,9 @@ COPY["en"].update({
     "progress.overall": "Overall progress",
     "progress.current": "Current operation",
     "progress.scene_count": "Scene checkpoints",
+    "progress.file_count": "File progress",
+    "progress.files_remaining": "{completed}/{total} complete · {remaining} remaining",
+    "progress.phase_units": "Work units {completed}/{total}",
     "progress.eta": "Estimated remaining",
     "progress.estimating": "Estimating after the first completed scene",
     "progress.model_usage": "Model usage",
@@ -260,6 +266,10 @@ COPY["en"].update({
     "game.safety_note": "The selected game is read-only during analysis. All caches, checkpoints, logs, and packages go to the workspace.",
     "languages.source_hint": "Leave Auto detect unless the game intentionally mixes languages or detection is unreliable.",
     "languages.target_hint": "Enter any language name or locale supported by the selected model. This determines the Ren'Py language directory.",
+    "languages.existing_title": "Existing translations found",
+    "languages.existing_body": "Choose one to preserve its valid translations and process only missing or outdated text.",
+    "languages.existing_action": "Continue {language} incrementally · {files} files",
+    "languages.incremental_selected": "Incremental translation selected: existing valid text will be preserved.",
     "dialog.copy_details": "Copy details",
     "dialog.error_log_hint": "Translation errors also include a full traceback in the workspace diagnostic log.",
     "tip.provider": "Switch provider presets. Keys are isolated by provider and endpoint.",
@@ -338,6 +348,9 @@ COPY["zh"].update({
     "progress.overall": "总体进度",
     "progress.current": "当前操作",
     "progress.scene_count": "场景检查点",
+    "progress.file_count": "文件进度",
+    "progress.files_remaining": "已完成 {completed}/{total} · 剩余 {remaining} 个文件",
+    "progress.phase_units": "工作单元 {completed}/{total}",
     "progress.eta": "预计剩余时间",
     "progress.estimating": "完成首个场景后开始估算",
     "progress.model_usage": "模型用量",
@@ -377,6 +390,10 @@ COPY["zh"].update({
     "game.safety_note": "分析时游戏目录保持只读；缓存、检查点、日志和语言包全部写入工作区。",
     "languages.source_hint": "除非游戏混合多种语言或自动识别不可靠，否则建议保留“自动检测”。",
     "languages.target_hint": "可填写模型支持的任意语言名称或区域代码；它会决定 Ren'Py 语言目录名称。",
+    "languages.existing_title": "发现已有翻译",
+    "languages.existing_body": "直接选择已有语言，织译会保留有效译文，只处理缺失或因原文变化而失效的部分。",
+    "languages.existing_action": "继续增量翻译 {language} · 已有 {files} 个文件",
+    "languages.incremental_selected": "已选择增量翻译：现有有效译文会原样保留。",
     "dialog.copy_details": "复制详情",
     "dialog.error_log_hint": "翻译流程错误还会在工作区诊断日志中保存完整堆栈。",
     "tip.provider": "切换提供商预设；密钥按提供商和接口地址相互隔离。",
@@ -388,7 +405,7 @@ COPY["zh"].update({
     "tip.verify_model": "发送一次最小聊天请求，确认所选模型可用后才能继续。",
     "tip.game": "选择游戏根目录、game 文件夹或启动程序；织译会自动识别实际游戏目录。",
     "tip.workspace": "选择独立可写目录保存分析、检查点、日志与输出；以后复用它即可继续任务。",
-    "tip.sdk": "可选的官方 Ren'Py SDK，用于在隔离环境编译检查生成脚本。",
+    "tip.sdk": "通常会从游戏目录自动找到。它只在独立工作区检查语言包能否运行，不会修改游戏。",
     "tip.back": "返回上一页，不会丢弃已经填写的设置。",
     "tip.continue": "校验当前页面并进入下一设置步骤，此时不会开始翻译。",
     "tip.start": "保存不含密钥的配置并运行完整自动翻译流程。",
@@ -480,16 +497,18 @@ _BASE_COPY = {
         "game.project_hint": "Select the game root, its game folder, or the game executable.",
         "game.workspace": "Workspace",
         "game.workspace_hint": "Analysis, caches, checkpoints, and output packages are stored here.",
-        "game.advanced": "Engine validation",
-        "game.sdk": "Ren'Py SDK",
-        "game.sdk_hint": "Optional override. RenWeave first looks for a compatible runtime bundled with the selected game.",
-        "game.require_engine": "Require Ren'Py engine validation before packaging",
+        "game.advanced": "Automatic compatibility check",
+        "game.sdk": "Tool used to test the language pack",
+        "game.sdk_hint": "Filled automatically from the selected game. Normally you do not need to change it.",
+        "game.require_engine": "Test that the completed language pack can be loaded by this game",
+        "game.runtime_found": "Game runtime found automatically: {path}",
+        "game.runtime_missing": "No bundled test tool was found. RenWeave will still run its built-in checks.",
         "game.project_picker": "Select a Ren'Py game root or game directory",
         "game.workspace_picker": "Select or create a RenWeave workspace",
         "game.sdk_picker": "Select a Ren'Py SDK directory",
         "game.invalid": "Choose a valid game and workspace before continuing.",
-        "languages.title": "Choose source and target languages",
-        "languages.body": "Any language name or locale code is accepted. Source detection is automatic by default.",
+        "languages.title": "Choose what to translate",
+        "languages.body": "RenWeave checks the selected game for existing languages first, then continues only unfinished work.",
         "languages.source": "Source language",
         "languages.target": "Target language",
         "languages.auto": "Auto detect",
@@ -591,16 +610,18 @@ _BASE_COPY = {
         "game.project_hint": "可选择游戏根目录、game 目录或游戏程序。",
         "game.workspace": "工作区",
         "game.workspace_hint": "分析结果、缓存、检查点和输出包都会保存在这里。",
-        "game.advanced": "引擎验证",
-        "game.sdk": "Ren'Py SDK",
-        "game.sdk_hint": "可选覆盖。织译会优先查找所选游戏内置的兼容 Ren'Py 运行时。",
-        "game.require_engine": "打包前必须通过 Ren'Py 引擎验证",
+        "game.advanced": "自动兼容性检查",
+        "game.sdk": "用于测试语言包的游戏工具",
+        "game.sdk_hint": "选择游戏后自动填写，通常不需要修改。它只会在独立工作区测试生成结果。",
+        "game.require_engine": "完成前检查语言包能否被这个游戏正常读取",
+        "game.runtime_found": "已自动找到游戏运行环境：{path}",
+        "game.runtime_missing": "没有找到游戏自带的测试工具；仍会执行织译内置检查。",
         "game.project_picker": "选择 Ren'Py 游戏根目录或 game 目录",
         "game.workspace_picker": "选择或创建织译工作区",
         "game.sdk_picker": "选择 Ren'Py SDK 目录",
         "game.invalid": "请先选择有效的游戏和工作区。",
-        "languages.title": "选择源语言和目标语言",
-        "languages.body": "支持任意语言名称或区域代码；默认自动识别源语言。",
+        "languages.title": "选择需要继续处理的语言",
+        "languages.body": "织译会先检查所选游戏已有的语言包，再只处理尚未完成的部分。",
         "languages.source": "源语言",
         "languages.target": "目标语言",
         "languages.auto": "自动识别",
@@ -1138,6 +1159,9 @@ class RenWeaveDesktopApp:
         self._progress_activity_running = False
         self.translation_baseline: dict[str, str] | None = None
         self._settings_save_id = None
+        self._project_inspection_id = None
+        self._auto_sdk_path = ""
+        self.existing_languages: list[ExistingLanguageSummary] = []
         self._session_keys: dict[tuple[str, str], str] = {}
         self._tooltips: list[GuidedTooltip] = []
         self.credential_store = credential_store or SecureCredentialStore()
@@ -1198,8 +1222,11 @@ class RenWeaveDesktopApp:
         self.root.after(250, lambda: self._style_native_window(self.root, dark=True))
         self._restore_api_key()
         self._bind_provider_changes()
+        self.project.trace_add("write", self._schedule_project_inspection)
         if initial_project and not initial_workspace:
             self._suggest_workspace(initial_project)
+        if initial_project:
+            self._inspect_project_selection()
         self._render()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
@@ -2354,9 +2381,38 @@ class RenWeaveDesktopApp:
         self._path_field(card, 3, self.t("game.workspace"), self.workspace, self.t("game.workspace_hint"), self._browse_workspace, "tip.workspace")
         self.ttk.Label(card, text=self.t("game.advanced"), style="Section.TLabel").grid(row=6, column=0, sticky="w", pady=(20, 8))
         self._path_field(card, 7, self.t("game.sdk"), self.renpy_sdk, self.t("game.sdk_hint"), self._browse_sdk, "tip.sdk")
-        self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(12, 0))
+        runtime_found = bool(self.renpy_sdk.get().strip())
+        runtime = self.tk.Frame(
+            card,
+            background=Colors.SUCCESS_CONTAINER if runtime_found else Colors.SURFACE_CONTAINER,
+            padx=12,
+            pady=9,
+        )
+        runtime.grid(row=10, column=0, sticky="ew", pady=(10, 0))
+        self.tk.Label(
+            runtime,
+            text="✓" if runtime_found else "i",
+            background=Colors.SUCCESS_CONTAINER if runtime_found else Colors.SURFACE_CONTAINER,
+            foreground=Colors.SUCCESS if runtime_found else Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, 10, "bold"),
+        ).pack(side="left")
+        self.tk.Label(
+            runtime,
+            text=(
+                self.t("game.runtime_found", path=self._display_path(self.renpy_sdk.get(), max_chars=70))
+                if runtime_found
+                else self.t("game.runtime_missing")
+            ),
+            background=Colors.SUCCESS_CONTAINER if runtime_found else Colors.SURFACE_CONTAINER,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, 9),
+            wraplength=650,
+            justify="left",
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=(9, 0))
+        self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(12, 0))
         safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
-        safety.grid(row=11, column=0, sticky="ew", pady=(16, 0))
+        safety.grid(row=12, column=0, sticky="ew", pady=(16, 0))
         self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, 10, "bold")).pack(side="left")
         self.tk.Label(
             safety,
@@ -2386,31 +2442,100 @@ class RenWeaveDesktopApp:
         card = self._card()
         card.columnconfigure(0, weight=1)
         card.columnconfigure(1, weight=1)
-        self.ttk.Label(card, text=self.t("languages.source"), style="Field.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        row_offset = 0
+        if self.existing_languages:
+            existing = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=14, pady=12)
+            existing.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
+            existing.columnconfigure(0, weight=1)
+            self.tk.Label(
+                existing,
+                text=self.t("languages.existing_title"),
+                background=Colors.SUCCESS_CONTAINER,
+                foreground=Colors.SUCCESS,
+                font=(Typography.UI, 10, "bold"),
+                anchor="w",
+            ).grid(row=0, column=0, sticky="w")
+            self.tk.Label(
+                existing,
+                text=self.t("languages.existing_body"),
+                background=Colors.SUCCESS_CONTAINER,
+                foreground=Colors.ON_SURFACE_VARIANT,
+                font=(Typography.UI, 9),
+                wraplength=700,
+                justify="left",
+                anchor="w",
+            ).grid(row=1, column=0, sticky="w", pady=(3, 9))
+            for item_index, item in enumerate(self.existing_languages):
+                selected = self.target_language.get().strip().casefold() == item.language.casefold()
+                button = self._button(
+                    existing,
+                    self.t(
+                        "languages.existing_action",
+                        language=self._display_language_name(item.language),
+                        files=item.script_files + item.compiled_files,
+                    ),
+                    lambda language=item.language: self._select_existing_language(language),
+                    kind="primary" if selected else "secondary",
+                )
+                button.grid(row=2 + item_index, column=0, sticky="ew", pady=(0 if item_index == 0 else 6, 0))
+            if any(self.target_language.get().strip().casefold() == item.language.casefold() for item in self.existing_languages):
+                self.tk.Label(
+                    existing,
+                    text=self.t("languages.incremental_selected"),
+                    background=Colors.SUCCESS_CONTAINER,
+                    foreground=Colors.SUCCESS,
+                    font=(Typography.UI, 9, "bold"),
+                    anchor="w",
+                ).grid(row=2 + len(self.existing_languages), column=0, sticky="w", pady=(8, 0))
+            row_offset = 2
+        self.ttk.Label(card, text=self.t("languages.source"), style="Field.TLabel").grid(row=row_offset, column=0, sticky="w", padx=(0, 12))
         source_values = ("auto",) + self.LANGUAGE_CHOICES
         source = self._combobox(card, self.source_language, source_values)
-        source.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(5, 0))
-        self.ttk.Label(card, text=self.t("languages.target"), style="Field.TLabel").grid(row=0, column=1, sticky="w", padx=(12, 0))
-        target = self._combobox(card, self.target_language, self.LANGUAGE_CHOICES)
-        target.grid(row=1, column=1, sticky="ew", padx=(12, 0), pady=(5, 0))
-        self.ttk.Label(card, text=self.t("languages.hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=2, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        self.ttk.Label(card, text=self.t("languages.source_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=3, column=0, sticky="nw", padx=(0, 12), pady=(16, 0))
-        self.ttk.Label(card, text=self.t("languages.target_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=3, column=1, sticky="nw", padx=(12, 0), pady=(16, 0))
+        source.grid(row=row_offset + 1, column=0, sticky="ew", padx=(0, 12), pady=(5, 0))
+        self.ttk.Label(card, text=self.t("languages.target"), style="Field.TLabel").grid(row=row_offset, column=1, sticky="w", padx=(12, 0))
+        target_values = tuple(dict.fromkeys([*(item.language for item in self.existing_languages), *self.LANGUAGE_CHOICES]))
+        target = self._combobox(card, self.target_language, target_values)
+        target.grid(row=row_offset + 1, column=1, sticky="ew", padx=(12, 0), pady=(5, 0))
+        self.ttk.Label(card, text=self.t("languages.hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=row_offset + 2, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.ttk.Label(card, text=self.t("languages.source_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=0, sticky="nw", padx=(0, 12), pady=(16, 0))
+        self.ttk.Label(card, text=self.t("languages.target_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=1, sticky="nw", padx=(12, 0), pady=(16, 0))
         self._guide(source, "languages.source_hint")
         self._guide(target, "languages.target_hint")
         if not self.target_language.get():
             target.focus_set()
 
+    def _display_language_name(self, language: str) -> str:
+        names = {
+            "zh_hans": ("Simplified Chinese", "简体中文"),
+            "zh_hant": ("Traditional Chinese", "繁体中文"),
+            "english": ("English", "英语"),
+            "japanese": ("Japanese", "日语"),
+            "korean": ("Korean", "韩语"),
+        }
+        localized = names.get(language.casefold())
+        return f"{localized[1 if self.locale.get() == 'zh' else 0]} ({language})" if localized else language
+
+    def _select_existing_language(self, language: str) -> None:
+        self.target_language.set(language)
+        self._render()
+
     def _render_review(self) -> None:
         card = self._card()
         self.resume_candidate = self._resume_state()
+        incremental = any(
+            self.target_language.get().strip().casefold() == item.language.casefold()
+            for item in self.existing_languages
+        )
+        language_summary = f"{self.source_language.get() or 'auto'}  →  {self.target_language.get()}"
+        if incremental:
+            language_summary += f"\n{self.t('languages.incremental_selected')}"
         summaries = (
             (self.t("review.model"), f"{self.provider_name.get()}  ·  {self.model.get()}\n{self.base_url.get()}"),
             (
                 self.t("review.game"),
                 f"{self._display_path(self.project.get())}\n{self._display_path(self.workspace.get())}",
             ),
-            (self.t("review.languages"), f"{self.source_language.get() or 'auto'}  →  {self.target_language.get()}"),
+            (self.t("review.languages"), language_summary),
             (self.t("review.options"), self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no")),
         )
         card.columnconfigure(0, weight=1, uniform="review")
@@ -2601,21 +2726,16 @@ class RenWeaveDesktopApp:
         stat_columns = 2 if self.compact_layout else 4
         for column in range(stat_columns):
             stats.columnconfigure(column, weight=1, uniform="progress_stat")
-        completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
-        total = int(payload.get("total_scenes", 0) or 0)
         raw_eta = payload.get("eta_seconds", -1)
         eta = self._format_duration(int(raw_eta) if isinstance(raw_eta, (int, float)) else -1)
         calls = int(payload.get("total_model_calls", 0) or 0)
         tokens = int(payload.get("total_prompt_tokens", 0) or 0) + int(payload.get("total_completion_tokens", 0) or 0)
         stage_labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
-        scene_label = str(payload.get("current_scene_label", "") or "")
         stage = self._effective_progress_stage()
-        current = stage_labels.get(stage, str(payload.get("current_operation", "") or "—"))
-        if scene_label:
-            current = f"{current} · {scene_label}"
+        current = self._progress_current_display(payload, stage_labels, stage)
         values = (
             (self.t("progress.current"), current),
-            (self.t("progress.scene_count"), f"{completed} / {total or '—'}"),
+            (self.t("progress.file_count"), self._progress_file_display(payload)),
             (self.t("progress.eta"), eta),
             (self.t("progress.model_usage"), self.t("progress.calls_tokens", calls=calls, tokens=self._format_token_count(tokens))),
         )
@@ -2632,7 +2752,7 @@ class RenWeaveDesktopApp:
                 pady=(0 if row == 0 else 5, 0),
             )
             self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, 8, "bold"), anchor="w").pack(fill="x")
-            value_label = self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"), anchor="w", wraplength=175, justify="left")
+            value_label = self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, 10, "bold"), anchor="w", wraplength=210, justify="left")
             value_label.pack(fill="x", pady=(5, 0))
             self.progress_stat_value_labels.append(value_label)
 
@@ -2729,6 +2849,34 @@ class RenWeaveDesktopApp:
             return payload_stage if payload_stage not in {"paused", "failed"} else ""
         return self.last_stage or payload_stage
 
+    def _progress_current_display(self, payload: dict[str, object], stage_labels: dict[str, str], stage: str) -> str:
+        stage_text = stage_labels.get(stage, str(payload.get("current_operation", "") or "—"))
+        current_file = str(payload.get("current_file", "") or "")
+        scene_label = str(payload.get("current_scene_label", "") or "")
+        details = []
+        if current_file:
+            details.append(current_file)
+        if scene_label and scene_label not in current_file:
+            details.append(scene_label)
+        return stage_text + ("\n" + " · ".join(details) if details else "")
+
+    def _progress_file_display(self, payload: dict[str, object]) -> str:
+        total_files = int(payload.get("total_files", 0) or 0)
+        if total_files:
+            completed_files = int(payload.get("completed_files", 0) or 0)
+            remaining_files = int(payload.get("remaining_files", max(0, total_files - completed_files)) or 0)
+            return self.t(
+                "progress.files_remaining",
+                completed=completed_files,
+                total=total_files,
+                remaining=remaining_files,
+            )
+        phase_total = int(payload.get("phase_total", 0) or 0)
+        phase_completed = int(payload.get("phase_completed", 0) or 0)
+        if phase_total:
+            return self.t("progress.phase_units", completed=phase_completed, total=phase_total)
+        return "—"
+
     def _refresh_progress_runtime(self) -> None:
         if self.progress_activity is None or not self.progress_activity.winfo_exists():
             return
@@ -2806,8 +2954,6 @@ class RenWeaveDesktopApp:
         self._refresh_progress_runtime()
         self._refresh_progress_phases()
 
-        completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
-        total = int(payload.get("total_scenes", 0) or 0)
         raw_eta = payload.get("eta_seconds", -1)
         eta = self._format_duration(int(raw_eta) if isinstance(raw_eta, (int, float)) else -1)
         calls = int(payload.get("total_model_calls", 0) or 0)
@@ -2815,14 +2961,11 @@ class RenWeaveDesktopApp:
         output_tokens = int(payload.get("total_completion_tokens", 0) or 0)
         tokens = input_tokens + output_tokens
         stage_labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
-        scene_label = str(payload.get("current_scene_label", "") or "")
         stage = self._effective_progress_stage()
-        current = stage_labels.get(stage, str(payload.get("current_operation", "") or "—"))
-        if scene_label:
-            current = f"{current} · {scene_label}"
+        current = self._progress_current_display(payload, stage_labels, stage)
         values = (
             current,
-            f"{completed} / {total or '—'}",
+            self._progress_file_display(payload),
             eta,
             self.t("progress.calls_tokens", calls=calls, tokens=self._format_token_count(tokens)),
         )
@@ -3033,6 +3176,41 @@ class RenWeaveDesktopApp:
             self.project.set(selected)
             if not self.workspace.get().strip():
                 self._suggest_workspace(selected)
+            self._inspect_project_selection()
+            if self.step in {1, 2}:
+                self._render()
+
+    def _schedule_project_inspection(self, *_args) -> None:
+        if self._project_inspection_id is not None:
+            try:
+                self.root.after_cancel(self._project_inspection_id)
+            except self.tk.TclError:
+                pass
+        self._project_inspection_id = self.root.after(350, self._inspect_project_selection)
+
+    def _inspect_project_selection(self) -> None:
+        self._project_inspection_id = None
+        selected = self.project.get().strip()
+        if not selected:
+            self.existing_languages = []
+            return
+        try:
+            project = ProjectDiscovery().discover(selected)
+            summaries = discover_existing_languages(selected)
+            sdk = RenpySdkLocator().resolve(project_root=project.project_root)
+        except (OSError, ValueError, RuntimeError):
+            self.existing_languages = []
+            return
+        self.existing_languages = summaries
+        current_sdk = self.renpy_sdk.get().strip()
+        if sdk is not None and (not current_sdk or current_sdk == self._auto_sdk_path):
+            self._auto_sdk_path = str(sdk.root)
+            self.renpy_sdk.set(self._auto_sdk_path)
+            self.require_engine.set(True)
+        elif sdk is None and current_sdk == self._auto_sdk_path:
+            self._auto_sdk_path = ""
+            self.renpy_sdk.set("")
+            self.require_engine.set(False)
 
     def _suggest_workspace(self, project: str) -> None:
         source = Path(project).expanduser()
@@ -3052,6 +3230,7 @@ class RenWeaveDesktopApp:
 
         selected = filedialog.askdirectory(title=self.t("game.sdk_picker"))
         if selected:
+            self._auto_sdk_path = ""
             self.renpy_sdk.set(selected)
 
     def _go_to_step(self, selected: int) -> None:
@@ -3116,6 +3295,7 @@ class RenWeaveDesktopApp:
                 self._dialog(self.t("dialog.cannot_continue"), self.t("model.required"), error=True)
                 return
         elif self.step == 1:
+            self._inspect_project_selection()
             if not Path(self.project.get().strip()).expanduser().exists() or not self.workspace.get().strip():
                 self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
                 return
@@ -3216,6 +3396,7 @@ class RenWeaveDesktopApp:
             self._progress_animation_id,
             self._responsive_render_id,
             self._restore_redraw_id,
+            self._project_inspection_id,
         ):
             if after_id is None:
                 continue
@@ -3407,6 +3588,7 @@ class RenWeaveDesktopApp:
             return
         previous_stage = self.last_stage
         previous_completed = int(self.progress_payload.get("completed_scenes", 0) or 0)
+        previous_file = str(self.progress_payload.get("current_file", "") or "")
         completed = int(payload.get("completed_scenes", len(payload.get("completed_scene_ids", []))) or 0)
         self.progress_payload = payload
         self.last_state_updated_at = str(payload.get("updated_at", self.last_state_updated_at))
@@ -3414,10 +3596,10 @@ class RenWeaveDesktopApp:
         labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
         label = labels.get(stage, stage)
         operation = str(payload.get("current_operation", "") or label)
-        scene_label = str(payload.get("current_scene_label", "") or "")
-        display_operation = f"{label} · {scene_label}" if scene_label else label
-        self.status.set(display_operation if self.locale.get() == "zh" else operation)
-        if stage != previous_stage or completed != previous_completed:
+        display_operation = self._progress_current_display(payload, labels, stage).replace("\n", " · ")
+        self.status.set(display_operation)
+        current_file = str(payload.get("current_file", "") or "")
+        if stage != previous_stage or completed != previous_completed or current_file != previous_file:
             total = int(payload.get("total_scenes", 0) or 0)
             suffix = f" · {completed}/{total}" if total else ""
             self._append_log(f"{label}{suffix} — {operation}")

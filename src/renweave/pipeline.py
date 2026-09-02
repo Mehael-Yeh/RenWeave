@@ -14,6 +14,7 @@ from .context import ContextPlanner
 from .decompiler import DecompilationError, DecompilationManifest, UnrpycDecompiler, UnrpycToolManager
 from .discovery import ProjectDiscovery
 from .emitter import BuildManifest, RenpyTranslationEmitter, normalize_renpy_language
+from .existing_translations import ExistingTranslationInventory, ExistingTranslationScanner
 from .indexer import ProjectIndexer
 from .installer import TranslationInstaller
 from .io import atomic_write_json, read_json
@@ -29,7 +30,7 @@ from .usage import estimate_index_tokens
 from .validation import TranslationValidator
 
 
-ANALYSIS_SCHEMA_VERSION = 6
+ANALYSIS_SCHEMA_VERSION = 9
 
 
 class PipelineStage(str, Enum):
@@ -91,6 +92,10 @@ class PipelineState:
     current_operation: str = ""
     current_scene_id: str = ""
     current_scene_label: str = ""
+    current_file: str = ""
+    total_files: int = 0
+    completed_files: int = 0
+    remaining_files: int = 0
     total_scenes: int = 0
     completed_scenes: int = 0
     total_text_units: int = 0
@@ -117,6 +122,12 @@ class PipelineState:
     knowledge_completion_tokens: int = 0
     refinement_prompt_tokens: int = 0
     refinement_completion_tokens: int = 0
+    existing_language: str = ""
+    existing_translation_files: int = 0
+    existing_reused_units: int = 0
+    existing_missing_units: int = 0
+    existing_invalid_units: int = 0
+    existing_source_fallback_units: int = 0
 
     def to_dict(self) -> dict:
         payload = asdict(self)
@@ -147,6 +158,7 @@ class RenWeavePipeline:
         self.package_path = self.workspace / "package.json"
         self.validation_dir = self.workspace / "validation"
         self.build_validation_path = self.workspace / "build-validation.json"
+        self.existing_translations_path = self.workspace / "existing-translations.json"
         self.usage_path = self.workspace / "usage.json"
         self.logger = RunLogger(self.workspace)
         self._progress_callback: Callable[[PipelineState], None] | None = None
@@ -397,6 +409,13 @@ class RenWeavePipeline:
         state.source_token_equivalent = budget.source_token_equivalent
         state.token_estimate_confidence = budget.confidence
         validator = TranslationValidator()
+        existing_inventory = self._import_existing_translations(
+            index,
+            candidates,
+            state,
+            validator,
+            target_language,
+        )
         self._reconcile_completed_scenes(index, candidates, state, validator)
         expected_scene_ids = {scene.id for scene in index.scenes if scene.text_units}
         reuse_completed_model_outputs = (
@@ -407,6 +426,7 @@ class RenWeavePipeline:
         state.completed_text_units = sum(
             len(scene.text_units) for scene in candidates if scene.id in state.completed_scene_ids
         )
+        self._update_file_progress(index, candidates, state)
         state.current_operation = "Preparing or restoring project context"
         self.logger.event(
             "INFO",
@@ -421,7 +441,8 @@ class RenWeavePipeline:
         if self._cancelled(cancel_token):
             return self._pause(state, "Cancellation requested before model work")
         text_scene_count = len(candidates)
-        if synthesize_knowledge and text_scene_count >= 4 and not reuse_completed_model_outputs:
+        all_text_available = expected_scene_ids <= set(state.completed_scene_ids) and not state.failed_scene_ids
+        if synthesize_knowledge and text_scene_count >= 4 and not reuse_completed_model_outputs and not all_text_available:
             state.stage = PipelineStage.SYNTHESIZING
             state.current_operation = "Understanding storylines, characters, and terminology"
             state.phase_completed = 0
@@ -436,8 +457,8 @@ class RenWeavePipeline:
                     self.knowledge_cache_dir,
                     max_chunk_characters=chunk_characters,
                     cancel_check=lambda: self._cancelled(cancel_token),
-                    progress_callback=lambda done, total, message: self._phase_progress(
-                        state, done, total, message, gateway, usage_base
+                    progress_callback=lambda done, total, message, current_file: self._phase_progress(
+                        state, done, total, message, current_file, gateway, usage_base
                     ),
                 ).synthesize(
                     index,
@@ -478,18 +499,28 @@ class RenWeavePipeline:
             scene_started = time.perf_counter()
             state.current_scene_id = scene.id
             state.current_scene_label = scene.label
-            state.current_operation = f"Translating scene: {scene.label}"
+            state.current_file = scene.relative_path
+            state.current_operation = f"Translating {scene.relative_path}: {scene.label}"
             self._save_state(state)
             try:
                 context = planner.build(index, knowledge, scene.id, narrative)
+                current_translations = self._load_partial_scene_translations(
+                    index,
+                    scene.id,
+                    validator,
+                )
+                expected_ids = {unit.id for unit in scene.text_units}
+                requested_ids = expected_ids - set(current_translations)
                 result = translator.translate(
                     context,
                     target_language,
                     source_language=source_language,
+                    requested_ids=requested_ids,
+                    existing_translations=current_translations,
                 )
+                result.translations = {**current_translations, **result.translations}
                 self._apply_string_memory(scene.text_units, result.translations, string_memory)
                 report = validator.validate_scene(index, scene.id, result.translations)
-                expected_ids = {unit.id for unit in scene.text_units}
                 for _attempt in range(max(0, repair_attempts)):
                     for text_id in list(result.translations):
                         if text_id not in expected_ids:
@@ -560,6 +591,7 @@ class RenWeavePipeline:
                 for item in candidates
                 if item.id in state.completed_scene_ids
             )
+            self._update_file_progress(index, candidates, state)
             remaining = max(0, state.total_scenes - len(state.completed_scene_ids))
             average = state.translation_seconds / max(1, state.scene_attempts)
             state.eta_seconds = max(0, round(average * remaining + min(120.0, average * 2)))
@@ -619,8 +651,8 @@ class RenWeavePipeline:
                         self.refinement_cache_dir,
                         max_batch_characters=batch_characters,
                         cancel_check=lambda: self._cancelled(cancel_token),
-                        progress_callback=lambda done, total, message: self._phase_progress(
-                            state, done, total, message, gateway, usage_base
+                        progress_callback=lambda done, total, message, current_file: self._phase_progress(
+                            state, done, total, message, current_file, gateway, usage_base
                         ),
                     ).refine(
                         index,
@@ -628,6 +660,14 @@ class RenWeavePipeline:
                         narrative,
                         source_language=source_language,
                         target_language=target_language,
+                        eligible_ids=(
+                            set(collected)
+                            - {
+                                text_id
+                                for translations in existing_inventory.translations_by_scene.values()
+                                for text_id in translations
+                            }
+                        ),
                     )
                 except CancellationRequested as exc:
                     return self._pause(state, str(exc))
@@ -696,6 +736,7 @@ class RenWeavePipeline:
                 )
                 state.current_scene_id = ""
                 state.current_scene_label = ""
+                state.current_file = ""
                 state.eta_seconds = 0
                 state.error = ""
             except Exception as exc:
@@ -923,6 +964,103 @@ class RenWeavePipeline:
             if scene_id in candidate_ids and scene_id not in state.failed_scene_ids:
                 state.failed_scene_ids.append(scene_id)
 
+    def _import_existing_translations(
+        self,
+        index: ProjectIndex,
+        candidates,
+        state: PipelineState,
+        validator: TranslationValidator,
+        target_language: str,
+    ) -> ExistingTranslationInventory:
+        """Import compatible game/tl work as read-only incremental checkpoints."""
+        inventory = ExistingTranslationScanner().scan(index, target_language)
+        atomic_write_json(self.existing_translations_path, inventory.to_dict())
+        state.existing_language = inventory.language if inventory.has_existing_language else ""
+        state.existing_translation_files = inventory.files_scanned
+        state.existing_reused_units = inventory.reusable_units
+        state.existing_missing_units = inventory.missing_units
+        state.existing_invalid_units = inventory.invalid_units
+        state.existing_source_fallback_units = inventory.source_fallback_units
+        self.translations_dir.mkdir(parents=True, exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        candidate_ids = {scene.id for scene in candidates}
+        for scene_id, imported in inventory.translations_by_scene.items():
+            if scene_id not in candidate_ids:
+                continue
+            path = self.translations_dir / f"{scene_id}.json"
+            saved: dict[str, str] = {}
+            if path.is_file():
+                try:
+                    payload = read_json(path)
+                    raw = payload.get("translations", {})
+                    if isinstance(raw, dict):
+                        saved = {str(key): str(value) for key, value in raw.items()}
+                except (OSError, ValueError, TypeError):
+                    saved = {}
+            # The selected game language is the user's current source of truth.
+            # Workspace checkpoints only fill IDs that are still absent there.
+            combined = {**saved, **imported}
+            atomic_write_json(path, {"scene_id": scene_id, "translations": combined})
+            report = validator.validate_scene(index, scene_id, combined)
+            atomic_write_json(self.reports_dir / f"{scene_id}.json", report.to_dict())
+            if report.passed and scene_id not in state.completed_scene_ids:
+                state.completed_scene_ids.append(scene_id)
+            if report.passed and scene_id in state.failed_scene_ids:
+                state.failed_scene_ids.remove(scene_id)
+        if inventory.has_existing_language:
+            self.logger.event(
+                "INFO",
+                "existing_translation_imported",
+                "Existing game language was scanned for incremental translation",
+                language=inventory.language,
+                reusable_units=inventory.reusable_units,
+                missing_units=inventory.missing_units,
+                invalid_units=inventory.invalid_units,
+                complete_scenes=inventory.complete_scenes,
+                total_units=inventory.total_units,
+            )
+        return inventory
+
+    def _load_partial_scene_translations(
+        self,
+        index: ProjectIndex,
+        scene_id: str,
+        validator: TranslationValidator,
+    ) -> dict[str, str]:
+        path = self.translations_dir / f"{scene_id}.json"
+        if not path.is_file():
+            return {}
+        try:
+            raw = read_json(path).get("translations", {})
+        except (OSError, ValueError, TypeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        translations = {str(key): str(value) for key, value in raw.items()}
+        report = validator.validate_scene(index, scene_id, translations)
+        invalid_ids = {
+            issue.text_id
+            for issue in report.issues
+            if issue.code not in {"MISSING_TRANSLATION"} and issue.text_id
+        }
+        for text_id in invalid_ids:
+            translations.pop(text_id, None)
+        return translations
+
+    @staticmethod
+    def _update_file_progress(index: ProjectIndex, candidates, state: PipelineState) -> None:
+        candidate_scene_ids = {scene.id for scene in candidates}
+        completed_scene_ids = set(state.completed_scene_ids)
+        scenes_by_file: dict[str, set[str]] = {}
+        for scene in index.scenes:
+            if scene.id in candidate_scene_ids and scene.text_units:
+                scenes_by_file.setdefault(scene.relative_path, set()).add(scene.id)
+        state.total_files = len(scenes_by_file)
+        state.completed_files = sum(
+            scene_ids <= completed_scene_ids for scene_ids in scenes_by_file.values()
+        )
+        state.remaining_files = max(0, state.total_files - state.completed_files)
+
     def _persist_translations(
         self,
         index: ProjectIndex,
@@ -1053,6 +1191,10 @@ class RenWeavePipeline:
         payload.setdefault("current_operation", "")
         payload.setdefault("current_scene_id", "")
         payload.setdefault("current_scene_label", "")
+        payload.setdefault("current_file", "")
+        payload.setdefault("total_files", 0)
+        payload.setdefault("completed_files", 0)
+        payload.setdefault("remaining_files", 0)
         payload.setdefault("total_scenes", 0)
         payload.setdefault("completed_scenes", len(payload.get("completed_scene_ids", [])))
         payload.setdefault("total_text_units", 0)
@@ -1079,6 +1221,12 @@ class RenWeavePipeline:
         payload.setdefault("knowledge_completion_tokens", 0)
         payload.setdefault("refinement_prompt_tokens", 0)
         payload.setdefault("refinement_completion_tokens", 0)
+        payload.setdefault("existing_language", "")
+        payload.setdefault("existing_translation_files", 0)
+        payload.setdefault("existing_reused_units", 0)
+        payload.setdefault("existing_missing_units", 0)
+        payload.setdefault("existing_invalid_units", 0)
+        payload.setdefault("existing_source_fallback_units", 0)
         return PipelineState(**payload)
 
     def _save_state(self, state: PipelineState) -> None:
@@ -1113,12 +1261,14 @@ class RenWeavePipeline:
         completed: int,
         total: int,
         message: str,
+        current_file: str,
         gateway,
         usage_base: tuple[int, int, int, int],
     ) -> None:
         state.phase_completed = max(0, int(completed))
         state.phase_total = max(1, int(total), state.phase_completed)
         state.current_operation = message
+        state.current_file = current_file
         self._sync_gateway_usage(state, gateway, usage_base)
         self._save_state(state)
 

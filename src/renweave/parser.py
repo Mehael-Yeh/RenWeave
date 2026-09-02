@@ -21,17 +21,20 @@ from .models import (
 LABEL_RE = re.compile(r"^\s*label\s+([A-Za-z_][\w.]*)\s*(?:\([^)]*\))?\s*:\s*(?:#.*)?$")
 FLOW_RE = re.compile(r"^\s*(call|jump)\s+(?:expression\s+)?([A-Za-z_][\w.]*)")
 TAG_RE = re.compile(r"\{/?[A-Za-z][^{}]*\}")
-PLACEHOLDER_RE = re.compile(r"\[[^\[\]\r\n]+\]|%(?:\([^)]+\))?[#0 +\-]?[0-9]*(?:\.[0-9]+)?[a-zA-Z]")
+PLACEHOLDER_RE = re.compile(r"\[[^\[\]\r\n]+\]|%(?:\([^)]+\))?[#0 +\-]?[0-9]*(?:\.[0-9]+)?[diouxXeEfFgGcrsa%]")
 UI_STRING_RE = re.compile(r"(?<![A-Za-z0-9_])_\(\s*(?P<literal>(?:[rubfRUBF]*)(?:\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'))\s*\)")
 DIALOGUE_PREFIX_RE = re.compile(
     r"^(?:say\s+)?[A-Za-z_]\w*(?:\s+(?:@|-?[A-Za-z_]\w*))*$"
 )
 
 NON_SPEAKER_PREFIXES = frozenset({
-    "$", "add", "at", "camera", "default", "define", "elif", "else", "for",
-    "frame", "hide", "if", "image", "init", "key", "layeredimage", "pause",
-    "play", "python", "queue", "scene", "screen", "show", "stop", "style",
-    "text", "transform", "use", "vbox", "voice", "while", "window", "with",
+    "$", "add", "at", "bar", "button", "call", "camera", "default", "define",
+    "elif", "else", "fixed", "for", "frame", "grid", "hbox", "hide", "if",
+    "image", "init", "input", "jump", "key", "label", "layeredimage", "mousearea",
+    "null", "pass", "pause", "play", "python", "queue", "return", "scene",
+    "screen", "show", "side", "style", "style_prefix", "text", "textbutton",
+    "timer", "transform", "use", "vbar", "vbox", "viewport", "voice", "while",
+    "window", "with",
 })
 
 
@@ -165,6 +168,8 @@ class RenpyParser:
 
         literal_ordinal = 0
         start, end, _literal, source = segments[0]
+        if not source.strip() or not TAG_RE.sub("", source).strip():
+            return self._parse_ui_strings(stripped, relative, line_number, scene)
         before = stripped[:start].strip()
         after = stripped[end:].strip()
         ui_units = self._parse_ui_strings(stripped, relative, line_number, scene)
@@ -194,7 +199,7 @@ class RenpyParser:
             start, end, _literal, source = segments[1]
             after = stripped[end:].strip()
             channel = TextChannel.DIALOGUE
-        elif after.startswith(("if ", "(")) or after.endswith(":"):
+        elif before == "" and (after.startswith(("if ", "(")) or after.endswith(":")):
             # Menu entries may use standard ``if condition:`` syntax or
             # project-defined argument syntax such as ``(condition, icon):``.
             # They must be emitted through Ren'Py's old/new string table, not

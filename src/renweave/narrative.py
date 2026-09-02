@@ -180,7 +180,7 @@ class NarrativeKnowledgeSynthesizer:
         max_chunk_characters: int = 24000,
         max_chunk_scenes: int = 20,
         cancel_check: Callable[[], bool] | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_callback: Callable[[int, int, str, str], None] | None = None,
     ) -> None:
         self.caller = CachedKnowledgeCaller(gateway, cache_dir, cancel_check=cancel_check)
         self.max_chunk_characters = max(4000, max_chunk_characters)
@@ -239,7 +239,13 @@ class NarrativeKnowledgeSynthesizer:
                     raise
                 except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                     warnings.append(f"storyline {storyline.key} chunk {ordinal}: {exc}")
-                self._advance_progress(f"Analyzed storyline chunk {self.progress_done + 1}")
+                files = list(dict.fromkeys(str(row.get("file", "")) for row in rows if row.get("file")))
+                current_file = files[0] if files else ""
+                suffix = f" (+{len(files) - 1} files)" if len(files) > 1 else ""
+                self._advance_progress(
+                    f"Understanding {current_file or storyline.key}{suffix}",
+                    current_file,
+                )
 
         storylines = self._merge_storylines(chunk_results, allowed_scene_ids)
         world_facts = self._merge_facts(chunk_results, allowed_scene_ids)
@@ -343,7 +349,10 @@ class NarrativeKnowledgeSynthesizer:
                         "themes": [],
                         "scene_ids": [],
                     })
-                self._advance_progress(f"Consolidated narrative batch {self.progress_done + 1}")
+                self._advance_progress(
+                    f"Consolidating project context batch {self.progress_done + 1}",
+                    "Project overview",
+                )
             if len(next_nodes) == len(nodes) and all(len(batch) == 1 for batch in self._batches_by_size(nodes, 30000)):
                 break
             nodes = next_nodes
@@ -356,16 +365,16 @@ class NarrativeKnowledgeSynthesizer:
             global_facts.extend(self._facts_from_payload(payload, allowed_scene_ids))
         return str(final.get("summary", ""))[:5000], self._unique(style, 40), global_facts
 
-    def _advance_progress(self, message: str) -> None:
+    def _advance_progress(self, message: str, current_file: str = "") -> None:
         self.progress_done += 1
         self.progress_total = max(self.progress_total, self.progress_done + 1)
         if self.progress_callback:
-            self.progress_callback(self.progress_done, self.progress_total, message)
+            self.progress_callback(self.progress_done, self.progress_total, message, current_file)
 
     def _finish_progress(self, message: str) -> None:
         self.progress_total = max(1, self.progress_done)
         if self.progress_callback:
-            self.progress_callback(self.progress_total, self.progress_total, message)
+            self.progress_callback(self.progress_total, self.progress_total, message, "")
 
     @staticmethod
     def _batches_by_size(nodes: list[dict[str, Any]], limit: int) -> list[list[dict[str, Any]]]:

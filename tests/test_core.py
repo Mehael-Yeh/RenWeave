@@ -33,6 +33,7 @@ from renweave.decompiler import (
     UnrpycToolManager,
 )
 from renweave.emitter import RenpyTranslationEmitter, TranslationConflict
+from renweave.existing_translations import ExistingTranslationScanner, discover_existing_languages
 from renweave.gui import (
     Metrics,
     STAGE_LABELS,
@@ -143,6 +144,50 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(len(scene.text_units), 1)
         self.assertEqual(scene.text_units[0].channel, TextChannel.NARRATION)
         self.assertEqual(scene.text_units[0].source, "Use _('sample_key') in source code.")
+
+    def test_parser_does_not_translate_internal_condition_literals(self) -> None:
+        (self.game / "conditions.rpy").write_text(
+            "label conditions:\n"
+            "    if relationship < 'romance':\n"
+            "        eve \"A real line.\"\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        units = [
+            unit for unit in index.text_units
+            if unit.location.relative_path == "conditions.rpy"
+        ]
+        self.assertEqual([unit.source for unit in units], ["A real line."])
+
+    def test_parser_does_not_translate_control_flow_return_values_or_tag_only_text(self) -> None:
+        (self.game / "control_values.rpy").write_text(
+            "label control_values:\n"
+            "    return 'route_key'\n"
+            "    style_prefix 'internal_style'\n"
+            "    anon '{nw=2}'\n"
+            "    anon 'Visible text.'\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        units = [
+            unit for unit in index.text_units
+            if unit.location.relative_path == "control_values.rpy"
+        ]
+        self.assertEqual([unit.source for unit in units], ["Visible text."])
+
+    def test_percentage_text_is_not_mistaken_for_printf_placeholder(self) -> None:
+        (self.game / "percentage.rpy").write_text(
+            "label percentage:\n    anon '75% OFF'\n",
+            encoding="utf-8",
+        )
+        index = ProjectIndexer().build(self.root)
+        unit = next(unit for unit in index.text_units if unit.source == "75% OFF")
+        report = TranslationValidator().validate_scene(
+            index,
+            unit.scene_id,
+            {unit.id: "优惠 75%"},
+        )
+        self.assertTrue(report.passed)
 
     def test_parser_excludes_label_free_resource_literals_but_keeps_explicit_ui(self) -> None:
         (self.game / "resources.rpy").write_text(
@@ -293,6 +338,11 @@ class CorePipelineTests(unittest.TestCase):
         try:
             root.withdraw()
             settings_path = Path(self.temp.name) / "desktop-settings.json"
+            bundled_runner = self.root / "lib" / "py3-windows-x86_64" / "python.exe"
+            bundled_runner.parent.mkdir(parents=True)
+            bundled_runner.write_bytes(b"runner")
+            (self.root / "SampleGame.exe").write_bytes(b"launcher")
+            (self.root / "SampleGame.py").write_text("# launcher\n", encoding="utf-8")
             class DesktopCredentialBackend:
                 def __init__(self) -> None:
                     self.values = {}
@@ -314,6 +364,7 @@ class CorePipelineTests(unittest.TestCase):
                 credential_store=SecureCredentialStore(backend=DesktopCredentialBackend()),
             )
             root.update_idletasks()
+            app._inspect_project_selection()
             self.assertEqual(app.step, 0)
             self.assertEqual(app.locale.get(), "en")
             self.assertEqual(app.brand_title.cget("text"), "RenWeave")
@@ -323,6 +374,9 @@ class CorePipelineTests(unittest.TestCase):
             self.assertFalse(app.update_checks_enabled.get())
             self.assertTrue(app.generate_rpa.get())
             self.assertEqual(app.reasoning_level.get(), "auto")
+            self.assertTrue(Path(app.renpy_sdk.get()).samefile(self.root))
+            self.assertTrue(app.require_engine.get())
+            self.assertEqual([item.language for item in app.existing_languages], ["zh_hans"])
             self.assertEqual(
                 tuple(app.reasoning_box.cget("values")),
                 ("Automatic (provider default)", "Low", "High", "Maximum"),
@@ -454,6 +508,10 @@ class CorePipelineTests(unittest.TestCase):
                 "estimated_total_tokens_high": 18000,
                 "usage_reporting_status": "reported",
                 "current_scene_label": "chapter_two",
+                "current_file": "src/plot/chapter_two.rpy",
+                "total_files": 12,
+                "completed_files": 7,
+                "remaining_files": 5,
             }
             app.status.set("正在翻译")
             app._render()
@@ -485,7 +543,9 @@ class CorePipelineTests(unittest.TestCase):
             app._apply_progress_payload(updated_payload)
             self.assertIs(app.page, progress_page)
             self.assertIs(app.progress, progress_widget)
-            self.assertEqual(app.progress_stat_value_labels[1].cget("text"), "11 / 20")
+            self.assertIn("7/12", app.progress_stat_value_labels[1].cget("text"))
+            self.assertIn("5", app.progress_stat_value_labels[1].cget("text"))
+            self.assertIn("src/plot/chapter_two.rpy", app.progress_stat_value_labels[0].cget("text"))
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)
             self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")
@@ -548,7 +608,7 @@ class CorePipelineTests(unittest.TestCase):
             target_language="fr",
         )
         saved = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual(upgraded.schema_version, 6)
+        self.assertEqual(upgraded.schema_version, ANALYSIS_SCHEMA_VERSION)
         self.assertEqual(saved["analysis_schema_version"], ANALYSIS_SCHEMA_VERSION)
         self.assertEqual(saved["completed_scene_ids"], ["synthetic-checkpoint"])
         self.assertIn(
@@ -646,6 +706,114 @@ class CorePipelineTests(unittest.TestCase):
                 archive.names(),
                 ("tl/es_es/script.rpy", "tl/es_es/strings.rpy"),
             )
+
+    def test_existing_translation_scanner_detects_complete_and_changed_source(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in index.text_units}
+        RenpyTranslationEmitter().emit(index, translations, "zh_hans", self.root)
+
+        summaries = discover_existing_languages(self.root)
+        self.assertEqual([item.language for item in summaries], ["zh_hans"])
+        self.assertGreaterEqual(summaries[0].script_files, 2)
+        complete = ExistingTranslationScanner().scan(index, "zh_hans")
+        self.assertTrue(complete.complete)
+        self.assertEqual(complete.reusable_units, len(index.text_units))
+        self.assertEqual(complete.missing_units, 0)
+
+        (self.game / "script.rpy").write_text(
+            SAMPLE_SCRIPT.replace("We made it.", "We finally made it."),
+            encoding="utf-8",
+            newline="\n",
+        )
+        changed_index = ProjectIndexer().build(self.root)
+        changed = ExistingTranslationScanner().scan(changed_index, "zh_hans")
+        self.assertFalse(changed.complete)
+        self.assertGreaterEqual(changed.missing_units, 1)
+
+    def test_complete_existing_language_finishes_without_model_calls(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in index.text_units}
+        RenpyTranslationEmitter().emit(index, translations, "zh_hans", self.root)
+
+        class NoCallGateway:
+            model_calls = 0
+            prompt_tokens = 0
+            completion_tokens = 0
+            requests_attempted = 0
+
+            def chat(self, _messages, *, temperature=0.2):
+                raise AssertionError("A complete existing language must not call the model")
+
+        state = RenWeavePipeline(Path(self.temp.name) / "existing-complete-workspace").translate(
+            self.root,
+            "en",
+            "zh_hans",
+            ModelProfile(name="test", model="fake", base_url="https://example.invalid"),
+            gateway=NoCallGateway(),
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(state.existing_reused_units, len(index.text_units))
+        self.assertEqual(state.existing_missing_units, 0)
+        self.assertEqual(state.total_model_calls, 0)
+        self.assertEqual(state.remaining_files, 0)
+        report = json.loads(
+            (Path(self.temp.name) / "existing-complete-workspace" / "existing-translations.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(report["complete"])
+
+    def test_partial_existing_language_requests_only_missing_text(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in index.text_units}
+        RenpyTranslationEmitter().emit(index, translations, "zh_hans", self.root)
+        missing_unit = next(
+            unit for unit in index.text_units
+            if unit.channel in {TextChannel.DIALOGUE, TextChannel.NARRATION}
+        )
+        identifier = RenpyTranslationEmitter.dialogue_identifiers(index)[missing_unit.id]
+        generated = self.game / "tl" / "zh_hans" / "script.rpy"
+        text = generated.read_text(encoding="utf-8")
+        block = re.compile(
+            rf"(?ms)^translate zh_hans {re.escape(identifier)}:\n.*?(?=^translate zh_hans |\Z)"
+        )
+        text, removed = block.subn("", text, count=1)
+        self.assertEqual(removed, 1)
+        generated.write_text(text, encoding="utf-8", newline="\n")
+
+        class MissingOnlyGateway:
+            def __init__(self) -> None:
+                self.requested: list[set[str]] = []
+                self.model_calls = 0
+                self.prompt_tokens = 0
+                self.completion_tokens = 0
+                self.requests_attempted = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                requested = set(request["requested_ids"])
+                self.requested.append(requested)
+                self.model_calls += 1
+                self.requests_attempted += 1
+                lines = {line["id"]: line for line in request["scene"]["lines"]}
+                rows = [
+                    {"id": text_id, "text": f"ZH repaired: {lines[text_id]['source']}"}
+                    for text_id in requested
+                ]
+                return {"choices": [{"message": {"content": json.dumps({"translations": rows})}}]}
+
+        gateway = MissingOnlyGateway()
+        state = RenWeavePipeline(Path(self.temp.name) / "existing-partial-workspace").translate(
+            self.root,
+            "en",
+            "zh_hans",
+            ModelProfile(name="test", model="fake", base_url="https://example.invalid"),
+            gateway=gateway,
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(gateway.requested, [{missing_unit.id}])
+        self.assertEqual(state.existing_missing_units, 1)
+        self.assertEqual(state.total_model_calls, 1)
 
     def test_emitter_rejects_conflicting_global_string_translations(self) -> None:
         (self.game / "duplicate.rpy").write_text(

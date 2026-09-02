@@ -7,7 +7,7 @@ from .models import ProjectIndex
 
 
 TAG_RE = re.compile(r"\{/?[A-Za-z][^{}]*\}")
-PLACEHOLDER_RE = re.compile(r"\[[^\[\]\r\n]+\]|%(?:\([^)]+\))?[#0 +\-]?[0-9]*(?:\.[0-9]+)?[a-zA-Z]")
+PLACEHOLDER_RE = re.compile(r"\[[^\[\]\r\n]+\]|%(?:\([^)]+\))?[#0 +\-]?[0-9]*(?:\.[0-9]+)?[diouxXeEfFgGcrsa%]")
 
 
 @dataclass(slots=True, frozen=True)

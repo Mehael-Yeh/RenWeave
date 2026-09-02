@@ -72,6 +72,7 @@ class TranslationRiskAuditor:
         *,
         source_language: str,
         target_language: str,
+        eligible_ids: set[str] | None = None,
     ) -> list[RefinementCandidate]:
         reasons: dict[str, list[str]] = defaultdict(list)
         unit_map = {unit.id: unit for unit in index.text_units}
@@ -123,6 +124,8 @@ class TranslationRiskAuditor:
 
         candidates = []
         for text_id, item_reasons in reasons.items():
+            if eligible_ids is not None and text_id not in eligible_ids:
+                continue
             unit = unit_map[text_id]
             candidates.append(RefinementCandidate(
                 text_id=text_id,
@@ -149,7 +152,7 @@ class GlobalTranslationRefiner:
         max_batch_characters: int = 24000,
         max_batch_items: int = 50,
         cancel_check: Callable[[], bool] | None = None,
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_callback: Callable[[int, int, str, str], None] | None = None,
     ) -> None:
         self.caller = CachedKnowledgeCaller(gateway, cache_dir, cancel_check=cancel_check)
         self.max_batch_characters = max(4000, max_batch_characters)
@@ -164,6 +167,7 @@ class GlobalTranslationRefiner:
         *,
         source_language: str,
         target_language: str,
+        eligible_ids: set[str] | None = None,
     ) -> tuple[dict[str, str], RefinementReport]:
         candidates = TranslationRiskAuditor().collect(
             index,
@@ -171,6 +175,7 @@ class GlobalTranslationRefiner:
             narrative,
             source_language=source_language,
             target_language=target_language,
+            eligible_ids=eligible_ids,
         )
         if not candidates:
             return dict(translations), RefinementReport(
@@ -185,8 +190,11 @@ class GlobalTranslationRefiner:
         proposals: dict[str, tuple[str, str]] = {}
         observations = []
         allowed_ids = {candidate.text_id for candidate in candidates}
+        file_by_id = {unit.id: unit.location.relative_path for unit in index.text_units}
         batches = self._batches(candidates)
         for ordinal, batch in enumerate(batches):
+            files = list(dict.fromkeys(file_by_id.get(item.text_id, "") for item in batch))
+            current_file = next((item for item in files if item), "")
             payload = {
                 "source_language": source_language,
                 "target_language": target_language,
@@ -202,7 +210,12 @@ class GlobalTranslationRefiner:
             except (KeyError, TypeError, ValueError, RuntimeError) as exc:
                 observations.append(f"batch {ordinal} failed: {exc}")
                 if self.progress_callback:
-                    self.progress_callback(ordinal + 1, len(batches), f"Refinement batch {ordinal + 1} failed")
+                    self.progress_callback(
+                        ordinal + 1,
+                        len(batches),
+                        f"Reviewing {current_file or 'translation batch'} failed",
+                        current_file,
+                    )
                 continue
             rows = response.get("corrections", [])
             if isinstance(rows, list):
@@ -218,7 +231,12 @@ class GlobalTranslationRefiner:
             if isinstance(raw_observations, list):
                 observations.extend(str(item)[:500] for item in raw_observations[:30])
             if self.progress_callback:
-                self.progress_callback(ordinal + 1, len(batches), f"Reviewed refinement batch {ordinal + 1}")
+                self.progress_callback(
+                    ordinal + 1,
+                    len(batches),
+                    f"Reviewed {current_file or f'batch {ordinal + 1}'}",
+                    current_file,
+                )
 
         refined = dict(translations)
         changes: list[RefinementChange] = []
