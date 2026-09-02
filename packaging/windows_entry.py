@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import runpy
 import subprocess
 import sys
 import traceback
@@ -14,6 +13,7 @@ from renweave.decompiler import (
     UNRPYC_CLI_VERSION,
     UnrpycDecompiler,
     UnrpycToolManager,
+    run_unrpyc_in_process,
 )
 from renweave.gui import main as gui_main
 
@@ -43,12 +43,13 @@ def _run_unrpyc(arguments: list[str]) -> int:
         return 2
     _restore_stream("stdout", 1)
     _restore_stream("stderr", 2)
-    tool_dir = Path(arguments[0]).resolve()
     entrypoint = Path(arguments[1]).resolve()
-    sys.path.insert(0, str(tool_dir))
-    sys.argv = [str(entrypoint), *arguments[2:]]
-    runpy.run_path(str(entrypoint), run_name="__main__")
-    return 0
+    result, stdout, stderr = run_unrpyc_in_process(entrypoint, arguments[2:])
+    if stdout:
+        print(stdout, end="")
+    if stderr:
+        print(stderr, end="", file=sys.stderr)
+    return result
 
 
 def _run_self_test(output_path: str) -> int:
@@ -99,7 +100,19 @@ def _run_self_test(output_path: str) -> int:
 def main() -> int:
     arguments = sys.argv[1:]
     if arguments and arguments[0] == FROZEN_UNRPYC_SWITCH:
-        return _run_unrpyc(arguments[1:])
+        result = _run_unrpyc(arguments[1:])
+        if getattr(sys, "frozen", False):
+            # A windowed one-file child can retain PyInstaller runtime threads
+            # after runpy returns even though all RPY files are closed. Flush
+            # captured diagnostics, then terminate this dedicated tool process
+            # so the parent translation pipeline can continue.
+            for stream in (sys.stdout, sys.stderr):
+                try:
+                    stream.flush()
+                except (AttributeError, OSError):
+                    pass
+            os._exit(result)
+        return result
     if len(arguments) == 2 and arguments[0] == SELF_TEST_SWITCH:
         return _run_self_test(arguments[1])
     return gui_main()

@@ -62,7 +62,11 @@ def verify_layout(output_dir: Path | None = None) -> None:
     with tempfile.TemporaryDirectory(prefix="renweave-visual-") as directory:
         root = tk.Tk()
         if output_dir is None:
-            root.withdraw()
+            # A withdrawn Tk window reports 1 px canvas dimensions and cannot
+            # validate responsive layout. Keep it mapped but fully transparent.
+            root.attributes("-alpha", 0.0)
+            root.geometry("1240x840+20+20")
+            root.deiconify()
         else:
             root.geometry("1240x840+20+20")
             root.deiconify()
@@ -108,7 +112,7 @@ def verify_layout(output_dir: Path | None = None) -> None:
                     app.step = step
                     app.worker = SimpleNamespace(is_alive=lambda: True) if step == 4 else None
                     app._render()
-                    root.update_idletasks()
+                    root.update()
                     app._sync_content_layout()
                     root.update_idletasks()
                     canvas_width = app.content_canvas.winfo_width()

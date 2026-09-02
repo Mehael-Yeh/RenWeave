@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import os
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
+import types
 from dataclasses import asdict, dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
@@ -268,17 +272,28 @@ class UnrpycDecompiler:
         returncode = 0
         for batch in self._command_batches(base_command, [path for _source, path, _output in staged]):
             try:
-                process = subprocess.run(
-                    batch,
-                    cwd=self.entrypoint.parent,
-                    env=environment,
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=self.timeout_seconds,
-                    check=False,
-                )
+                if self._uses_frozen_launcher():
+                    returncode, stdout, stderr = run_unrpyc_in_process(
+                        self.entrypoint,
+                        batch[len(self._base_command()):],
+                    )
+                    process = types.SimpleNamespace(
+                        returncode=returncode,
+                        stdout=stdout,
+                        stderr=stderr,
+                    )
+                else:
+                    process = subprocess.run(
+                        batch,
+                        cwd=self.entrypoint.parent,
+                        env=environment,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=self.timeout_seconds,
+                        check=False,
+                    )
             except subprocess.TimeoutExpired as exc:
                 raise DecompilationError(f"RPYC 反编译超过 {self.timeout_seconds} 秒") from exc
             stdout_parts.append(process.stdout)
@@ -374,3 +389,64 @@ class UnrpycDecompiler:
         if len(current) > len(base):
             batches.append(current)
         return batches
+
+
+class SequentialPool:
+    """Minimal Pool-compatible executor for the frozen unrpyc child process.
+
+    RenWeave already invokes unrpyc with ``--processes 1``. The upstream tool
+    still creates a multiprocessing child for that single worker, which starts
+    the frozen RenWeave executable again on Windows. Running the one worker in
+    the isolated unrpyc subprocess avoids the duplicate GUI without changing
+    the bundled third-party source tree.
+    """
+
+    def __init__(self, _processes: int | None = None) -> None:
+        pass
+
+    def __enter__(self) -> "SequentialPool":
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback) -> bool:
+        return False
+
+    @staticmethod
+    def imap(function, iterable, _chunksize: int = 1):
+        return map(function, iterable)
+
+
+def run_unrpyc_in_process(entrypoint: str | Path, arguments: list[str]) -> tuple[int, str, str]:
+    """Run one unrpyc batch without spawning the frozen GUI executable again."""
+    tool = Path(entrypoint).expanduser().resolve()
+    tool_dir = tool.parent
+    original_argv = list(sys.argv)
+    original_path = list(sys.path)
+    original_modules = dict(sys.modules)
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+    multiprocessing_stub = types.ModuleType("multiprocessing")
+    multiprocessing_stub.Lock = lambda: object()
+    multiprocessing_stub.Pool = SequentialPool
+    multiprocessing_stub.cpu_count = lambda: 2
+    multiprocessing_stub.current_process = lambda: types.SimpleNamespace(name="MainProcess")
+    multiprocessing_stub.freeze_support = lambda: None
+    exit_code = 0
+    try:
+        sys.modules["multiprocessing"] = multiprocessing_stub
+        sys.path.insert(0, str(tool_dir))
+        sys.argv = [str(tool), *arguments]
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                runpy.run_path(str(tool), run_name="__main__")
+            except SystemExit as exc:
+                exit_code = int(exc.code or 0) if isinstance(exc.code, (int, type(None))) else 1
+    except BaseException as exc:
+        exit_code = 1
+        stderr.write(f"{type(exc).__name__}: {exc}\n")
+    finally:
+        sys.argv = original_argv
+        sys.path[:] = original_path
+        for name in set(sys.modules) - set(original_modules):
+            sys.modules.pop(name, None)
+        sys.modules.update(original_modules)
+    return exit_code, stdout.getvalue(), stderr.getvalue()

@@ -26,7 +26,7 @@ Material Design 3, UI UX Pro Max, and Awesome Design Systems are design referenc
 
 | Context | Placement |
 | --- | --- |
-| Interface language | Compact two-button segment at the top-right; never a dropdown while only English and Chinese exist |
+| Interface language | One top-right button beside Settings; its label names the language it will switch to |
 | Section-wide auxiliary action | Top-right of that section |
 | Field-specific action | Attached to the right of its field, equal control height |
 | Form action | Left edge of its form column |
@@ -49,6 +49,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Checkbox | `Material.TCheckbutton` | Left-aligned with the form text column |
 | Model list | `ModelList.Treeview` | `38 px` rows, single selection, consistent selected state |
 | Provider gallery | `_layout_provider_buttons()` | All provider presets stay visible in a stable grid; there is no fold control or height animation |
+| Translation activity | determinate + indeterminate progress pair | Show overall completion separately from continuous worker activity, exact pipeline stage, and high-level phase state |
 | Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
 | Diagnostic text | styled `tk.Text` | Same border/focus/selection colors as form controls |
 | Outer card | `Card.TFrame` | The only bordered content container |
@@ -64,6 +65,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - API-contacting actions state whether they normally consume Tokens.
 - Keyboard focus follows the visual order; dialogs support `Escape`, and confirmation supports `Return` where safe.
 - Text contrast targets WCAG AA. Color is never the only status signal.
+- Settings and the single language toggle use the same button factory, vertical padding, and top-bar baseline.
 
 ## Prohibited patterns
 

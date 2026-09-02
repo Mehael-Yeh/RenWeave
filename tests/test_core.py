@@ -28,6 +28,7 @@ from renweave.decompiler import (
     UNRPYC_BUNDLED_FILES,
     UNRPYC_BUNDLED_TREE_SHA256,
     DecompilationError,
+    SequentialPool,
     UnrpycDecompiler,
     UnrpycToolManager,
 )
@@ -341,7 +342,7 @@ class CorePipelineTests(unittest.TestCase):
             root.update_idletasks()
             self.assertIs(app.endpoint_box, endpoint_box)
             self.assertIs(app.page, page)
-            self.assertEqual(app.content_canvas.yview(), scroll_position)
+            self.assertEqual(app.content_canvas.yview()[0], scroll_position[0])
             self.assertEqual(app.selected_provider_id.get(), "minimax")
             self.assertEqual(app.base_url.get(), "https://api.minimax.io/v1")
             self.assertIn("https://api.minimaxi.com/v1", app.endpoint_box.cget("values"))
@@ -359,11 +360,11 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.source_language.get(), "auto")
             self.assertEqual(app.status.get(), "Enter an API key, then load available models.")
             self.assertFalse(hasattr(app, "_browse_provider"))
-            self.assertEqual(set(app.language_buttons), {"en", "zh"})
-            self.assertEqual(app.language_buttons["en"].cget("style"), "LanguageActive.TButton")
+            self.assertEqual(app.language_button.cget("text"), "中文")
+            self.assertEqual(app.language_button.cget("style"), "Ghost.TButton")
             self.assertEqual(
                 app.settings_button.winfo_reqheight(),
-                app.language_buttons["en"].winfo_reqheight(),
+                app.language_button.winfo_reqheight(),
             )
             settings_tooltip = next(
                 tooltip
@@ -380,15 +381,14 @@ class CorePipelineTests(unittest.TestCase):
 
             self.assertNotIn("TCombobox", widget_classes(app.top))
 
-            app.locale_display.set("简体中文")
-            app._change_locale()
+            app.language_button.invoke()
             root.update_idletasks()
             self.assertEqual(app.locale.get(), "zh")
             self.assertEqual(app.brand_title.cget("text"), "织译")
             self.assertEqual(int(app.brand_title.cget("wraplength")), 188)
             self.assertLessEqual(app.brand_title.winfo_reqwidth(), 192)
             self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
-            self.assertEqual(app.language_buttons["zh"].cget("style"), "LanguageActive.TButton")
+            self.assertEqual(app.language_button.cget("text"), "English")
             self.assertIn("系统加密", app.t(settings_tooltip.translation_key))
             self.assertEqual(app.t("steps.progress"), "翻译")
 
@@ -462,6 +462,9 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(float(app.progress["maximum"]), 100)
             self.assertEqual(float(app.progress["value"]), 58.5)
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
+            self.assertEqual(app.progress_runtime_state.cget("text"), "●  程序正在正常运行")
+            self.assertEqual(app.progress_stage_counter.cget("text"), "翻译链路第 9/15 阶段")
+            self.assertTrue(app._progress_activity_running)
             scrollbars = []
 
             def collect_scrollbars(widget):
@@ -498,6 +501,8 @@ class CorePipelineTests(unittest.TestCase):
             app.target_language.set("Deutsch")
             self.assertIn("目标语言", app._critical_config_changes())
             app._render()
+            self.assertEqual(app.progress_runtime_state.cget("text"), "●  翻译已停止")
+            self.assertFalse(app._progress_activity_running)
             self.assertIsNotNone(app.back_button)
             with mock.patch.object(app, "_dialog") as back_notice:
                 app.back_button.invoke()
@@ -1818,6 +1823,27 @@ class CorePipelineTests(unittest.TestCase):
                 str(entrypoint.parent),
                 str(entrypoint),
             ])
+
+    def test_sequential_pool_runs_frozen_unrpyc_work_without_spawning(self) -> None:
+        with SequentialPool(1) as pool:
+            self.assertEqual(list(pool.imap(lambda value: value * 2, [1, 2, 3], 1)), [2, 4, 6])
+
+    def test_frozen_decompiler_runs_batch_in_process_without_relaunching_gui(self) -> None:
+        compiled_root = Path(self.temp.name) / "frozen-compiled"
+        compiled_root.mkdir()
+        (compiled_root / "route.rpyc").write_bytes(b"compiled-placeholder")
+        tool = self._write_fake_unrpyc()
+        decompiler = UnrpycDecompiler(tool, python_executable=sys.executable)
+        with mock.patch.object(sys, "frozen", True, create=True), mock.patch(
+            "renweave.decompiler.subprocess.run"
+        ) as subprocess_run:
+            manifest = decompiler.decompile(
+                [compiled_root],
+                Path(self.temp.name) / "frozen-output",
+            )
+        subprocess_run.assert_not_called()
+        self.assertEqual(len(manifest.files), 1)
+        self.assertTrue(Path(manifest.files[0].output_path).is_file())
 
     def test_failed_decompilation_keeps_diagnostic_manifest(self) -> None:
         project = Path(self.temp.name) / "BrokenCompiledGame"

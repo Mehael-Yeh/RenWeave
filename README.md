@@ -43,7 +43,7 @@ The desktop app guides you through five steps:
 4. Review the automatically selected pipeline, output options, and estimated Token budget.
 5. Start once and follow unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
 
-English is the default interface language. Use the compact **English / 中文** switch in the top-right corner to change it immediately. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
+English is the default interface language. Use the single **中文** / **English** button beside **Settings** to switch directly to the other interface language. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
 
 ## Providers and model validation
 
@@ -96,7 +96,7 @@ Add `--install` only when you want the verified RPY output copied to `game/tl/<l
 
 The review screen estimates an input/output/total Token range before any translation call. Loose source scripts produce the strongest preflight estimate; compiled scripts and archives use a deliberately wider proxy until indexing reveals the exact translatable text. The range includes narrative synthesis, scene context, target output, likely repairs, and risk-only refinement. It excludes provider retries and currency pricing because prices differ by model and provider.
 
-During translation, the progress screen shows a weighted 0–100% pipeline bar, the active phase and scene, verified scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and an adaptive remaining-time estimate. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
+During translation, the progress screen separates progress from diagnostics: a continuously moving activity bar confirms the worker is alive, an exact `n/15` pipeline-stage indicator and completed/current/pending phase track show where the job is, and the weighted 0–100% bar shows overall completion. Scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and adaptive remaining time remain visible above the separate log area. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
 
 `usage.json` is updated atomically in the workspace after every state save. It records the estimate, successful calls, attempted requests, reported input/output totals, and separate knowledge, scene translation/repair, and refinement usage. This is a Token ledger, not a billing statement; the provider dashboard remains authoritative for money charged.
 
