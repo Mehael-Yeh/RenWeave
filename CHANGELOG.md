@@ -4,6 +4,10 @@ All notable changes to RenWeave are documented here.
 
 ## Unreleased
 
+- Added read-only discovery and structural validation of existing Ren'Py language folders, preserving valid user translations and sending only missing, empty, damaged, or source-changed units through the incremental model workflow.
+- Made the game step automatically locate a compatible bundled Ren'Py runtime and replaced unexplained SDK terminology with an explicit automatic-compatibility status and built-in fallback.
+- Added a direct existing-language choice to the language step, plus current-file, completed-file, remaining-file, stage, work-unit, and ETA feedback independent from diagnostic logs.
+- Added isolated full-game QA for unchanged, deleted, and placeholder-damaged translations without modifying the selected game.
 - Tightened source parsing so Python calls, style values, image/ATL metadata, and other code literals cannot be emitted as dialogue while Ren'Py attribute resets and extended or multiline menu syntax remain supported.
 - Added parser-schema cache migration that preserves and revalidates compatible scene checkpoints instead of discarding an interrupted large-project run after parser upgrades.
 - Added isolated compilation through either a Ren'Py SDK or the runtime bundled with a distributed game; runtime-ready RPA packages now contain both retained RPY sources and verified RPYC sidecars.
