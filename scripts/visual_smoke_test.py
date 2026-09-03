@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from renweave.credentials import SecureCredentialStore
-from renweave.gui import ModelPickerDialog, RenWeaveDesktopApp
+from renweave.gui import ModelPickerDialog, RenWeaveDesktopApp, TaskState
 
 
 class MemoryCredentialBackend:
@@ -201,8 +201,14 @@ def verify_layout(output_dir: Path | None = None) -> None:
                 files_scanned=28,
                 pending_units=pending_units,
             )
+            app.step = 2
+            app.worker = None
+            app._render()
+            root.update()
+            capture_window(root, output_dir / "zh-languages-incremental.png")
             app.step = 3
             app.worker = None
+            app.show_pending_details.set(True)
             app._render()
             root.update()
             if app.review_details is None or app.review_detail_host is None:
@@ -211,12 +217,8 @@ def verify_layout(output_dir: Path | None = None) -> None:
             details_left = app.review_details.winfo_rootx()
             options_right = options_left + app.review_options.winfo_width()
             details_right = details_left + app.review_details.winfo_width()
-            title_left = app.review_pending_title.winfo_rootx()
-            detail_left = app.review_detail_host.winfo_rootx()
             if abs(options_left - details_left) > 1 or abs(options_right - details_right) > 1:
                 raise RuntimeError("Incremental review panel does not share the options alignment")
-            if abs(title_left - detail_left) > 1:
-                raise RuntimeError("Incremental review title and local scroller are not left-aligned")
             capture_window(root, output_dir / "zh-review-incremental.png")
             app.content_canvas.yview_moveto(1.0)
             root.update()
@@ -266,6 +268,41 @@ def verify_layout(output_dir: Path | None = None) -> None:
             )
             capture_window(error.window, output_dir / "en-error-dialog.png")
             error.window.destroy()
+
+        # Exercise the contradiction-prone states even when screenshots are disabled.
+        app.step = 4
+        app.translation_started = True
+        cases = (
+            ("preparing", "created", True, 0, 0, 100, TaskState.PREPARING, None),
+            ("translating", "translating", True, 12, 30, 48, TaskState.TRANSLATING, 48),
+            ("paused", "paused", False, 12, 30, 100, TaskState.PAUSED, 40),
+            ("completed", "complete", False, 30, 30, 100, TaskState.COMPLETED, 100),
+            ("failed", "failed", False, 12, 30, 48, TaskState.FAILED, 48),
+            ("total-unknown", "translating", True, 2053, 0, 100, TaskState.TRANSLATING, None),
+        )
+        for name, stage, running, completed, total, raw_percent, expected_state, expected_percent in cases:
+            app.worker = SimpleNamespace(is_alive=lambda value=running: value) if running else None
+            app.cancel_token = None
+            app.last_stage = stage
+            if stage not in {"paused", "failed", "complete"}:
+                app.last_active_stage = stage
+            app.progress_payload = {
+                "stage": stage,
+                "completed_scenes": completed,
+                "total_scenes": total,
+                "progress_percent": raw_percent,
+            }
+            task = app._task_presentation()
+            if task.state != expected_state or task.percent != expected_percent:
+                raise RuntimeError(f"Task-state mismatch for {name}: {task}")
+            app._render()
+            root.update_idletasks()
+            if total <= 0 and app.progress.winfo_ismapped():
+                raise RuntimeError(f"Unknown total exposed a percentage bar for {name}")
+            if task.state != TaskState.COMPLETED and app.progress_percent_text.get() == "100%":
+                raise RuntimeError(f"Non-completed state exposed 100% for {name}")
+            if output_dir is not None:
+                capture_window(root, output_dir / f"en-progress-{name}.png")
         root.destroy()
     screenshot_note = f" and wrote screenshots to {output_dir}" if output_dir else ""
     print(

@@ -37,6 +37,7 @@ from renweave.existing_translations import ExistingTranslationScanner, discover_
 from renweave.gui import (
     Metrics,
     STAGE_LABELS,
+    TaskState,
     RenWeaveDesktopApp,
     Typography,
     TranslationRequest,
@@ -314,6 +315,51 @@ class CorePipelineTests(unittest.TestCase):
     def test_desktop_progress_labels_cover_every_pipeline_stage(self) -> None:
         self.assertEqual({str(stage) for stage in PipelineStage} - set(STAGE_LABELS), set())
 
+    def test_desktop_task_state_is_single_source_for_six_critical_states(self) -> None:
+        app = RenWeaveDesktopApp.__new__(RenWeaveDesktopApp)
+        app.translation_started = True
+        app.cancel_token = None
+        app.last_active_stage = ""
+
+        app.worker = SimpleNamespace(is_alive=lambda: True)
+        app.last_stage = "created"
+        app.progress_payload = {"stage": "created", "progress_percent": 100, "total_scenes": 0}
+        preparing = app._task_presentation()
+        self.assertEqual(preparing.state, TaskState.PREPARING)
+        self.assertIsNone(preparing.percent)
+
+        app.last_stage = "translating"
+        app.last_active_stage = "translating"
+        app.progress_payload = {"stage": "translating", "progress_percent": 62, "completed_scenes": 12, "total_scenes": 20}
+        translating = app._task_presentation()
+        self.assertEqual(translating.state, TaskState.TRANSLATING)
+        self.assertEqual(translating.percent, 62)
+
+        app.cancel_token = CancellationToken()
+        app.cancel_token.cancel()
+        self.assertEqual(app._task_presentation().state, TaskState.PAUSING)
+
+        app.worker = None
+        app.last_stage = "paused"
+        app.progress_payload = {"stage": "paused", "progress_percent": 100, "completed_scenes": 10, "total_scenes": 20}
+        paused = app._task_presentation()
+        self.assertEqual(paused.state, TaskState.PAUSED)
+        self.assertEqual(paused.percent, 50)
+        self.assertEqual(paused.phase, "translate")
+
+        app.last_stage = "complete"
+        completed = app._task_presentation()
+        self.assertEqual(completed.state, TaskState.COMPLETED)
+        self.assertEqual(completed.percent, 100)
+        self.assertEqual(completed.phase, "done")
+
+        app.last_stage = "failed"
+        app.progress_payload = {"stage": "failed", "completed_scenes": 2053, "total_scenes": 0, "progress_percent": float("nan")}
+        failed_unknown_total = app._task_presentation()
+        self.assertEqual(failed_unknown_total.state, TaskState.FAILED)
+        self.assertIsNone(failed_unknown_total.percent)
+        self.assertEqual(failed_unknown_total.completed, 2053)
+
     def test_desktop_typography_uses_only_shared_size_tokens(self) -> None:
         source = Path(sys.modules[RenWeaveDesktopApp.__module__].__file__).read_text(encoding="utf-8")
         self.assertEqual({Typography.SMALL, Typography.BODY, Typography.TITLE, Typography.DISPLAY}, {9, 10, 18, 24})
@@ -493,7 +539,7 @@ class CorePipelineTests(unittest.TestCase):
             app.target_language.set("Français")
             app._continue()
             self.assertEqual(app.step, 3)
-            self.assertEqual(app.start_button.cget("text"), "进入翻译")
+            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
             self.assertIsNotNone(app.token_budget)
 
             def visible_texts(widget):
@@ -509,11 +555,11 @@ class CorePipelineTests(unittest.TestCase):
                 return texts
 
             review_text = "\n".join(visible_texts(app.content))
-            self.assertIn("预计 TOKEN 预算", review_text)
+            self.assertIn("AI 用量预估", review_text)
             self.assertIn("Token", review_text)
-            self.assertIn("生成通过验证的 RPA 归档", review_text)
-            self.assertIn("标准 RPY 始终保留", review_text)
-            self.assertIn("编译并验证 RPYC", review_text)
+            self.assertIn("生成可直接使用的语言包", review_text)
+            self.assertIn("不会修改游戏原文件", review_text)
+            self.assertIn("技术详情：生成 RPA", review_text)
 
             app.target_language.set("zh_hans")
             app.scope_preview_signature = app._scope_signature()
@@ -542,15 +588,12 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(int(app.back_button.cget("width")), Metrics.FOOTER_BACK_WIDTH)
             self.assertEqual(int(app.start_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
             self.assertEqual(int(app.review_options.grid_info()["column"]), 0)
-            self.assertEqual(int(app.review_options.grid_info()["columnspan"]), 2)
-            self.assertEqual(int(app.review_details.grid_info()["column"]), 0)
-            self.assertEqual(int(app.review_details.grid_info()["columnspan"]), 2)
             self.assertTrue({"e", "w"}.issubset(set(str(app.review_options.grid_info()["sticky"]))))
-            self.assertTrue({"e", "w"}.issubset(set(str(app.review_details.grid_info()["sticky"]))))
-            self.assertEqual(
-                int(app.review_pending_title.grid_info()["column"]),
-                int(app.review_detail_host.grid_info()["column"]),
-            )
+            self.assertIsNone(app.review_details)
+            app.show_pending_details.set(True)
+            app._render()
+            root.update_idletasks()
+            self.assertIsNotNone(app.review_details)
 
             def widgets_of_class(widget, class_name):
                 matches = []
@@ -562,19 +605,19 @@ class CorePipelineTests(unittest.TestCase):
 
             review_text_widgets = widgets_of_class(app.content, "Text")
             self.assertTrue(review_text_widgets)
-            self.assertEqual(int(review_text_widgets[0].cget("height")), 9)
+            self.assertEqual(int(review_text_widgets[0].cget("height")), 7)
             self.assertIn("script.rpy", review_text_widgets[0].get("1.0", "end"))
             self.assertTrue(widgets_of_class(app.content, "TScrollbar"))
 
-            # Review is non-destructive: opening step 05 must not start a
-            # worker. Translation begins only after the user presses the
-            # action on the translation page.
-            app.start_button.configure(state="normal")
-            app.start_button.invoke()
+            # The review page owns the single unambiguous start action.
+            with mock.patch.object(app, "_start") as start_translation:
+                app.start_button.configure(command=app._start, state="normal")
+                app.start_button.invoke()
+                start_translation.assert_called_once_with()
+            app._enter_translation()
             root.update_idletasks()
             self.assertEqual(app.step, 4)
             self.assertIsNone(app.worker)
-            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
 
             class ActiveWorker:
                 @staticmethod
@@ -610,8 +653,8 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(float(app.progress["maximum"]), 100)
             self.assertEqual(float(app.progress["value"]), 58.5)
             self.assertEqual(app.pause_button.cget("text"), "安全暂停")
-            self.assertEqual(app.progress_runtime_state.cget("text"), "●  程序正在正常运行")
-            self.assertEqual(app.progress_stage_counter.cget("text"), "翻译链路第 9/15 阶段")
+            self.assertEqual(app.progress_runtime_state.cget("text"), "●  正在翻译")
+            self.assertEqual(app.progress_stage_counter.cget("text"), "翻译")
             self.assertTrue(app._progress_activity_running)
             scrollbars = []
 
@@ -622,12 +665,18 @@ class CorePipelineTests(unittest.TestCase):
                     collect_scrollbars(child)
 
             collect_scrollbars(app.content)
+            self.assertFalse(scrollbars)
+            app.show_log_details.set(True)
+            app._render()
+            progress_page = app.page
+            progress_widget = app.progress
+            collect_scrollbars(app.content)
             self.assertTrue(scrollbars)
             self.assertTrue(all(bar.cget("style") == "Workspace.Vertical.TScrollbar" for bar in scrollbars))
             progress_text = "\n".join(visible_texts(app.content))
-            self.assertIn("提供商已报告 1.2K", progress_text)
-            self.assertIn("预计项目总量 12K–18K", progress_text)
-            self.assertIn("提供商已返回 Token 用量", progress_text)
+            self.assertIn("AI 用量 1.2K Token", progress_text)
+            self.assertIn("初始文本估算 12K–18K", progress_text)
+            self.assertIn("不含上下文和校验调用", progress_text)
             updated_payload = dict(app.progress_payload)
             updated_payload.update(progress_percent=61.0, completed_scenes=11)
             app._apply_progress_payload(updated_payload)

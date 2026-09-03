@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import subprocess
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import traceback
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Callable
 
@@ -179,6 +181,67 @@ PROGRESS_STAGE_PHASE = {
     "building": "build",
     "validating_build": "build",
     "complete": "done",
+}
+
+
+class TaskState(str, Enum):
+    """Single UI-facing task state used by every progress-page component."""
+
+    IDLE = "idle"
+    PREPARING = "preparing"
+    ANALYZING = "analyzing"
+    TRANSLATING = "translating"
+    VALIDATING = "validating"
+    BUILDING = "building"
+    COMPLETED = "completed"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPresentation:
+    state: TaskState
+    pipeline_stage: str
+    phase: str
+    percent: float | None
+    completed: int
+    total: int
+
+
+TASK_STATE_BY_STAGE = {
+    "created": TaskState.PREPARING,
+    "discovered": TaskState.PREPARING,
+    "acquired": TaskState.PREPARING,
+    "decompiled": TaskState.PREPARING,
+    "indexed": TaskState.ANALYZING,
+    "knowledge_ready": TaskState.ANALYZING,
+    "synthesizing": TaskState.ANALYZING,
+    "narrative_ready": TaskState.ANALYZING,
+    "translating": TaskState.TRANSLATING,
+    "validated": TaskState.VALIDATING,
+    "refining": TaskState.VALIDATING,
+    "refined": TaskState.VALIDATING,
+    "building": TaskState.BUILDING,
+    "validating_build": TaskState.BUILDING,
+    "complete": TaskState.COMPLETED,
+    "paused": TaskState.PAUSED,
+    "failed": TaskState.FAILED,
+}
+
+TASK_PHASE = {
+    TaskState.IDLE: "prepare",
+    TaskState.PREPARING: "prepare",
+    TaskState.ANALYZING: "analyze",
+    TaskState.TRANSLATING: "translate",
+    TaskState.VALIDATING: "validate",
+    TaskState.BUILDING: "build",
+    TaskState.COMPLETED: "done",
+    TaskState.PAUSING: "translate",
+    TaskState.PAUSED: "translate",
+    TaskState.FAILED: "translate",
+    TaskState.CANCELLED: "translate",
 }
 
 COPY: dict[str, dict[str, str]] = {"en": {}, "zh": {}}
@@ -710,6 +773,120 @@ _BASE_COPY = {
 for _locale, _strings in _BASE_COPY.items():
     COPY[_locale].update(_strings)
 
+COPY["en"].update({
+    "languages.scan_summary": "Translation summary",
+    "languages.scan_counts": "Existing translations  {reused}\nStill to translate  {pending}\nOriginal language files  {files}",
+    "languages.incremental_choice": "Continue incremental translation",
+    "review.title": "Ready to translate",
+    "review.body": "Confirm this task. Starting it will call the selected AI model.",
+    "review.task_mode": "Incremental translation",
+    "review.remaining": "{count} texts remaining",
+    "review.preserved": "{count} valid existing translations will be preserved",
+    "review.game_unchanged": "Original game files will not be changed",
+    "review.output_plain": "A Ren'Py-validated language package",
+    "review.details": "View task details",
+    "review.hide_details": "Hide task details",
+    "review.pending_show": "View content",
+    "review.pending_hide": "Hide content",
+    "review.start_remaining": "Translate remaining {count}",
+    "review.rpa": "Create a ready-to-use language package",
+    "review.rpa_hint": "On by default. RenWeave checks Ren'Py compatibility when translation finishes.",
+    "review.rpa_technical": "Technical details: create RPA and compile RPYC when a compatible runtime is available.",
+    "review.install_hint": "Off by default. When enabled, successful translation and validation writes language-package files into the game directory.",
+    "review.resume_body_unknown": "{completed} checkpoints have been saved. RenWeave will verify them before continuing.",
+    "budget.title": "AI usage estimate",
+    "budget.range": "Main translation text: about {low}–{high} Tokens",
+    "budget.note": "Initial estimate from {scripts} script sources ({confidence} confidence). Context, validation, retries, and other model calls can use additional Tokens.",
+    "budget.projected": "Initial text estimate {low}–{high} · excludes context and validation calls",
+    "budget.unavailable": "No translatable text is available for an estimate yet. RenWeave will update this after scanning.",
+    "progress.task.idle": "Ready to start",
+    "progress.task.preparing": "Preparing translation",
+    "progress.task.analyzing": "Analyzing the game",
+    "progress.task.translating": "Translating",
+    "progress.task.validating": "Validating translation",
+    "progress.task.building": "Building the language package",
+    "progress.task.completed": "Translation complete",
+    "progress.task.pausing": "Saving progress before pausing",
+    "progress.pausing_action": "Pausing…",
+    "progress.task.paused": "Translation paused",
+    "progress.task.failed": "Translation stopped",
+    "progress.task.cancelled": "Translation cancelled",
+    "progress.scene_ratio": "{completed} / {total} scenes",
+    "progress.scene_total_unknown": "{completed} scenes completed",
+    "progress.current_file": "Current file: {path}",
+    "progress.phase.analyze": "Analyze",
+    "progress.phase.validate": "Validate",
+    "progress.log": "Run details",
+    "progress.log_show": "View log",
+    "progress.log_hide": "Hide log",
+    "progress.activity_recent": "Recent activity",
+    "progress.usage_actual": "AI usage {total} Tokens",
+    "progress.usage_breakdown": "Input {input} · output {output}",
+    "progress.safe_to_close": "Progress is safely saved. You can close RenWeave and resume later.",
+    "progress.package_ready": "Language package generated",
+    "error.api_key": "The API key was rejected. Check it and try again.",
+    "error.timeout": "The request timed out. Check the network or service address and try again.",
+    "error.connection": "Could not reach the AI service. Check the network and service address.",
+    "error.generic": "The task could not continue. Your workspace and saved progress were kept.",
+})
+
+COPY["zh"].update({
+    "languages.scan_summary": "已有翻译摘要",
+    "languages.scan_counts": "已有翻译  {reused} 条\n仍需翻译  {pending} 条\n原有语言文件  {files} 个",
+    "languages.incremental_choice": "继续增量翻译",
+    "review.title": "准备开始翻译",
+    "review.body": "请确认本次任务。开始后会调用所选 AI 模型。",
+    "review.task_mode": "增量翻译",
+    "review.remaining": "剩余 {count} 条文本",
+    "review.preserved": "已有 {count} 条有效翻译会被保留",
+    "review.game_unchanged": "不会修改游戏原文件",
+    "review.output_plain": "经过 Ren'Py 验证的语言包",
+    "review.details": "查看任务详情",
+    "review.hide_details": "收起任务详情",
+    "review.pending_show": "查看内容",
+    "review.pending_hide": "收起内容",
+    "review.start_remaining": "翻译剩余 {count} 条",
+    "review.rpa": "生成可直接使用的语言包",
+    "review.rpa_hint": "默认开启。翻译完成后自动进行 Ren'Py 兼容性检查。",
+    "review.rpa_technical": "技术详情：生成 RPA，并在运行环境可用时编译 RPYC。",
+    "review.install_hint": "默认关闭。开启后会在翻译和验证成功后向游戏目录写入语言包文件。",
+    "review.resume_body_unknown": "已保存 {completed} 个检查点；继续前会自动核验其完整性。",
+    "budget.title": "AI 用量预估",
+    "budget.range": "待翻译主要文本约需 {low}–{high} Token",
+    "budget.note": "依据 {scripts} 个脚本来源进行初步估算（准确度：{confidence}）。上下文、校验、重试和其他模型调用可能产生额外 Token。",
+    "budget.projected": "初始文本估算 {low}–{high} · 不含上下文和校验调用",
+    "budget.unavailable": "暂未发现可供估算的待翻译文本；扫描完成后会自动更新。",
+    "progress.task.idle": "准备开始",
+    "progress.task.preparing": "正在准备",
+    "progress.task.analyzing": "正在分析游戏",
+    "progress.task.translating": "正在翻译",
+    "progress.task.validating": "正在校验译文",
+    "progress.task.building": "正在生成语言包",
+    "progress.task.completed": "翻译完成",
+    "progress.task.pausing": "正在保存进度并暂停",
+    "progress.pausing_action": "正在暂停…",
+    "progress.task.paused": "翻译已暂停",
+    "progress.task.failed": "翻译已停止",
+    "progress.task.cancelled": "翻译已取消",
+    "progress.scene_ratio": "已完成 {completed} / {total} 个场景",
+    "progress.scene_total_unknown": "已完成 {completed} 个场景",
+    "progress.current_file": "当前文件：{path}",
+    "progress.phase.analyze": "分析",
+    "progress.phase.validate": "校验",
+    "progress.log": "运行详情",
+    "progress.log_show": "查看日志",
+    "progress.log_hide": "收起日志",
+    "progress.activity_recent": "最近活动",
+    "progress.usage_actual": "AI 用量 {total} Token",
+    "progress.usage_breakdown": "输入 {input} · 输出 {output}",
+    "progress.safe_to_close": "进度已安全保存。可以关闭程序，下次从此处继续。",
+    "progress.package_ready": "语言包已生成",
+    "error.api_key": "API Key 无效，请检查后重试。",
+    "error.timeout": "请求超时，请检查网络或服务地址后重试。",
+    "error.connection": "无法连接 AI 服务，请检查网络和服务地址。",
+    "error.generic": "任务无法继续；工作区与已保存进度均已保留。",
+})
+
 
 class Colors:
     PRIMARY = "#5B5CE2"
@@ -1189,6 +1366,7 @@ class RenWeaveDesktopApp:
         self.cancel_token: CancellationToken | None = None
         self.step = 0
         self.last_stage = ""
+        self.last_active_stage = ""
         self.last_state_updated_at = ""
         self.progress_payload: dict[str, object] = {}
         self.resume_candidate: dict[str, object] | None = None
@@ -1265,6 +1443,9 @@ class RenWeaveDesktopApp:
         self.generate_rpa = tk.BooleanVar(value=True)
         self.install = tk.BooleanVar(value=False)
         self.require_engine = tk.BooleanVar(value=False)
+        self.show_review_details = tk.BooleanVar(value=False)
+        self.show_pending_details = tk.BooleanVar(value=False)
+        self.show_log_details = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value=self.t("model.idle_body"))
 
         self.start_button = None
@@ -2012,7 +2193,7 @@ class RenWeaveDesktopApp:
                 button_style = "NavActive.TButton" if is_current else "Nav.TButton"
             button.configure(text=text, style=button_style)
             self.nav_indicators[index].configure(
-                background=Colors.ACCENT if is_current else Colors.NAV
+                background=Colors.PRIMARY if is_current else Colors.NAV
             )
         self._schedule_content_layout()
 
@@ -2071,7 +2252,7 @@ class RenWeaveDesktopApp:
             row.columnconfigure(1, weight=1)
             indicator = self.tk.Frame(
                 row,
-                background=Colors.ACCENT if is_current else Colors.NAV,
+                background=Colors.PRIMARY if is_current else Colors.NAV,
                 width=3,
             )
             indicator.grid(row=0, column=0, sticky="ns")
@@ -2107,7 +2288,9 @@ class RenWeaveDesktopApp:
         body.columnconfigure(0, weight=1)
         body.rowconfigure(2, weight=1)
         self.page = body
-        self.ttk.Label(body, text=self.t(f"{step_name}.title"), style="Headline.TLabel").grid(row=0, column=0, sticky="w")
+        title_key = f"progress.task.{self._task_presentation().state.value}" if step_name == "progress" else f"{step_name}.title"
+        self.page_title_label = self.ttk.Label(body, text=self.t(title_key), style="Headline.TLabel")
+        self.page_title_label.grid(row=0, column=0, sticky="w")
         self.ttk.Label(
             body,
             text=self.t(f"{step_name}.body"),
@@ -2288,6 +2471,8 @@ class RenWeaveDesktopApp:
         status_card.columnconfigure(1, weight=1)
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
         details = dict(self.connection_detail)
+        if state_key in {"failed", "discovery_failed"}:
+            details["message"] = self._friendly_error(details.get("message", ""))
         detail_key = f"model.{state_key}_body"
         title = self.t(f"model.{state_key}")
         body = self.t(detail_key, **details) if detail_key in COPY[self.locale.get()] else str(details.get("message", ""))
@@ -2352,6 +2537,17 @@ class RenWeaveDesktopApp:
         if state == "changed":
             return Colors.WARNING
         return Colors.OUTLINE
+
+    def _friendly_error(self, error: object) -> str:
+        message = str(error)
+        lowered = message.casefold()
+        if any(token in lowered for token in ("401", "403", "unauthorized", "forbidden", "api key", "authentication")):
+            return self.t("error.api_key")
+        if any(token in lowered for token in ("timeout", "timed out")):
+            return self.t("error.timeout")
+        if any(token in lowered for token in ("connection", "dns", "network", "name resolution")):
+            return self.t("error.connection")
+        return self.t("error.generic")
 
     def _refresh_model_panel(self) -> None:
         """Refresh model setup in place so button clicks never rebuild or jump the page."""
@@ -2599,24 +2795,58 @@ class RenWeaveDesktopApp:
         target_values = tuple(dict.fromkeys([*(item.language for item in self.existing_languages), *self.LANGUAGE_CHOICES]))
         target = self._combobox(card, self.target_language, target_values)
         target.grid(row=row_offset + 1, column=1, sticky="ew", padx=(12, 0), pady=(5, 0))
+        target.bind("<<ComboboxSelected>>", lambda _event: (self._start_scope_preview(), self._render()), add="+")
         self.ttk.Label(card, text=self.t("languages.hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=row_offset + 2, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.ttk.Label(card, text=self.t("languages.source_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=0, sticky="nw", padx=(0, 12), pady=(16, 0))
         self.ttk.Label(card, text=self.t("languages.target_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=1, sticky="nw", padx=(12, 0), pady=(16, 0))
         self._guide(source, "languages.source_hint")
         self._guide(target, "languages.target_hint")
+        inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
+        if inventory is not None:
+            summary = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=14, pady=12)
+            summary.grid(row=row_offset + 4, column=0, columnspan=2, sticky="ew", pady=(18, 0))
+            summary.columnconfigure(0, weight=1)
+            self.tk.Label(
+                summary, text=self.t("languages.scan_summary"), background=Colors.SUCCESS_CONTAINER,
+                foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), anchor="w",
+            ).grid(row=0, column=0, sticky="w")
+            self.tk.Label(
+                summary,
+                text=self.t("languages.scan_counts", reused=inventory.reusable_units, pending=inventory.model_units, files=inventory.files_scanned),
+                background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
+                font=(Typography.UI, Typography.BODY), justify="left", anchor="w",
+            ).grid(row=1, column=0, sticky="w", pady=(7, 0))
+            self.tk.Label(
+                summary, text=self.t("languages.incremental_choice"), background=Colors.SUCCESS_CONTAINER,
+                foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w",
+            ).grid(row=2, column=0, sticky="w", pady=(8, 0))
         if not self.target_language.get():
             target.focus_set()
 
     def _display_language_name(self, language: str) -> str:
         names = {
+            "auto": ("Auto detect", "自动检测"),
             "zh_hans": ("Simplified Chinese", "简体中文"),
             "zh_hant": ("Traditional Chinese", "繁体中文"),
+            "简体中文": ("Simplified Chinese", "简体中文"),
+            "繁體中文": ("Traditional Chinese", "繁体中文"),
             "english": ("English", "英语"),
             "japanese": ("Japanese", "日语"),
+            "日本語": ("Japanese", "日语"),
             "korean": ("Korean", "韩语"),
+            "한국어": ("Korean", "韩语"),
+            "deutsch": ("German", "德语"),
+            "français": ("French", "法语"),
+            "español": ("Spanish", "西班牙语"),
+            "português": ("Portuguese", "葡萄牙语"),
+            "русский": ("Russian", "俄语"),
         }
         localized = names.get(language.casefold())
-        return f"{localized[1 if self.locale.get() == 'zh' else 0]} ({language})" if localized else language
+        if not localized:
+            return language
+        name = localized[1 if self.locale.get() == "zh" else 0]
+        is_system_code = "_" in language or "-" in language or language.casefold() in {"zh_hans", "zh_hant"}
+        return f"{name} ({language})" if is_system_code else name
 
     def _incremental_preview(self) -> str:
         if self.scope_preview_signature != self._scope_signature():
@@ -2674,11 +2904,120 @@ class RenWeaveDesktopApp:
 
     def _select_existing_language(self, language: str) -> None:
         self.target_language.set(language)
-        if self.step == 3:
+        if self.step == 2:
             self._start_scope_preview()
         self._render()
 
     def _render_review(self) -> None:
+        card = self._card()
+        card.columnconfigure(0, weight=1)
+        self.resume_candidate = self._resume_state()
+        inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
+        incremental = any(
+            self.target_language.get().strip().casefold() == item.language.casefold()
+            for item in self.existing_languages
+        )
+        pending = inventory.model_units if inventory is not None else 0
+        reused = inventory.reusable_units if inventory is not None else 0
+        game_name = Path(self.project.get().strip()).expanduser().name or self.t("review.game")
+
+        task_card = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=18, pady=16)
+        task_card.grid(row=0, column=0, sticky="ew")
+        task_card.columnconfigure(0, weight=1)
+        self.tk.Label(task_card, text=game_name, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+        self.tk.Label(
+            task_card,
+            text=f"{self._display_language_name(self.source_language.get() or 'auto')}  →  {self._display_language_name(self.target_language.get())}",
+            background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, Typography.BODY, "bold"), anchor="w",
+        ).grid(row=1, column=0, sticky="w", pady=(5, 0))
+        if incremental:
+            self.tk.Label(task_card, text=self.t("review.task_mode"), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
+            if inventory is not None:
+                self.tk.Label(task_card, text=self.t("review.remaining", count=pending), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=3, column=0, sticky="w", pady=(4, 0))
+                self.tk.Label(task_card, text=self.t("review.preserved", count=reused), background=Colors.SURFACE_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL), anchor="w").grid(row=4, column=0, sticky="w", pady=(3, 0))
+
+        facts = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
+        facts.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        facts.columnconfigure(1, weight=1)
+        fact_rows = (
+            (self.t("review.model"), f"{self.provider_name.get()} · {self.model.get()}"),
+            (self.t("review.languages"), self.t("review.task_mode") if incremental else f"{self.source_language.get() or 'auto'} → {self.target_language.get()}"),
+            (self.t("review.game"), self.t("review.game_unchanged")),
+            (self.t("review.options"), self.t("review.output_plain")),
+        )
+        for row, (label, value) in enumerate(fact_rows):
+            self.ttk.Label(facts, text=label, style="StatusBody.TLabel").grid(row=row, column=0, sticky="nw", padx=(0, 20), pady=(0 if row == 0 else 6, 0))
+            self.ttk.Label(facts, text=value, style="Status.TLabel", wraplength=620, justify="left").grid(row=row, column=1, sticky="nw", pady=(0 if row == 0 else 6, 0))
+
+        details_button = self._button(
+            card, self.t("review.hide_details" if self.show_review_details.get() else "review.details"),
+            lambda: (self.show_review_details.set(not self.show_review_details.get()), self._render()), kind="field",
+        )
+        details_button.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        if self.show_review_details.get():
+            detail_text = "\n".join((
+                f"API: {self.base_url.get()}",
+                f"{self.t('game.project')}: {self.project.get()}",
+                f"{self.t('game.workspace')}: {self.workspace.get()}",
+                f"{self.t('game.sdk')}: {self.renpy_sdk.get() or self.t('optional')}",
+                self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no"),
+            ))
+            self.ttk.Label(card, text=detail_text, style="Hint.TLabel", wraplength=790, justify="left").grid(row=3, column=0, sticky="w", pady=(7, 0))
+
+        budget = self._get_token_budget()
+        budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
+        budget_card.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        if budget and budget.estimated_total_high > 0:
+            low, high = self._format_token_count(budget.estimated_total_low), self._format_token_count(budget.estimated_total_high)
+            budget_text = self.t("budget.range", low=low, high=high)
+            budget_note = self.t("budget.note", scripts=budget.script_count, confidence=self.t(f"budget.confidence.{budget.confidence}"))
+        else:
+            budget_text, budget_note = self.t("budget.unavailable"), ""
+        self.tk.Label(budget_card, text=self.t("budget.title"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
+        self.tk.Label(budget_card, text=budget_text, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
+        if budget_note:
+            self.tk.Label(budget_card, text=budget_note, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").pack(fill="x", pady=(5, 0))
+
+        options = self.ttk.Frame(card, style="TintCard.TFrame", padding=(14, 10))
+        options.grid(row=5, column=0, sticky="ew", pady=(12, 0))
+        options.columnconfigure(0, weight=1)
+        self.review_options = options
+        self.ttk.Checkbutton(options, text=self.t("review.rpa"), variable=self.generate_rpa, style="Tint.TCheckbutton").grid(row=0, column=0, sticky="w")
+        self.ttk.Label(options, text=self.t("review.rpa_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=2, column=0, sticky="w", pady=(2, 0))
+        self.ttk.Checkbutton(options, text=self.t("review.install"), variable=self.install, style="Tint.TCheckbutton").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=4, column=0, sticky="w", pady=(2, 0))
+
+        if self.resume_candidate:
+            completed = len(self.resume_candidate.get("completed_scene_ids", []))
+            total = self._safe_count(self.resume_candidate.get("total_scenes", 0))
+            resume_text = self.t("review.resume_body", completed=completed, total=total) if total > 0 else self.t("review.resume_body_unknown", completed=completed)
+            self.ttk.Label(card, text=f"{self.t('review.resume_found')}\n{resume_text}", style="StatusBody.TLabel", wraplength=790, justify="left").grid(row=6, column=0, sticky="w", pady=(12, 0))
+
+        if incremental and inventory is not None and inventory.pending_units:
+            pending_header = self.ttk.Frame(card, style="CardBody.TFrame")
+            pending_header.grid(row=7, column=0, sticky="ew", pady=(12, 0))
+            pending_header.columnconfigure(0, weight=1)
+            self.review_pending_title = self.ttk.Label(pending_header, text=self.t("review.pending_title", count=inventory.model_units), style="Status.TLabel")
+            self.review_pending_title.grid(row=0, column=0, sticky="w")
+            pending_button = self._button(pending_header, self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"), lambda: (self.show_pending_details.set(not self.show_pending_details.get()), self._render()), kind="field")
+            pending_button.grid(row=0, column=1, sticky="e")
+            if self.show_pending_details.get():
+                rows = [self.t("review.pending_row", file=item.get("file", ""), line=item.get("line", 0), source=item.get("source", ""), detail=item.get("detail", "")) for item in inventory.pending_units[:50]]
+                self.review_details = self.ttk.Frame(card, style="TintCard.TFrame", padding=10)
+                self.review_details.grid(row=8, column=0, sticky="nsew", pady=(7, 0))
+                self.review_details.columnconfigure(0, weight=1)
+                self.review_detail_host = self.review_details
+                self.review_detail_text = self.tk.Text(self.review_details, height=7, wrap="word", borderwidth=0, highlightthickness=1, highlightbackground=Colors.OUTLINE_VARIANT, background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), padx=10, pady=8)
+                self.review_detail_text.grid(row=0, column=0, sticky="nsew")
+                scrollbar = self._scrollbar(self.review_details, command=self.review_detail_text.yview)
+                scrollbar.grid(row=0, column=1, sticky="ns")
+                self.review_detail_text.configure(yscrollcommand=scrollbar.set)
+                self.review_detail_text.insert("1.0", "\n\n".join(rows))
+                self.review_detail_text.configure(state="disabled")
+
+    def _render_review_legacy(self) -> None:
         card = self._card()
         self.resume_candidate = self._resume_state()
         incremental = any(
@@ -2859,26 +3198,94 @@ class RenWeaveDesktopApp:
             detail_text.insert("1.0", "\n\n".join(rows))
             detail_text.configure(state="disabled")
 
+    @staticmethod
+    def _safe_count(value: object) -> int:
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    def _task_presentation(self) -> TaskPresentation:
+        """Resolve all visible progress state from one contradiction-free source."""
+        payload_stage = str(self.progress_payload.get("stage", "") or "")
+        running = bool(self.worker and self.worker.is_alive())
+        pausing = bool(running and self.cancel_token is not None and self.cancel_token.cancelled)
+        if pausing:
+            state = TaskState.PAUSING
+        elif self.last_stage == "complete" or (not running and payload_stage == "complete"):
+            state = TaskState.COMPLETED
+        elif self.last_stage == "paused" or (not running and payload_stage == "paused"):
+            state = TaskState.PAUSED
+        elif self.last_stage == "failed" or (not running and payload_stage == "failed"):
+            state = TaskState.FAILED
+        elif running:
+            state = TASK_STATE_BY_STAGE.get(payload_stage or self.last_active_stage, TaskState.PREPARING)
+        elif not self.translation_started:
+            state = TaskState.IDLE
+        else:
+            state = TASK_STATE_BY_STAGE.get(payload_stage, TaskState.PREPARING)
+
+        stage = payload_stage
+        if state == TaskState.COMPLETED:
+            stage = "complete"
+        if stage in {"paused", "failed"}:
+            stage = self.last_active_stage
+        completed = self._safe_count(
+            self.progress_payload.get("completed_scenes", len(self.progress_payload.get("completed_scene_ids", [])))
+        )
+        total = self._safe_count(self.progress_payload.get("total_scenes", 0))
+        percent: float | None = None
+        if state == TaskState.COMPLETED:
+            percent = 100.0
+        elif total > 0:
+            try:
+                raw_percent = float(self.progress_payload.get("progress_percent", 0.0) or 0.0)
+            except (TypeError, ValueError, OverflowError):
+                raw_percent = 0.0
+            if not math.isfinite(raw_percent):
+                raw_percent = 0.0
+            if raw_percent >= 100.0:
+                raw_percent = completed / total * 100.0
+            percent = max(0.0, min(99.0, raw_percent))
+        phase = "done" if state == TaskState.COMPLETED else PROGRESS_STAGE_PHASE.get(stage, TASK_PHASE[state])
+        phase = {"understand": "analyze", "refine": "validate"}.get(phase, phase)
+        return TaskPresentation(state, stage, phase, percent, completed, total)
+
     def _render_progress(self) -> None:
         payload = self.progress_payload
-        percent = float(payload.get("progress_percent", 0.0) or 0.0)
+        task = self._task_presentation()
+        percent = task.percent or 0.0
         self._displayed_progress_percent = percent
         self.progress_value = self.tk.DoubleVar(value=percent)
-        self.progress_percent_text = self.tk.StringVar(value=f"{percent:.0f}%")
+        self.progress_percent_text = self.tk.StringVar(value=f"{percent:.0f}%" if task.percent is not None else "")
         card = self._card()
         card.columnconfigure(0, weight=1)
         heading = self.ttk.Frame(card, style="CardBody.TFrame")
         heading.grid(row=0, column=0, sticky="ew")
         heading.columnconfigure(0, weight=1)
-        self.ttk.Label(heading, text=self.t("progress.overall"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
-        self.tk.Label(
+        self.progress_heading = self.ttk.Label(
+            heading,
+            text=self.t(f"progress.task.{task.state.value}"),
+            style="Field.TLabel",
+        )
+        self.progress_heading.grid(row=0, column=0, sticky="w")
+        self.progress_percent_label = self.tk.Label(
             heading,
             textvariable=self.progress_percent_text,
             background=Colors.CARD,
             foreground=Colors.PRIMARY,
             font=(Typography.UI, Typography.DISPLAY, "bold"),
-        ).grid(row=0, column=1, rowspan=2, sticky="e")
-        self.ttk.Label(heading, textvariable=self.status, style="Section.TLabel", wraplength=650).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        )
+        self.progress_percent_label.grid(row=0, column=1, rowspan=2, sticky="e")
+        if task.percent is None:
+            self.progress_percent_label.grid_remove()
+        scene_summary = self.t(
+            "progress.scene_ratio" if task.total > 0 else "progress.scene_total_unknown",
+            completed=task.completed,
+            total=task.total,
+        )
+        self.progress_scene_summary = self.ttk.Label(heading, text=scene_summary, style="Section.TLabel", wraplength=650)
+        self.progress_scene_summary.grid(row=1, column=0, sticky="w", pady=(4, 0))
         self.progress = self.ttk.Progressbar(
             card,
             mode="determinate",
@@ -2886,6 +3293,8 @@ class RenWeaveDesktopApp:
             variable=self.progress_value,
         )
         self.progress.grid(row=1, column=0, sticky="ew", pady=(12, 12))
+        if task.percent is None:
+            self.progress.grid_remove()
 
         runtime = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=10)
         runtime.grid(row=2, column=0, sticky="ew", pady=(0, 12))
@@ -2922,10 +3331,7 @@ class RenWeaveDesktopApp:
         )
         self.progress_activity.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(9, 0))
 
-        phases = (
-            ("prepare", 0), ("understand", 24), ("translate", 33),
-            ("refine", 86), ("build", 94), ("done", 100),
-        )
+        phases = (("prepare", 0), ("analyze", 0), ("translate", 0), ("validate", 0), ("build", 0), ("done", 0))
         phase_row = self.tk.Frame(card, background=Colors.CARD)
         phase_row.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         self.progress_phase_labels = []
@@ -2961,6 +3367,7 @@ class RenWeaveDesktopApp:
             (self.t("progress.model_usage"), self.t("progress.calls_tokens", calls=calls, tokens=self._format_token_count(tokens))),
         )
         self.progress_stat_value_labels = []
+        self.progress_stat_tiles = []
         for index, (label, value) in enumerate(values):
             column = index % stat_columns
             row = index // stat_columns
@@ -2975,7 +3382,9 @@ class RenWeaveDesktopApp:
             self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
             value_label = self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w", wraplength=210, justify="left")
             value_label.pack(fill="x", pady=(5, 0))
+            self.progress_stat_tiles.append(tile)
             self.progress_stat_value_labels.append(value_label)
+        self._layout_progress_stat_tiles(self._progress_file_display(payload) != "—")
 
         usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
         if usage_status not in {"reported", "unavailable", "pending"}:
@@ -2997,18 +3406,19 @@ class RenWeaveDesktopApp:
         strip_foreground = Colors.WARNING if usage_status == "unavailable" else Colors.ON_PRIMARY_CONTAINER
         actual_usage = self.tk.Label(
             token_strip,
-            text=self.t("budget.actual", total=self._format_token_count(tokens), input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
+            text=self.t("progress.usage_actual", total=self._format_token_count(tokens)),
             background=strip_background,
             foreground=strip_foreground,
             font=(Typography.UI, Typography.SMALL, "bold"),
         )
         actual_usage.grid(row=0, column=0, columnspan=2 if self.compact_layout else 1, sticky="w")
         self.progress_actual_usage = actual_usage
-        projected = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t("progress.estimating")
-        projected_usage = self.tk.Label(token_strip, text=projected, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
+        breakdown = self.t("progress.usage_breakdown", input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens))
+        projected_usage = self.tk.Label(token_strip, text=breakdown, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
         projected_usage.grid(row=1 if self.compact_layout else 0, column=0 if self.compact_layout else 1, sticky="w", padx=(0 if self.compact_layout else 18, 0), pady=(4, 0) if self.compact_layout else (0, 0))
         self.progress_projected_usage = projected_usage
-        reporting = self.tk.Label(token_strip, text=self.t(f"budget.reporting.{usage_status}"), background=strip_background, foreground=strip_foreground, font=(Typography.UI, Typography.SMALL, "bold"))
+        estimate = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t(f"budget.reporting.{usage_status}")
+        reporting = self.tk.Label(token_strip, text=estimate, background=strip_background, foreground=strip_foreground, font=(Typography.UI, Typography.SMALL, "bold"))
         reporting.grid(row=2 if self.compact_layout else 0, column=0 if self.compact_layout else 2, columnspan=2 if self.compact_layout else 1, sticky="w" if self.compact_layout else "e", pady=(4, 0) if self.compact_layout else (0, 0))
         self.progress_reporting = reporting
 
@@ -3016,7 +3426,7 @@ class RenWeaveDesktopApp:
             notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
             notice.grid(row=6, column=0, sticky="ew", pady=(0, 12))
             self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=(Typography.UI, Typography.SMALL, "bold")).pack(side="left")
-            self.tk.Label(notice, text=self.t("progress.paused_body"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
+            self.tk.Label(notice, text=self.t("progress.safe_to_close"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
         elif self.last_stage == "complete":
             output_dir = str(payload.get("output_dir", "") or "")
             package_path = str(payload.get("package_path", "") or "")
@@ -3025,7 +3435,7 @@ class RenWeaveDesktopApp:
             outputs.columnconfigure(0, weight=1)
             self.tk.Label(
                 outputs,
-                text=self.t("progress.outputs"),
+                text=self.t("progress.package_ready"),
                 background=Colors.SUCCESS_CONTAINER,
                 foreground=Colors.SUCCESS,
                 font=(Typography.UI, Typography.BODY, "bold"),
@@ -3066,54 +3476,51 @@ class RenWeaveDesktopApp:
         log_header = self.ttk.Frame(card, style="CardBody.TFrame")
         log_header.grid(row=7, column=0, sticky="ew")
         log_header.columnconfigure(0, weight=1)
-        self.ttk.Label(log_header, text=self.t("progress.log"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
-        log_path = str(payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
-        copy_log = self._button(log_header, self.t("progress.copy_log"), lambda: self._copy_text(log_path), kind="field")
-        copy_log.grid(row=0, column=1, sticky="e")
-        self._guide(copy_log, "tip.copy_log")
-        usage_path = str(Path(self.workspace.get().strip()) / "usage.json")
-        self.ttk.Label(card, text=f"{self.t('progress.log_path', path=log_path)}   ·   {self.t('budget.ledger', path=usage_path)}", style="Hint.TLabel", wraplength=600 if self.compact_layout else 790).grid(row=8, column=0, sticky="w", pady=(2, 5))
-        log_frame = self.ttk.Frame(card, style="CardBody.TFrame")
-        log_frame.grid(row=9, column=0, sticky="nsew")
-        log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
-        card.rowconfigure(9, weight=1)
-        self.log = self.tk.Text(
-            log_frame,
-            height=5,
-            wrap="word",
-            state="normal",
-            borderwidth=0,
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground=Colors.OUTLINE_VARIANT,
-            highlightcolor=Colors.PRIMARY,
-            background=Colors.CARD,
-            foreground=Colors.ON_SURFACE,
-            selectbackground=Colors.PRIMARY_CONTAINER,
-            selectforeground=Colors.ON_PRIMARY_CONTAINER,
-            insertbackground=Colors.ON_SURFACE,
-            font=(Typography.MONO, Typography.SMALL),
-            padx=12,
-            pady=10,
-            takefocus=True,
+        self.ttk.Label(log_header, text=self.t("progress.activity_recent"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
+        toggle_log = self._button(
+            log_header,
+            self.t("progress.log_hide" if self.show_log_details.get() else "progress.log_show"),
+            lambda: (self.show_log_details.set(not self.show_log_details.get()), self._render()),
+            kind="field",
         )
-        self.log.grid(row=0, column=0, sticky="nsew")
-        scrollbar = self._scrollbar(log_frame, command=self.log.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.log.configure(yscrollcommand=scrollbar.set)
-        for line in self.logs:
-            self.log.insert("end", line.rstrip() + "\n")
-        self.log.see("end")
-        self.log.configure(state="disabled")
+        toggle_log.grid(row=0, column=1, sticky="e")
+        recent = "\n".join(self.logs[-3:]) if self.logs else self.t(f"progress.task.{task.state.value}")
+        self.ttk.Label(card, text=recent, style="Hint.TLabel", wraplength=790, justify="left").grid(
+            row=8, column=0, sticky="w", pady=(5, 0)
+        )
+        log_path = str(payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
+        if self.show_log_details.get():
+            copy_log = self._button(log_header, self.t("progress.copy_log"), lambda: self._copy_text(log_path), kind="field")
+            copy_log.grid(row=0, column=2, sticky="e", padx=(8, 0))
+            self._guide(copy_log, "tip.copy_log")
+            usage_path = str(Path(self.workspace.get().strip()) / "usage.json")
+            self.ttk.Label(card, text=f"{self.t('progress.log_path', path=log_path)}   ·   {self.t('budget.ledger', path=usage_path)}", style="Hint.TLabel", wraplength=600 if self.compact_layout else 790).grid(row=9, column=0, sticky="w", pady=(8, 5))
+            log_frame = self.ttk.Frame(card, style="CardBody.TFrame")
+            log_frame.grid(row=10, column=0, sticky="nsew")
+            log_frame.columnconfigure(0, weight=1)
+            log_frame.rowconfigure(0, weight=1)
+            card.rowconfigure(10, weight=1)
+            self.log = self.tk.Text(
+                log_frame, height=5, wrap="word", state="normal", borderwidth=0, relief="flat",
+                highlightthickness=1, highlightbackground=Colors.OUTLINE_VARIANT,
+                highlightcolor=Colors.PRIMARY, background=Colors.CARD, foreground=Colors.ON_SURFACE,
+                selectbackground=Colors.PRIMARY_CONTAINER, selectforeground=Colors.ON_PRIMARY_CONTAINER,
+                insertbackground=Colors.ON_SURFACE, font=(Typography.MONO, Typography.SMALL),
+                padx=12, pady=10, takefocus=True,
+            )
+            self.log.grid(row=0, column=0, sticky="nsew")
+            scrollbar = self._scrollbar(log_frame, command=self.log.yview)
+            scrollbar.grid(row=0, column=1, sticky="ns")
+            self.log.configure(yscrollcommand=scrollbar.set)
+            for line in self.logs:
+                self.log.insert("end", line.rstrip() + "\n")
+            self.log.see("end")
+            self.log.configure(state="disabled")
         self._refresh_progress_runtime()
         self._refresh_progress_phases()
 
     def _effective_progress_stage(self) -> str:
-        payload_stage = str(self.progress_payload.get("stage", "") or "")
-        if self.last_stage in {"paused", "failed"}:
-            return payload_stage if payload_stage not in {"paused", "failed"} else ""
-        return self.last_stage or payload_stage
+        return self._task_presentation().pipeline_stage
 
     def _progress_current_display(self, payload: dict[str, object], stage_labels: dict[str, str], stage: str) -> str:
         stage_text = stage_labels.get(stage, str(payload.get("current_operation", "") or "—"))
@@ -3143,25 +3550,41 @@ class RenWeaveDesktopApp:
             return self.t("progress.phase_units", completed=phase_completed, total=phase_total)
         return "—"
 
+    def _layout_progress_stat_tiles(self, has_file_progress: bool) -> None:
+        """Hide unavailable file metrics and close the resulting layout gap."""
+        if has_file_progress:
+            positions = ((0, 0, 1), (0, 1, 1), (0 if not self.compact_layout else 1, 2 if not self.compact_layout else 0, 1), (0 if not self.compact_layout else 1, 3 if not self.compact_layout else 1, 1))
+            for tile, (row, column, span) in zip(self.progress_stat_tiles, positions):
+                tile.grid()
+                tile.grid_configure(row=row, column=column, columnspan=span)
+            return
+        self.progress_stat_tiles[1].grid_remove()
+        if self.compact_layout:
+            positions = ((0, 0, 1), (0, 1, 1), (0, 1, 1), (1, 0, 2))
+        else:
+            positions = ((0, 0, 1), (0, 1, 1), (0, 1, 1), (0, 2, 1))
+        for index in (0, 2, 3):
+            row, column, span = positions[index]
+            self.progress_stat_tiles[index].grid()
+            self.progress_stat_tiles[index].grid_configure(row=row, column=column, columnspan=span)
+
     def _refresh_progress_runtime(self) -> None:
         if self.progress_activity is None or not self.progress_activity.winfo_exists():
             return
-        running = bool(self.worker and self.worker.is_alive())
-        if running:
-            key = "progress.running" if self._effective_progress_stage() else "progress.starting"
+        task = self._task_presentation()
+        running = task.state in {
+            TaskState.PREPARING, TaskState.ANALYZING, TaskState.TRANSLATING,
+            TaskState.VALIDATING, TaskState.BUILDING, TaskState.PAUSING,
+        }
+        key = f"progress.task.{task.state.value}"
+        if task.state == TaskState.COMPLETED:
             background, foreground = Colors.SUCCESS_CONTAINER, Colors.SUCCESS
-        elif self.last_stage == "complete":
-            key = "progress.runtime_complete"
-            background, foreground = Colors.SUCCESS_CONTAINER, Colors.SUCCESS
-        elif self.last_stage == "paused":
-            key = "progress.runtime_paused"
+        elif task.state in {TaskState.PAUSED, TaskState.PAUSING}:
             background, foreground = Colors.WARNING_CONTAINER, Colors.WARNING
-        elif self.last_stage == "failed":
-            key = "progress.runtime_failed"
+        elif task.state in {TaskState.FAILED, TaskState.CANCELLED}:
             background, foreground = Colors.ERROR_CONTAINER, Colors.ERROR
         else:
-            key = "progress.starting"
-            background, foreground = Colors.SURFACE_CONTAINER, Colors.ON_SURFACE_VARIANT
+            background, foreground = Colors.PRIMARY_CONTAINER, Colors.PRIMARY
         self.progress_runtime_panel.configure(background=background)
         self.progress_runtime_title.configure(background=background, foreground=foreground)
         self.progress_runtime_state.configure(
@@ -3169,30 +3592,26 @@ class RenWeaveDesktopApp:
             background=background,
             foreground=foreground,
         )
-        stage = self._effective_progress_stage()
-        try:
-            position = PROGRESS_STAGE_ORDER.index(stage) + 1
-            stage_text = self.t("progress.stage_counter", current=position, total=len(PROGRESS_STAGE_ORDER))
-        except ValueError:
-            stage_text = self.t("progress.stage_unknown")
+        stage_text = self.t(f"progress.phase.{task.phase}")
         self.progress_stage_counter.configure(text=stage_text, background=background)
-        if running and not self._progress_activity_running:
+        active = running and task.state != TaskState.PAUSING
+        if active and not self._progress_activity_running:
             self.progress_activity.grid()
             self.progress_activity.start(Metrics.ACTIVITY_FRAME_MS)
             self._progress_activity_running = True
-        elif not running and self._progress_activity_running:
+        elif not active and self._progress_activity_running:
             self.progress_activity.stop()
             self.progress_activity.grid_remove()
             self._progress_activity_running = False
-        elif not running:
+        elif not active:
             self.progress_activity.grid_remove()
 
     def _refresh_progress_phases(self) -> None:
         phase_names = tuple(name for name, _threshold, _label in self.progress_phase_labels)
-        stage = self._effective_progress_stage()
-        current_phase = PROGRESS_STAGE_PHASE.get(stage, "prepare")
+        task = self._task_presentation()
+        current_phase = task.phase
         current_index = phase_names.index(current_phase)
-        complete = stage == "complete"
+        complete = task.state == TaskState.COMPLETED
         for index, (name, _threshold, label) in enumerate(self.progress_phase_labels):
             if complete or index < current_index:
                 marker, foreground, weight = "✓  ", Colors.SUCCESS, "bold"
@@ -3211,11 +3630,28 @@ class RenWeaveDesktopApp:
         if self.step != 4 or self.progress is None or not self.progress.winfo_exists():
             return
         payload = self.progress_payload
-        percent = float(payload.get("progress_percent", 0.0) or 0.0)
-        if animate:
-            self._animate_progress_to(percent)
+        task = self._task_presentation()
+        if hasattr(self, "page_title_label") and self.page_title_label.winfo_exists():
+            self.page_title_label.configure(text=self.t(f"progress.task.{task.state.value}"))
+        self.progress_heading.configure(text=self.t(f"progress.task.{task.state.value}"))
+        self.progress_scene_summary.configure(
+            text=self.t(
+                "progress.scene_ratio" if task.total > 0 else "progress.scene_total_unknown",
+                completed=task.completed,
+                total=task.total,
+            )
+        )
+        if task.percent is None:
+            self.progress.grid_remove()
+            self.progress_percent_label.grid_remove()
+            self.progress_percent_text.set("")
         else:
-            self._set_displayed_progress(percent)
+            self.progress.grid()
+            self.progress_percent_label.grid()
+            if animate:
+                self._animate_progress_to(task.percent)
+            else:
+                self._set_displayed_progress(task.percent)
 
         self._refresh_progress_runtime()
         self._refresh_progress_phases()
@@ -3227,7 +3663,7 @@ class RenWeaveDesktopApp:
         output_tokens = int(payload.get("total_completion_tokens", 0) or 0)
         tokens = input_tokens + output_tokens
         stage_labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
-        stage = self._effective_progress_stage()
+        stage = task.pipeline_stage
         current = self._progress_current_display(payload, stage_labels, stage)
         values = (
             current,
@@ -3237,6 +3673,7 @@ class RenWeaveDesktopApp:
         )
         for label, value in zip(self.progress_stat_value_labels, values):
             label.configure(text=value)
+        self._layout_progress_stat_tiles(values[1] != "—")
 
         usage_status = str(payload.get("usage_reporting_status", "pending") or "pending")
         if usage_status not in {"reported", "unavailable", "pending"}:
@@ -3245,20 +3682,21 @@ class RenWeaveDesktopApp:
         estimate_high = int(payload.get("estimated_total_tokens_high", 0) or 0)
         background = Colors.WARNING_CONTAINER if usage_status == "unavailable" else Colors.PRIMARY_CONTAINER
         foreground = Colors.WARNING if usage_status == "unavailable" else Colors.ON_PRIMARY_CONTAINER
-        projected = (
-            self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high))
-            if estimate_high
-            else self.t("progress.estimating")
-        )
         self.progress_token_strip.configure(background=background)
         self.progress_actual_usage.configure(
-            text=self.t("budget.actual", total=self._format_token_count(tokens), input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
+            text=self.t("progress.usage_actual", total=self._format_token_count(tokens)),
             background=background,
             foreground=foreground,
         )
-        self.progress_projected_usage.configure(text=projected, background=background)
+        self.progress_projected_usage.configure(
+            text=self.t("progress.usage_breakdown", input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens)),
+            background=background,
+        )
         self.progress_reporting.configure(
-            text=self.t(f"budget.reporting.{usage_status}"),
+            text=(
+                self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high))
+                if estimate_high else self.t(f"budget.reporting.{usage_status}")
+            ),
             background=background,
             foreground=foreground,
         )
@@ -3324,13 +3762,17 @@ class RenWeaveDesktopApp:
             )
             self.back_button.grid(row=0, column=0, sticky="ew")
             self._guide(self.back_button, "tip.back")
-        action_text = (
-            self.t("progress.resume")
-            if self.step == 3 and self.resume_candidate
-            else (self.t("progress.enter") if self.step == 3 else self.t("continue"))
-        )
+        inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
+        action_text = self.t("continue")
+        if self.step == 3:
+            if self.resume_candidate:
+                action_text = self.t("progress.resume")
+            elif inventory is not None and inventory.model_units:
+                action_text = self.t("review.start_remaining", count=inventory.model_units)
+            else:
+                action_text = self.t("start")
         if self.step < 4:
-            command = self._enter_translation if self.step == 3 else self._continue
+            command = self._start if self.step == 3 else self._continue
             self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
             self.next_button.grid(row=0, column=2, sticky="ew")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
@@ -3343,7 +3785,7 @@ class RenWeaveDesktopApp:
         elif self.step == 4:
             running = bool(self.worker and self.worker.is_alive())
             if running:
-                self.pause_button = self._button(action_bar, self.t("progress.pause"), self._request_pause, kind="secondary", width=Metrics.FOOTER_ACTION_WIDTH)
+                self.pause_button = self._button(action_bar, self.t("progress.pause"), self._request_pause, width=Metrics.FOOTER_ACTION_WIDTH)
                 self.pause_button.grid(row=0, column=2, sticky="ew")
                 self._guide(self.pause_button, "tip.pause")
             elif not self.translation_started:
@@ -3356,6 +3798,15 @@ class RenWeaveDesktopApp:
                 resume_button = self._button(action_bar, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
                 resume_button.grid(row=0, column=2, sticky="ew")
                 self._guide(resume_button, "tip.resume")
+            elif self.last_stage == "complete":
+                output_dir = str(self.progress_payload.get("output_dir", "") or "")
+                output_button = self._button(
+                    action_bar, self.t("progress.open_rpy"),
+                    lambda path=output_dir: self._open_folder(path), width=Metrics.FOOTER_ACTION_WIDTH,
+                )
+                output_button.grid(row=0, column=2, sticky="ew")
+                if not output_dir:
+                    output_button.configure(state="disabled")
             else:
                 close_button = self._button(action_bar, self.t("close"), self._close_window, width=Metrics.FOOTER_ACTION_WIDTH)
                 close_button.grid(row=0, column=2, sticky="ew")
@@ -3698,8 +4149,9 @@ class RenWeaveDesktopApp:
         self.cancel_token.cancel()
         self.status.set(self.t("progress.pausing"))
         if hasattr(self, "pause_button"):
-            self.pause_button.configure(state="disabled")
+            self.pause_button.configure(text=self.t("progress.pausing_action"), state="disabled")
         self._append_log(self.t("progress.pausing"))
+        self._refresh_progress_panel(animate=False)
 
     def _close_window(self) -> None:
         if self.worker and self.worker.is_alive() and self.cancel_token is not None:
@@ -3765,6 +4217,10 @@ class RenWeaveDesktopApp:
         self.content_canvas.yview_moveto(0.0)
         self.status.set(self.t("progress.ready"))
         self.last_stage = str(existing.get("stage", "")) if existing else ""
+        self.last_active_stage = (
+            self.last_stage if self.last_stage not in {"paused", "failed", "complete"}
+            else ("translating" if existing else "")
+        )
         self.last_state_updated_at = ""
         self.progress_payload = existing or {}
         self.logs = self._load_existing_log() if existing else []
@@ -3853,7 +4309,7 @@ class RenWeaveDesktopApp:
                     self.scope_preview_budget = budget
                     self.scope_preview_status = "ready"
                     self.scope_preview_worker = None
-                    if self.step == 3:
+                    if self.step in {2, 3}:
                         self._render()
             elif kind == "scope_preview_error":
                 signature, message = value
@@ -3864,7 +4320,7 @@ class RenWeaveDesktopApp:
                     self.scope_preview_status = "error"
                     self.scope_preview_error = message
                     self.scope_preview_worker = None
-                    if self.step == 3:
+                    if self.step in {2, 3}:
                         self._render()
             elif kind == "progress":
                 assert isinstance(value, dict)
@@ -3925,7 +4381,7 @@ class RenWeaveDesktopApp:
                 self._render()
                 self._dialog(
                     self.t("dialog.failed"),
-                    f"{self.t('progress.failed_body')}\n\n{error}",
+                    f"{self.t('progress.failed_body')}\n\n{self._friendly_error(error)}",
                     error=True,
                     details=details,
                 )
@@ -3960,6 +4416,8 @@ class RenWeaveDesktopApp:
         self.progress_payload = payload
         self.last_state_updated_at = str(payload.get("updated_at", self.last_state_updated_at))
         self.last_stage = stage
+        if stage not in {"paused", "failed", "complete"}:
+            self.last_active_stage = stage
         labels = STAGE_LABELS_ZH if self.locale.get() == "zh" else STAGE_LABELS
         label = labels.get(stage, stage)
         operation = str(payload.get("current_operation", "") or label)

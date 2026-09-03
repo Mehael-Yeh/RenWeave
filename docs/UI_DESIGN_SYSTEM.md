@@ -68,6 +68,11 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - Review-page output choices use vertically aligned checkboxes followed by consequence text; RPA creation appears before installation because it changes workspace artifacts, while installation changes the selected game.
 - The RPA choice is on by default, and its inline copy always states that validated RPY files remain available when it is off.
 - API-contacting actions state whether they normally consume Tokens.
+- Step 04 has one primary decision: start the task. Paths, endpoints, checkpoints, pending-text previews, and archive terminology are progressively disclosed.
+- Step 05 derives its title, color, percentage, stage markers, current operation, and actions from one UI `TaskState`: `idle`, `preparing`, `analyzing`, `translating`, `validating`, `building`, `completed`, `pausing`, `paused`, `failed`, or `cancelled`.
+- `100%` is reserved for `completed`. Percentages render only when the total is positive and finite; unknown totals use a completed-unit count without a denominator or progress bar.
+- Token estimates describe the main translation text only. They must explicitly exclude context, validation, retry, and other model calls unless a full-task estimator exists.
+- Raw logs are collapsed by default. The normal surface shows at most three recent user-readable events, with persistent paths and technical records available under **View log**.
 - Keyboard focus follows the visual order; dialogs support `Escape`, and confirmation supports `Return` where safe.
 - Text contrast targets WCAG AA. Color is never the only status signal.
 - Settings and the single language toggle use the same button factory, vertical padding, and top-bar baseline.
