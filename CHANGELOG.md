@@ -4,6 +4,10 @@ All notable changes to RenWeave are documented here.
 
 ## Unreleased
 
+- Made completed artifacts append-only: RPY builds now use content-addressed `output/build-<fingerprint>/` directories, RPA filenames include a content fingerprint, prior RPY/RPA outputs are never cleaned or replaced, and only guarded underscore-prefixed intermediates may be deleted.
+- Changed incremental emission from a separate generated subtree to an in-place merge inside a full copy of the original language folder, and made the package manifest enumerate every final RPY so the folder and RPA stay equivalent.
+- Made incremental dialogue insertion follow clean-build source order and consolidated each touched script to one terminal `translate <language> strings:` block before appending new string pairs.
+- Fixed resumed incremental preflight so structurally valid workspace checkpoints count toward the effective remaining scope instead of repeatedly showing completed text as pending.
 - Added read-only discovery and structural validation of existing Ren'Py language folders, preserving valid user translations and sending only missing, empty, damaged, or source-changed units through the incremental model workflow.
 - Made the game step automatically locate a compatible bundled Ren'Py runtime and replaced unexplained SDK terminology with an explicit automatic-compatibility status and built-in fallback.
 - Added a direct existing-language choice to the language step, plus current-file, completed-file, remaining-file, stage, work-unit, and ETA feedback independent from diagnostic logs.

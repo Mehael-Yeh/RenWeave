@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
 
-from .io import atomic_write_bytes, atomic_write_json, read_json
+from .io import atomic_write_bytes, atomic_write_json, discard_intermediate, read_json
 
 
 UNRPYC_VERSION = "2.0.4"
@@ -113,7 +113,7 @@ class UnrpycToolManager:
 
     def _install_bundled(self) -> Path:
         self.tools_root.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=".unrpyc-", dir=self.tools_root))
+        staging = Path(tempfile.mkdtemp(prefix="_unrpyc-", dir=self.tools_root))
         try:
             bundled = resources.files("renweave").joinpath("_vendor").joinpath("unrpyc")
             for relative_text in UNRPYC_BUNDLED_FILES:
@@ -150,7 +150,7 @@ class UnrpycToolManager:
             os.replace(staging, self.install_dir)
         except BaseException:
             if staging.exists():
-                shutil.rmtree(staging)
+                discard_intermediate(staging, recursive=True)
             raise
         return self.install_dir / "unrpyc.py"
 

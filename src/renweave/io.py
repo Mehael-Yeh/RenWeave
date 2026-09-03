@@ -3,8 +3,21 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Any
+
+
+def discard_intermediate(path: str | Path, *, recursive: bool = False) -> None:
+    """Delete only an explicitly named underscore-prefixed intermediate."""
+    target = Path(path)
+    if not target.name.startswith("_"):
+        raise ValueError(f"拒绝删除非下划线前缀的中间产物：{target}")
+    if recursive:
+        if target.exists():
+            shutil.rmtree(target)
+        return
+    target.unlink(missing_ok=True)
 
 
 def read_text_preserving(path: Path) -> tuple[str, str, str, bool]:
@@ -23,7 +36,7 @@ def read_text_preserving(path: Path) -> tuple[str, str, str, bool]:
 
 def atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    handle, temporary = tempfile.mkstemp(prefix=f"_{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as writer:
             json.dump(payload, writer, ensure_ascii=False, indent=2)
@@ -33,7 +46,7 @@ def atomic_write_json(path: Path, payload: Any) -> None:
         os.replace(temporary, path)
     except BaseException:
         try:
-            os.unlink(temporary)
+            discard_intermediate(temporary)
         except FileNotFoundError:
             pass
         raise
@@ -41,7 +54,7 @@ def atomic_write_json(path: Path, payload: Any) -> None:
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    handle, temporary = tempfile.mkstemp(prefix=f"_{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as writer:
             writer.write(text)
@@ -50,7 +63,7 @@ def atomic_write_text(path: Path, text: str) -> None:
         os.replace(temporary, path)
     except BaseException:
         try:
-            os.unlink(temporary)
+            discard_intermediate(temporary)
         except FileNotFoundError:
             pass
         raise
@@ -58,7 +71,7 @@ def atomic_write_text(path: Path, text: str) -> None:
 
 def atomic_write_bytes(path: Path, payload: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    handle, temporary = tempfile.mkstemp(prefix=f"_{path.name}.", suffix=".tmp", dir=path.parent)
     try:
         with os.fdopen(handle, "wb") as writer:
             writer.write(payload)
@@ -67,7 +80,7 @@ def atomic_write_bytes(path: Path, payload: bytes) -> None:
         os.replace(temporary, path)
     except BaseException:
         try:
-            os.unlink(temporary)
+            discard_intermediate(temporary)
         except FileNotFoundError:
             pass
         raise

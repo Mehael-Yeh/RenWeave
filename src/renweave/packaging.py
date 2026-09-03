@@ -92,7 +92,15 @@ class TranslationPackager:
                 expected.append(PackagedMember(member_name, len(payload), digest))
                 compiled_members += 1
 
-        destination = Path(packages_dir).expanduser().resolve() / f"renweave-{build.renpy_language}.rpa"
+        package_material = b"\n".join(
+            item.name.encode("utf-8") + b"\0" + item.sha256.encode("ascii")
+            for item in sorted(expected, key=lambda row: (row.name.casefold(), row.name))
+        )
+        package_fingerprint = hashlib.sha256(package_material).hexdigest()[:16]
+        destination = (
+            Path(packages_dir).expanduser().resolve()
+            / f"renweave-{build.renpy_language}-{package_fingerprint}.rpa"
+        )
         RpaWriter().write(destination, payloads)
         expected_by_name = {item.name: item for item in expected}
         with RpaArchive(destination) as archive:

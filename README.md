@@ -121,6 +121,10 @@ Diagnostics are always retained under the workspace:
 - `logs/renweave.log` — readable chronological log;
 - `logs/events.jsonl` — structured events with exception type and traceback.
 
+Durable project knowledge and work-in-progress also remain in that workspace: `knowledge.json` and optional `narrative-knowledge.json` hold world and story understanding, while `translations/`, `reports/`, `state.json`, and `usage.json` hold validated scene work and progress. Completed artifacts are append-only: each RPY result is written under `output/build-<content-fingerprint>/`, and each RPA under `packages/` has a content fingerprint in its filename. RenWeave never cleans or replaces an earlier RPY/RPA artifact. Automatic deletion is restricted to guarded intermediate files or directories whose own names start with `_`.
+
+For an incremental language build, the final `game/tl/<language>/` directory is a complete copy of the supplied translation folder plus the validated delta. Missing or changed dialogue blocks are merged into the corresponding copied RPY file in source order, producing the same ordering as a clean build. Each touched script has at most one terminal `translate <language> strings:` block; existing string rows are consolidated there and new `old`/`new` pairs are appended without another header. A new ordinary RPY file is created only when no corresponding file exists. The RPA is then built from every RPY in that exact final language directory, so the folder and archive expose the same source scripts and translation behavior.
+
 ## Interface design
 
 RenWeave uses an **Aurora Workbench** design: Windows 11–informed rounded controls, an obsidian workflow rail, a cloud-gray work canvas, and restrained indigo/cyan accents. Microsoft YaHei UI and system-native typography keep English and Chinese aligned, while one stable responsive shell prevents resize-driven page rebuilds. The same 8-point spacing rhythm, field treatment, semantic status panels, dialog structure, and three-level button hierarchy are used throughout:

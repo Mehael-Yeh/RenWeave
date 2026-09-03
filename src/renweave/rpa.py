@@ -9,6 +9,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Callable, Iterator
 
+from .io import discard_intermediate
+
 
 class RpaError(RuntimeError):
     pass
@@ -302,7 +304,7 @@ class RpaWriter:
 
         destination = Path(path).expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{destination.name}.tmp")
+        temporary = destination.with_name(f"_{destination.name}.tmp")
         try:
             with temporary.open("wb") as writer:
                 writer.write(header)
@@ -311,9 +313,14 @@ class RpaWriter:
                 writer.write(compressed_index)
                 writer.flush()
                 os.fsync(writer.fileno())
+            if destination.exists():
+                if destination.read_bytes() != temporary.read_bytes():
+                    raise RpaError(f"拒绝覆盖已有 RPA 成品：{destination}")
+                discard_intermediate(temporary)
+                return destination
             os.replace(temporary, destination)
         except BaseException:
-            temporary.unlink(missing_ok=True)
+            discard_intermediate(temporary)
             raise
         return destination
 

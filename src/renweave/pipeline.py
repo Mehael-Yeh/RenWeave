@@ -330,6 +330,7 @@ class RenWeavePipeline:
             progress_callback=progress_callback,
         )
         inventory = ExistingTranslationScanner().scan(index, target_language)
+        self._include_workspace_checkpoints_in_preview(index, inventory)
         atomic_write_json(self.existing_translations_path, inventory.to_dict())
         reused_ids = {
             text_id
@@ -338,6 +339,72 @@ class RenWeavePipeline:
         }
         pending_ids = {unit.id for unit in index.text_units if unit.id not in reused_ids}
         return inventory, estimate_index_tokens(index, pending_ids)
+
+    def _include_workspace_checkpoints_in_preview(
+        self,
+        index: ProjectIndex,
+        inventory: ExistingTranslationInventory,
+    ) -> None:
+        """Make preflight scope reflect valid work already saved in this workspace.
+
+        The language-folder scan intentionally reports only what is installed in
+        ``game/tl``.  A resumed run can also reuse validated scene checkpoints,
+        though, so showing only the folder scan makes the same completed delta
+        appear pending every time the review page is reopened.
+        """
+        validator = TranslationValidator()
+        installed_ids = {
+            text_id
+            for translations in inventory.translations_by_scene.values()
+            for text_id in translations
+        }
+        checkpoint_ids: set[str] = set()
+        for scene in index.scenes:
+            if not scene.text_units:
+                continue
+            scene_ids = {unit.id for unit in scene.text_units}
+            saved = {
+                text_id: translated
+                for text_id, translated in self._load_partial_scene_translations(
+                    index, scene.id, validator
+                ).items()
+                if text_id in scene_ids
+            }
+            if not saved:
+                continue
+            current = inventory.translations_by_scene.setdefault(scene.id, {})
+            for text_id, translated in saved.items():
+                if text_id not in current:
+                    current[text_id] = translated
+                    checkpoint_ids.add(text_id)
+
+        if not checkpoint_ids:
+            return
+
+        effective_ids = installed_ids | checkpoint_ids
+        inventory.workspace_reused_units = len(checkpoint_ids)
+        inventory.reusable_units = len(effective_ids)
+        inventory.model_units = max(0, inventory.total_units - inventory.reusable_units)
+        inventory.pending_units = [
+            item for item in inventory.pending_units if item.get("text_id") not in checkpoint_ids
+        ]
+
+        complete_scenes = 0
+        partial_scenes = 0
+        missing_scenes = 0
+        for scene in index.scenes:
+            if not scene.text_units:
+                continue
+            translations = inventory.translations_by_scene.get(scene.id, {})
+            if validator.validate_scene(index, scene.id, translations).passed:
+                complete_scenes += 1
+            elif translations:
+                partial_scenes += 1
+            else:
+                missing_scenes += 1
+        inventory.complete_scenes = complete_scenes
+        inventory.partial_scenes = partial_scenes
+        inventory.missing_scenes = missing_scenes
 
     def _decompile_roots(
         self,
@@ -765,21 +832,33 @@ class RenWeavePipeline:
             state.current_operation = "Generating Ren'Py translation scripts"
             self._save_state(state)
             try:
+                installed_inventory = ExistingTranslationScanner().scan(
+                    index,
+                    target_language,
+                )
+                existing_language_dir = (
+                    installed_inventory.language_dir
+                    if installed_inventory.has_existing_language
+                    else None
+                )
+                reused_unit_ids = {
+                    text_id
+                    for scene_translations in installed_inventory.translations_by_scene.values()
+                    for text_id in scene_translations
+                }
                 manifest = RenpyTranslationEmitter().emit(
                     index,
                     collected,
                     target_language,
-                    self.output_dir,
-                    existing_language_dir=(
-                        existing_inventory.language_dir
-                        if existing_inventory.has_existing_language
-                        else None
+                    self._artifact_output_root(
+                        index,
+                        collected,
+                        target_language,
+                        existing_language_dir=existing_language_dir,
+                        reused_unit_ids=reused_unit_ids,
                     ),
-                    reused_unit_ids={
-                        text_id
-                        for scene_translations in existing_inventory.translations_by_scene.values()
-                        for text_id in scene_translations
-                    },
+                    existing_language_dir=existing_language_dir,
+                    reused_unit_ids=reused_unit_ids,
                 )
                 state.stage = PipelineStage.VALIDATING_BUILD
                 state.current_operation = "Validating generated Ren'Py scripts"
@@ -879,21 +958,30 @@ class RenWeavePipeline:
             missing = len(expected_scene_ids - set(state.completed_scene_ids))
             raise ValueError(f"仍有 {missing} 个场景没有通过验证，不能构建语言包")
         existing_inventory = ExistingTranslationScanner().scan(index, language)
+        collected = self._collect_translations(state.completed_scene_ids)
+        existing_language_dir = (
+            existing_inventory.language_dir
+            if existing_inventory.has_existing_language
+            else None
+        )
+        reused_unit_ids = {
+            text_id
+            for scene_translations in existing_inventory.translations_by_scene.values()
+            for text_id in scene_translations
+        }
         manifest = RenpyTranslationEmitter().emit(
             index,
-            self._collect_translations(state.completed_scene_ids),
+            collected,
             language,
-            self.output_dir,
-            existing_language_dir=(
-                existing_inventory.language_dir
-                if existing_inventory.has_existing_language
-                else None
+            self._artifact_output_root(
+                index,
+                collected,
+                language,
+                existing_language_dir=existing_language_dir,
+                reused_unit_ids=reused_unit_ids,
             ),
-            reused_unit_ids={
-                text_id
-                for scene_translations in existing_inventory.translations_by_scene.values()
-                for text_id in scene_translations
-            },
+            existing_language_dir=existing_language_dir,
+            reused_unit_ids=reused_unit_ids,
         )
         state.stage = PipelineStage.VALIDATING_BUILD
         self._save_state(state)
@@ -952,7 +1040,7 @@ class RenWeavePipeline:
         manifest.archive_sha256 = ""
         state.package_path = ""
         state.package_sha256 = ""
-        atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
+        atomic_write_json(self._manifest_root(manifest) / "build.json", manifest.to_dict())
         atomic_write_json(
             self.package_path,
             {
@@ -982,11 +1070,34 @@ class RenWeavePipeline:
         )
         manifest.archive_path = package.archive_path
         manifest.archive_sha256 = package.archive_sha256
-        atomic_write_json(self.output_dir / "build.json", manifest.to_dict())
+        atomic_write_json(self._manifest_root(manifest) / "build.json", manifest.to_dict())
         package_payload = package.to_dict()
         package_payload["generated"] = True
         atomic_write_json(self.package_path, package_payload)
         return package
+
+    def _artifact_output_root(
+        self,
+        index: ProjectIndex,
+        translations: dict[str, str],
+        requested_language: str,
+        *,
+        existing_language_dir: str | Path | None,
+        reused_unit_ids: set[str],
+    ) -> Path:
+        fingerprint = RenpyTranslationEmitter.build_fingerprint(
+            index,
+            translations,
+            requested_language,
+            existing_language_dir=existing_language_dir,
+            reused_unit_ids=reused_unit_ids,
+        )
+        return self.output_dir / f"build-{fingerprint}"
+
+    @staticmethod
+    def _manifest_root(manifest: BuildManifest) -> Path:
+        language_dir = Path(manifest.output_dir).expanduser().resolve()
+        return language_dir.parents[2]
 
     def _validate_build(
         self,

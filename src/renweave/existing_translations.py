@@ -44,6 +44,7 @@ class ExistingTranslationInventory:
     missing_scenes: int
     translations_by_scene: dict[str, dict[str, str]] = field(repr=False)
     model_units: int = 0
+    workspace_reused_units: int = 0
     exact_source_reused_units: int = 0
     normalized_source_reused_units: int = 0
     total_existing_records: int = 0

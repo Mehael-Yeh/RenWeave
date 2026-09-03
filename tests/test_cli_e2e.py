@@ -137,9 +137,9 @@ class CliEndToEndTests(unittest.TestCase):
             )
             self.assertFalse(rebuilt_state["generate_rpa"])
             self.assertEqual(rebuilt_state["package_path"], "")
-            self.assertTrue(
-                (workspace / "output" / "game" / "tl" / "pt_br" / "script.rpy").is_file()
-            )
+            rebuilt_output = Path(rebuilt_state["output_dir"])
+            self.assertTrue((rebuilt_output / "script.rpy").is_file())
+            self.assertTrue(rebuilt_output.parents[2].name.startswith("build-"))
 
 
 if __name__ == "__main__":
