@@ -486,7 +486,13 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.status.get(), "Enter an API key, then load available models.")
             self.assertFalse(hasattr(app, "_browse_provider"))
             self.assertEqual(app.language_button.cget("text"), "中文")
-            self.assertEqual(app.language_button.cget("style"), "Ghost.TButton")
+            self.assertEqual(app.language_button.cget("style"), "TopAux.TButton")
+            self.assertEqual(app.settings_button.cget("style"), "TopAux.TButton")
+            self.assertFalse(app.model_advanced_panel.grid_info())
+            app.model_advanced_toggle.invoke()
+            root.update_idletasks()
+            self.assertTrue(app.show_model_advanced.get())
+            self.assertTrue(app.model_advanced_panel.grid_info())
             self.assertEqual(
                 app.settings_button.winfo_reqheight(),
                 app.language_button.winfo_reqheight(),
@@ -534,6 +540,12 @@ class CorePipelineTests(unittest.TestCase):
             app.connection_state = "verified"
             app._continue()
             self.assertEqual(app.step, 1)
+            self.assertNotIn("TEntry", widget_classes(app.content))
+            app.show_manual_paths.set(True)
+            app._render()
+            self.assertGreaterEqual(widget_classes(app.content).count("TEntry"), 2)
+            app.show_manual_paths.set(False)
+            app._render()
             app._continue()
             self.assertEqual(app.step, 2)
             app.target_language.set("Français")

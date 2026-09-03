@@ -828,6 +828,17 @@ COPY["en"].update({
     "error.timeout": "The request timed out. Check the network or service address and try again.",
     "error.connection": "Could not reach the AI service. Check the network and service address.",
     "error.generic": "The task could not continue. Your workspace and saved progress were kept.",
+    "model.advanced_show": "Advanced settings",
+    "model.advanced_hide": "Hide advanced settings",
+    "game.change": "Change",
+    "game.copy_path": "Copy path",
+    "game.open_folder": "Open folder",
+    "game.manual_path": "Edit path manually",
+    "game.hide_manual_path": "Hide manual path",
+    "game.not_selected": "Not selected",
+    "top.settings": "⚙  Settings",
+    "game.safety_title": "Original game files will not be changed",
+    "game.safety_body": "Analysis, caches, translations, and language packages stay in the separate workspace.",
 })
 
 COPY["zh"].update({
@@ -885,6 +896,17 @@ COPY["zh"].update({
     "error.timeout": "请求超时，请检查网络或服务地址后重试。",
     "error.connection": "无法连接 AI 服务，请检查网络和服务地址。",
     "error.generic": "任务无法继续；工作区与已保存进度均已保留。",
+    "model.advanced_show": "高级设置",
+    "model.advanced_hide": "收起高级设置",
+    "game.change": "更改",
+    "game.copy_path": "复制路径",
+    "game.open_folder": "打开文件夹",
+    "game.manual_path": "手动输入路径",
+    "game.hide_manual_path": "收起路径输入",
+    "game.not_selected": "尚未选择",
+    "top.settings": "⚙  设置",
+    "game.safety_title": "原游戏文件不会被修改",
+    "game.safety_body": "分析、缓存、翻译结果和语言包都会保存在独立工作区。",
 })
 
 
@@ -1446,6 +1468,8 @@ class RenWeaveDesktopApp:
         self.show_review_details = tk.BooleanVar(value=False)
         self.show_pending_details = tk.BooleanVar(value=False)
         self.show_log_details = tk.BooleanVar(value=False)
+        self.show_model_advanced = tk.BooleanVar(value=False)
+        self.show_manual_paths = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value=self.t("model.idle_body"))
 
         self.start_button = None
@@ -1658,6 +1682,7 @@ class RenWeaveDesktopApp:
             "secondary": "Secondary.TButton",
             "ghost": "Ghost.TButton",
             "field": "FieldAction.TButton",
+            "top": "TopAux.TButton",
         }
         default_width = Metrics.FIELD_ACTION_WIDTH if kind == "field" else Metrics.BUTTON_WIDTH
         return self.ttk.Button(
@@ -1806,6 +1831,8 @@ class RenWeaveDesktopApp:
         style.map("Secondary.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Ghost.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, Typography.BODY), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.CARD, borderwidth=0, relief="flat")
         style.map("Ghost.TButton", background=[("pressed", Colors.SURFACE_HIGH), ("active", Colors.SURFACE_CONTAINER), ("disabled", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY), ("disabled", Colors.OUTLINE_VARIANT)], lightcolor=[("focus", Colors.PRIMARY)], darkcolor=[("focus", Colors.PRIMARY)])
+        style.configure("TopAux.TButton", anchor="center", padding=(10, 6), font=(Typography.UI, Typography.SMALL), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.CARD, borderwidth=0, relief="flat")
+        style.map("TopAux.TButton", background=[("pressed", Colors.SURFACE_HIGH), ("active", Colors.SURFACE_CONTAINER)], foreground=[("focus", Colors.PRIMARY)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("FieldAction.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, Typography.BODY, "bold"), foreground=Colors.PRIMARY, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
         style.map("FieldAction.TButton", background=[("pressed", Colors.CONTROL_PRESSED), ("active", Colors.CONTROL_HOVER), ("disabled", Colors.SURFACE_HIGH)], foreground=[("disabled", Colors.OUTLINE)], bordercolor=[("focus", Colors.PRIMARY)])
         style.configure("Language.TButton", anchor="center", padding=(12, Metrics.CONTROL_PADDING_Y, 12, Metrics.CONTROL_PADDING_Y + 1), font=(Typography.UI, Typography.BODY), foreground=Colors.ON_SURFACE_VARIANT, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
@@ -1928,7 +1955,7 @@ class RenWeaveDesktopApp:
         self.workspace_label = self.ttk.Label(self.top, style="TopLabel.TLabel")
         self.workspace_label.grid(row=0, column=0, sticky="w")
         self.settings_button = self._button(
-            self.top, self.t("settings.title"), self._open_settings, kind="ghost", width=10
+            self.top, self.t("top.settings"), self._open_settings, kind="top", width=12
         )
         self.settings_button.grid(row=0, column=2, sticky="e", padx=(0, 10))
         self._guide(self.settings_button, "tip.settings")
@@ -1936,8 +1963,8 @@ class RenWeaveDesktopApp:
             self.top,
             self._language_toggle_text(),
             self._toggle_locale,
-            kind="ghost",
-            width=10,
+            kind="top",
+            width=12,
         )
         self.language_button.grid(row=0, column=3, sticky="e")
 
@@ -2174,7 +2201,7 @@ class RenWeaveDesktopApp:
             self.brand_subtitle.grid()
             self.privacy_label.grid()
         self.workspace_label.configure(text=self.t("workspace_label"))
-        self.settings_button.configure(text=self.t("settings.title"))
+        self.settings_button.configure(text=self.t("top.settings"))
         self.language_button.configure(text=self._language_toggle_text())
         self.privacy_label.configure(text=self.t("nav_privacy"))
         inset = Metrics.COMPACT_PAGE_INSET if self.compact_layout else Metrics.PAGE_INSET
@@ -2398,21 +2425,17 @@ class RenWeaveDesktopApp:
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 0 if self.compact_layout else 16))
         left.columnconfigure(0, weight=1)
         self.ttk.Label(left, text=self.t("model.config"), style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
-        self.ttk.Label(left, text=self.t("model.endpoint"), style="Field.TLabel").grid(row=1, column=0, sticky="w")
-        self.endpoint_box = self._combobox(left, self.base_url, preset.base_urls)
-        self.endpoint_box.grid(row=2, column=0, sticky="ew", pady=(4, 7))
-        self._guide(self.endpoint_box, "tip.endpoint")
         key_header = self.ttk.Frame(left, style="CardBody.TFrame")
-        key_header.grid(row=3, column=0, sticky="ew")
+        key_header.grid(row=1, column=0, sticky="ew")
         key_header.columnconfigure(0, weight=1)
         self.ttk.Label(key_header, text=self.t("model.key"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
         show_key_button = self.ttk.Checkbutton(key_header, text=self.t("model.show_key"), variable=self.show_key, style="Material.TCheckbutton", command=self._toggle_key)
         show_key_button.grid(row=0, column=1, sticky="e")
         self._guide(show_key_button, "tip.show_key")
         self.api_key_entry = self._entry(left, self.api_key, secret=not self.show_key.get())
-        self.api_key_entry.grid(row=4, column=0, sticky="ew", pady=(4, 0))
+        self.api_key_entry.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         self._guide(self.api_key_entry, "tip.api_key")
-        self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=5, column=0, sticky="w", pady=(3, 0))
+        self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=3, column=0, sticky="w", pady=(3, 0))
         self.connect_button = self._button(
             left,
             self.t("model.load"),
@@ -2420,9 +2443,9 @@ class RenWeaveDesktopApp:
             kind="secondary",
             width=22,
         )
-        self.connect_button.grid(row=6, column=0, sticky="w", pady=(9, 0))
+        self.connect_button.grid(row=4, column=0, sticky="w", pady=(9, 0))
         self._guide(self.connect_button, "tip.load_models")
-        self.ttk.Label(left, text=self.t("model.load_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=7, column=0, sticky="w", pady=(4, 0))
+        self.ttk.Label(left, text=self.t("model.load_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, sticky="w", pady=(4, 0))
 
         right = self.ttk.Frame(config, style="CardBody.TFrame")
         right.grid(
@@ -2442,31 +2465,13 @@ class RenWeaveDesktopApp:
         self.browse_models_button.grid(row=2, column=1, sticky="e", padx=(7, 0), pady=(4, 0))
         self._guide(self.browse_models_button, "tip.browse_models")
         self.ttk.Label(right, text=self.t("model.model_hint"), style="Hint.TLabel", wraplength=350, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.ttk.Label(right, text=self.t("model.reasoning"), style="Field.TLabel").grid(
-            row=4, column=0, columnspan=2, sticky="w", pady=(10, 0)
-        )
-        reasoning_values = tuple(self.t(f"reasoning.{level}") for level in ("auto", "low", "high", "maximum"))
-        self.reasoning_box = self._combobox(
-            right, self.reasoning_display, reasoning_values, readonly=True
-        )
-        self.reasoning_box.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 0))
-        if preset.reasoning_control == "none":
-            self.reasoning_box.configure(state="disabled")
-        self._guide(self.reasoning_box, "tip.reasoning")
-        self.reasoning_hint_label = self.ttk.Label(
-            right,
-            text=self.t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint"),
-            style="Hint.TLabel",
-            wraplength=370, justify="left"
-        )
-        self.reasoning_hint_label.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         self.verify_button = self._button(right, self.t("model.verify"), self._verify_model)
-        self.verify_button.grid(row=7, column=0, columnspan=2, sticky="w", pady=(9, 0))
+        self.verify_button.grid(row=4, column=0, columnspan=2, sticky="w", pady=(9, 0))
         self._guide(self.verify_button, "tip.verify_model")
-        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=8, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
-        status_card.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(7, 0))
+        status_card.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(7, 0))
         self.model_status_card = status_card
         status_card.columnconfigure(1, weight=1)
         state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
@@ -2505,6 +2510,45 @@ class RenWeaveDesktopApp:
         )
         self.model_busy_progress.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(8, 0))
         self.model_busy_progress.grid_remove()
+
+        advanced_toggle = self._button(
+            selection,
+            self.t("model.advanced_hide" if self.show_model_advanced.get() else "model.advanced_show"),
+            lambda: (self.show_model_advanced.set(not self.show_model_advanced.get()), self._render()),
+            kind="field",
+        )
+        self.model_advanced_toggle = advanced_toggle
+        advanced_toggle.pack(side="right", padx=(10, 0))
+        advanced = self.ttk.Frame(config, style="TintCard.TFrame", padding=12)
+        advanced.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        advanced.columnconfigure(0, weight=1)
+        advanced.columnconfigure(1, weight=1)
+        self.model_advanced_panel = advanced
+        endpoint_host = self.ttk.Frame(advanced, style="TintCard.TFrame")
+        endpoint_host.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        endpoint_host.columnconfigure(0, weight=1)
+        self.ttk.Label(endpoint_host, text=self.t("model.endpoint"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
+        self.endpoint_box = self._combobox(endpoint_host, self.base_url, preset.base_urls)
+        self.endpoint_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self._guide(self.endpoint_box, "tip.endpoint")
+        reasoning_host = self.ttk.Frame(advanced, style="TintCard.TFrame")
+        reasoning_host.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        reasoning_host.columnconfigure(0, weight=1)
+        self.ttk.Label(reasoning_host, text=self.t("model.reasoning"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
+        reasoning_values = tuple(self.t(f"reasoning.{level}") for level in ("auto", "low", "high", "maximum"))
+        self.reasoning_box = self._combobox(reasoning_host, self.reasoning_display, reasoning_values, readonly=True)
+        self.reasoning_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        if preset.reasoning_control == "none":
+            self.reasoning_box.configure(state="disabled")
+        self._guide(self.reasoning_box, "tip.reasoning")
+        self.reasoning_hint_label = self.ttk.Label(
+            reasoning_host,
+            text=self.t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint"),
+            style="TintHint.TLabel", wraplength=350, justify="left",
+        )
+        self.reasoning_hint_label.grid(row=2, column=0, sticky="w", pady=(4, 0))
+        if not self.show_model_advanced.get():
+            advanced.grid_remove()
 
         self._refresh_model_panel()
 
@@ -2679,7 +2723,6 @@ class RenWeaveDesktopApp:
         self._path_field(card, 0, self.t("game.project"), self.project, self.t("game.project_hint"), self._browse_project, "tip.game")
         self._path_field(card, 3, self.t("game.workspace"), self.workspace, self.t("game.workspace_hint"), self._browse_workspace, "tip.workspace")
         self.ttk.Label(card, text=self.t("game.advanced"), style="Section.TLabel").grid(row=6, column=0, sticky="w", pady=(20, 8))
-        self._path_field(card, 7, self.t("game.sdk"), self.renpy_sdk, self.t("game.sdk_hint"), self._browse_sdk, "tip.sdk")
         runtime_found = bool(self.renpy_sdk.get().strip())
         runtime = self.tk.Frame(
             card,
@@ -2687,7 +2730,7 @@ class RenWeaveDesktopApp:
             padx=12,
             pady=9,
         )
-        runtime.grid(row=10, column=0, sticky="ew", pady=(10, 0))
+        runtime.grid(row=7, column=0, sticky="ew")
         self.tk.Label(
             runtime,
             text="✓" if runtime_found else "i",
@@ -2709,32 +2752,57 @@ class RenWeaveDesktopApp:
             justify="left",
             anchor="w",
         ).pack(side="left", fill="x", expand=True, padx=(9, 0))
-        self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(12, 0))
+        change_runtime = self._button(runtime, self.t("game.change"), self._browse_sdk, kind="field", width=9)
+        change_runtime.pack(side="right", padx=(10, 0))
+        self._guide(change_runtime, "tip.sdk")
+        self.ttk.Label(card, text=self.t("game.sdk_hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=8, column=0, sticky="w", pady=(4, 0))
+        self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=9, column=0, sticky="w", pady=(12, 0))
         safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
-        safety.grid(row=12, column=0, sticky="ew", pady=(16, 0))
+        safety.grid(row=10, column=0, sticky="ew", pady=(16, 0))
         self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold")).pack(side="left")
-        self.tk.Label(
-            safety,
-            text=self.t("game.safety_note"),
-            background=Colors.SUCCESS_CONTAINER,
-            foreground=Colors.ON_SURFACE_VARIANT,
-            font=(Typography.UI, Typography.SMALL),
-            wraplength=540 if self.compact_layout else 700,
-            justify="left",
-            anchor="w",
-        ).pack(side="left", fill="x", expand=True, padx=(9, 0))
+        safety_copy = self.tk.Frame(safety, background=Colors.SUCCESS_CONTAINER)
+        safety_copy.pack(side="left", fill="x", expand=True, padx=(9, 0))
+        self.tk.Label(safety_copy, text=self.t("game.safety_title"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), justify="left", anchor="w").pack(fill="x")
+        self.tk.Label(safety_copy, text=self.t("game.safety_body"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=540 if self.compact_layout else 700, justify="left", anchor="w").pack(fill="x", pady=(2, 0))
 
     def _path_field(self, parent, row: int, label: str, variable, hint: str, command: Callable[[], None], tooltip_key: str) -> None:
         self.ttk.Label(parent, text=label, style="Field.TLabel").grid(row=row, column=0, sticky="w")
-        line = self.ttk.Frame(parent, style="CardBody.TFrame")
-        line.grid(row=row + 1, column=0, sticky="ew", pady=(5, 0))
-        line.columnconfigure(0, weight=1)
-        entry = self._entry(line, variable)
-        entry.grid(row=0, column=0, sticky="ew")
-        browse = self._button(line, self.t("browse"), command, kind="field")
-        browse.grid(row=0, column=1, sticky="ns", padx=(Metrics.SPACE_2, 0))
-        self._guide(entry, tooltip_key)
+        value = variable.get().strip()
+        selected = Path(value).expanduser() if value else None
+        name = selected.name if selected and selected.name else self.t("game.not_selected")
+        summary = self.ttk.Frame(parent, style="TintCard.TFrame", padding=(12, 9))
+        summary.grid(row=row + 1, column=0, sticky="ew", pady=(5, 0))
+        summary.columnconfigure(0, weight=1)
+        self.ttk.Label(summary, text=name, style="Status.TLabel").grid(row=0, column=0, sticky="w")
+        if value:
+            self.ttk.Label(summary, text=self._display_path(value, max_chars=44 if self.compact_layout else 60), style="StatusBody.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
+        actions = self.ttk.Frame(summary, style="TintCard.TFrame")
+        actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+        browse = self._button(actions, self.t("game.change"), command, kind="field", width=9)
+        browse.pack(side="left")
+        copy_path = self._button(actions, self.t("game.copy_path"), lambda: self._copy_text(value), kind="field", width=10)
+        copy_path.pack(side="left", padx=(6, 0))
+        open_path = self._button(
+            actions, self.t("game.open_folder"),
+            lambda: self._open_folder(value, containing=bool(selected and selected.is_file())),
+            kind="field", width=10,
+        )
+        open_path.pack(side="left", padx=(6, 0))
+        if not value:
+            copy_path.configure(state="disabled")
+            open_path.configure(state="disabled")
         self._guide(browse, tooltip_key)
+        manual_toggle = self._button(
+            summary,
+            self.t("game.hide_manual_path" if self.show_manual_paths.get() else "game.manual_path"),
+            lambda: (self.show_manual_paths.set(not self.show_manual_paths.get()), self._render()),
+            kind="ghost",
+        )
+        manual_toggle.grid(row=2, column=0, sticky="w", pady=(5, 0))
+        if self.show_manual_paths.get():
+            entry = self._entry(summary, variable)
+            entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+            self._guide(entry, tooltip_key)
         self.ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
 
     def _render_languages(self) -> None:

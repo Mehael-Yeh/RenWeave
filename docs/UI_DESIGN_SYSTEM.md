@@ -73,6 +73,10 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - `100%` is reserved for `completed`. Percentages render only when the total is positive and finite; unknown totals use a completed-unit count without a denominator or progress bar.
 - Token estimates describe the main translation text only. They must explicitly exclude context, validation, retry, and other model calls unless a full-task estimator exists.
 - Raw logs are collapsed by default. The normal surface shows at most three recent user-readable events, with persistent paths and technical records available under **View log**.
+- The model page keeps API key, model choice, and verification in the default reading path. Base URL and reasoning controls live under **Advanced settings** while remaining editable.
+- Game and workspace locations render as a friendly folder or executable name plus an abbreviated path. Change, copy, and open actions remain visible; raw path entry is an explicit manual-edit disclosure.
+- An automatically detected Ren'Py runtime is a status card, not a third peer path field. The game-safety promise is a distinct success notice with a plain-language consequence.
+- Top-bar utilities use the quiet `TopAux.TButton` role and must remain visually subordinate to workflow actions.
 - Keyboard focus follows the visual order; dialogs support `Escape`, and confirmation supports `Return` where safe.
 - Text contrast targets WCAG AA. Color is never the only status signal.
 - Settings and the single language toggle use the same button factory, vertical padding, and top-bar baseline.

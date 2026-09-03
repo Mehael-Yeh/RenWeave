@@ -235,6 +235,13 @@ def verify_layout(output_dir: Path | None = None) -> None:
             root.update()
             capture_window(root, output_dir / "en-model-connecting.png")
 
+            app.show_model_advanced.set(True)
+            app._render()
+            hide_provider_picker(app)
+            root.update()
+            capture_window(root, output_dir / "en-model-advanced.png")
+            app.show_model_advanced.set(False)
+
             app.connection_state = "failed"
             app.connection_detail = {"message": "Authentication failed. Check the key and try again."}
             app._render()
