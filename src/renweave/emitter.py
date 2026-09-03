@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -56,6 +57,7 @@ class EmittedFile:
     sha256: str
     dialogue_blocks: int
     string_entries: int
+    preserved: bool = False
 
 
 @dataclass(slots=True)
@@ -129,11 +131,30 @@ class RenpyTranslationEmitter:
         translations: dict[str, str],
         requested_language: str,
         output_root: str | Path,
+        *,
+        existing_language_dir: str | Path | None = None,
+        reused_unit_ids: set[str] | None = None,
     ) -> BuildManifest:
         language = normalize_renpy_language(requested_language)
         root = Path(output_root).expanduser().resolve()
         language_dir = root / "game" / "tl" / language
         language_dir.mkdir(parents=True, exist_ok=True)
+        reused = set(reused_unit_ids or ())
+        preserved: list[EmittedFile] = []
+        if existing_language_dir:
+            source_language_dir = Path(existing_language_dir).expanduser().resolve()
+            if source_language_dir.is_dir() and source_language_dir != language_dir:
+                for source in sorted(
+                    source_language_dir.rglob("*.rpy"),
+                    key=lambda item: item.as_posix().casefold(),
+                ):
+                    if source.is_symlink():
+                        raise ValueError(f"现有语言包包含符号链接，拒绝复制：{source}")
+                    relative = source.relative_to(source_language_dir)
+                    destination = language_dir / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, destination)
+                    preserved.append(self._file_record(root, destination, 0, 0, preserved=True))
         dialogue_by_file: dict[str, list[tuple[TextUnit, str]]] = {}
         string_rows: dict[str, tuple[str, TextUnit]] = {}
 
@@ -143,6 +164,8 @@ class RenpyTranslationEmitter:
             raise ValueError(f"构建缺少 {len(missing)} 条已验证译文，首项：{missing[0]}")
 
         for unit in units:
+            if unit.id in reused:
+                continue
             translated = translations[unit.id]
             if unit.channel in {TextChannel.DIALOGUE, TextChannel.NARRATION}:
                 dialogue_by_file.setdefault(unit.location.relative_path, []).append((unit, translated))
@@ -165,13 +188,20 @@ class RenpyTranslationEmitter:
             for unit, translated in rows:
                 identifier = dialogue_identifiers[unit.id]
                 blocks.append(self._dialogue_block(language, identifier, unit, translated))
-            destination = language_dir / self._output_relative_path(relative_path)
+            output_relative = self._output_relative_path(relative_path)
+            destination = (
+                language_dir / "_renweave_incremental" / "dialogue" / output_relative
+                if existing_language_dir
+                else language_dir / output_relative
+            )
             content = self._header(index, requested_language, language) + "".join(blocks)
             atomic_write_text(destination, content)
             emitted.append(self._file_record(root, destination, len(rows), 0))
 
         if string_rows:
-            destination = language_dir / "strings.rpy"
+            destination = language_dir / (
+                "_renweave_incremental/strings.rpy" if existing_language_dir else "strings.rpy"
+            )
             body = [self._header(index, requested_language, language), f"translate {language} strings:\n\n"]
             for source, (translated, unit) in string_rows.items():
                 body.append(f"    # {unit.location.relative_path}:{unit.location.line}\n")
@@ -180,6 +210,7 @@ class RenpyTranslationEmitter:
             atomic_write_text(destination, "".join(body))
             emitted.append(self._file_record(root, destination, 0, len(string_rows)))
 
+        emitted = [*preserved, *emitted]
         expected_files = {(root / item.relative_path).resolve() for item in emitted}
         for stale in language_dir.rglob("*.rpy"):
             if stale.resolve() in expected_files:
@@ -224,13 +255,21 @@ class RenpyTranslationEmitter:
         return value.replace("\r", " ").replace("\n", " ")
 
     @staticmethod
-    def _file_record(root: Path, path: Path, dialogue: int, strings: int) -> EmittedFile:
+    def _file_record(
+        root: Path,
+        path: Path,
+        dialogue: int,
+        strings: int,
+        *,
+        preserved: bool = False,
+    ) -> EmittedFile:
         payload = path.read_bytes()
         return EmittedFile(
             relative_path=path.relative_to(root).as_posix(),
             sha256=hashlib.sha256(payload).hexdigest(),
             dialogue_blocks=dialogue,
             string_entries=strings,
+            preserved=preserved,
         )
 
     def _translation_identifier(

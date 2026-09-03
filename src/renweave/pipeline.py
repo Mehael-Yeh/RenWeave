@@ -736,6 +736,16 @@ class RenWeavePipeline:
                     collected,
                     target_language,
                     self.output_dir,
+                    existing_language_dir=(
+                        existing_inventory.language_dir
+                        if existing_inventory.has_existing_language
+                        else None
+                    ),
+                    reused_unit_ids={
+                        text_id
+                        for scene_translations in existing_inventory.translations_by_scene.values()
+                        for text_id in scene_translations
+                    },
                 )
                 state.stage = PipelineStage.VALIDATING_BUILD
                 state.current_operation = "Validating generated Ren'Py scripts"
@@ -834,11 +844,22 @@ class RenWeavePipeline:
         if not expected_scene_ids <= set(state.completed_scene_ids):
             missing = len(expected_scene_ids - set(state.completed_scene_ids))
             raise ValueError(f"仍有 {missing} 个场景没有通过验证，不能构建语言包")
+        existing_inventory = ExistingTranslationScanner().scan(index, language)
         manifest = RenpyTranslationEmitter().emit(
             index,
             self._collect_translations(state.completed_scene_ids),
             language,
             self.output_dir,
+            existing_language_dir=(
+                existing_inventory.language_dir
+                if existing_inventory.has_existing_language
+                else None
+            ),
+            reused_unit_ids={
+                text_id
+                for scene_translations in existing_inventory.translations_by_scene.values()
+                for text_id in scene_translations
+            },
         )
         state.stage = PipelineStage.VALIDATING_BUILD
         self._save_state(state)

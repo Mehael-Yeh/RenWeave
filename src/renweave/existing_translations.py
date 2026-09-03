@@ -42,6 +42,13 @@ class ExistingTranslationInventory:
     partial_scenes: int
     missing_scenes: int
     translations_by_scene: dict[str, dict[str, str]] = field(repr=False)
+    model_units: int = 0
+    exact_source_reused_units: int = 0
+    total_existing_records: int = 0
+    duplicate_source_conflict_groups: int = 0
+    duplicate_source_conflict_units: int = 0
+    pending_units: list[dict] = field(default_factory=list)
+    conflicts: list[dict] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
 
     @property
@@ -110,6 +117,7 @@ class ExistingTranslationScanner:
         string_rows: dict[str, str] = {}
         statement_rows: dict[tuple[str, str, int], list[str]] = {}
         source_rows: dict[tuple[str, str, int], list[str]] = {}
+        exact_source_rows: dict[str, list[tuple[str, str]]] = {}
         issues: list[str] = []
         files = sorted(language_dir.rglob("*.rpy"), key=lambda item: item.as_posix().casefold())
         for path in files:
@@ -121,6 +129,7 @@ class ExistingTranslationScanner:
                     string_rows,
                     statement_rows,
                     source_rows,
+                    exact_source_rows,
                     issues,
                     path,
                     language_dir,
@@ -132,12 +141,14 @@ class ExistingTranslationScanner:
         translations_by_scene: dict[str, dict[str, str]] = {}
         invalid_ids: set[str] = set()
         source_fallback_ids: set[str] = set()
+        exact_source_fallback_ids: set[str] = set()
+        pending_units: list[dict] = []
         statement_offsets: dict[tuple[str, str, int], int] = {}
         source_offsets: dict[tuple[str, str, int], int] = {}
         for scene in index.scenes:
             scene_translations: dict[str, str] = {}
             for unit in scene.text_units:
-                translated = self._translation_for(
+                translated, match_kind = self._translation_for(
                     unit,
                     dialogue_ids,
                     blocks,
@@ -147,20 +158,33 @@ class ExistingTranslationScanner:
                     source_rows,
                     source_offsets,
                 )
+                structural_issue = self._structural_issue(unit, translated) if translated is not None else ""
+                if translated is None or structural_issue:
+                    exact_translation = self._unique_exact_source_translation(unit, exact_source_rows)
+                    if exact_translation is not None:
+                        translated = exact_translation
+                        structural_issue = ""
+                        match_kind = "exact_source"
                 if translated is None and self._language_neutral(unit.source):
                     translated = unit.source
                     source_fallback_ids.add(unit.id)
+                    match_kind = "language_neutral"
                 if translated is None:
+                    pending_units.append(self._pending_unit(
+                        unit, "missing", "旧语言包中没有找到可安全复用的译文"
+                    ))
                     continue
-                structural_issue = self._structural_issue(unit, translated)
                 if structural_issue:
                     invalid_ids.add(unit.id)
                     issues.append(
                         f"{unit.location.relative_path}:{unit.location.line}: "
                         f"{structural_issue} ({unit.id})"
                     )
+                    pending_units.append(self._pending_unit(unit, "invalid", structural_issue))
                     continue
                 scene_translations[unit.id] = translated
+                if match_kind == "exact_source":
+                    exact_source_fallback_ids.add(unit.id)
             if scene_translations:
                 translations_by_scene[scene.id] = scene_translations
 
@@ -180,6 +204,7 @@ class ExistingTranslationScanner:
                 missing_scenes += 1
         reusable_units = sum(len(items) for items in translations_by_scene.values())
         total_units = len(index.text_units)
+        conflicts = self._source_conflicts(exact_source_rows)
         return ExistingTranslationInventory(
             language=language,
             language_dir=str(language_dir),
@@ -193,6 +218,13 @@ class ExistingTranslationScanner:
             partial_scenes=partial_scenes,
             missing_scenes=missing_scenes,
             translations_by_scene=translations_by_scene,
+            model_units=max(0, total_units - reusable_units),
+            exact_source_reused_units=len(exact_source_fallback_ids),
+            total_existing_records=sum(len(items) for items in exact_source_rows.values()),
+            duplicate_source_conflict_groups=len(conflicts),
+            duplicate_source_conflict_units=sum(item["occurrences"] for item in conflicts),
+            pending_units=pending_units[:500],
+            conflicts=conflicts[:100],
             issues=issues[:100],
         )
 
@@ -209,6 +241,7 @@ class ExistingTranslationScanner:
         string_rows: dict[str, str],
         statement_rows: dict[tuple[str, str, int], list[str]],
         source_rows: dict[tuple[str, str, int], list[str]],
+        exact_source_rows: dict[str, list[tuple[str, str]]],
         issues: list[str],
         path: Path,
         language_dir: Path,
@@ -226,13 +259,16 @@ class ExistingTranslationScanner:
                 index += 1
             body = lines[start:index]
             if identifier == "strings":
-                ExistingTranslationScanner._parse_strings(body, string_rows, issues, path)
+                ExistingTranslationScanner._parse_strings(
+                    body, string_rows, exact_source_rows, issues, path, language_dir
+                )
             elif identifier not in blocks:
                 blocks[identifier] = body
             ExistingTranslationScanner._parse_statement_rows(
                 body,
                 statement_rows,
                 source_rows,
+                exact_source_rows,
                 path.relative_to(language_dir).as_posix(),
             )
 
@@ -241,6 +277,7 @@ class ExistingTranslationScanner:
         lines: list[str],
         statement_rows: dict[tuple[str, str, int], list[str]],
         source_rows: dict[tuple[str, str, int], list[str]],
+        exact_source_rows: dict[str, list[tuple[str, str]]],
         relative_path: str,
     ) -> None:
         for index, line in enumerate(lines):
@@ -275,14 +312,20 @@ class ExistingTranslationScanner:
                     ordinal,
                 )
                 source_rows.setdefault(source_key, []).append(translated_segments[ordinal][3])
+                exact_source_rows.setdefault(source_segments[ordinal][3], []).append((
+                    translated_segments[ordinal][3],
+                    f"{relative_path}:{index + 1}",
+                ))
             break
 
     @staticmethod
     def _parse_strings(
         lines: list[str],
         string_rows: dict[str, str],
+        exact_source_rows: dict[str, list[tuple[str, str]]],
         issues: list[str],
         path: Path,
+        language_dir: Path,
     ) -> None:
         pending_source: str | None = None
         for line_number, line in enumerate(lines, start=1):
@@ -301,6 +344,10 @@ class ExistingTranslationScanner:
                     issues.append(f"{path.name}:{line_number}: duplicate old string has different translations")
                 else:
                     string_rows[pending_source] = translated
+                exact_source_rows.setdefault(pending_source, []).append((
+                    translated,
+                    f"{path.relative_to(language_dir).as_posix()}:{line_number}",
+                ))
                 pending_source = None
 
     @staticmethod
@@ -313,9 +360,10 @@ class ExistingTranslationScanner:
         statement_offsets: dict[tuple[str, str, int], int],
         source_rows: dict[tuple[str, str, int], list[str]],
         source_offsets: dict[tuple[str, str, int], int],
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         if unit.channel not in {TextChannel.DIALOGUE, TextChannel.NARRATION}:
-            return string_rows.get(unit.source)
+            translated = string_rows.get(unit.source)
+            return translated, "strings" if translated is not None else ""
         key = (
             ExistingTranslationScanner._canonical_relative(unit.location.relative_path),
             ExistingTranslationScanner._statement_key(unit.raw_statement),
@@ -332,10 +380,10 @@ class ExistingTranslationScanner:
         source_offsets[source_key] = source_occurrence + 1
         statement_candidates = statement_rows.get(key, [])
         if occurrence < len(statement_candidates):
-            return statement_candidates[occurrence]
+            return statement_candidates[occurrence], "statement"
         source_candidates = source_rows.get(source_key, [])
         if source_occurrence < len(source_candidates):
-            return source_candidates[source_occurrence]
+            return source_candidates[source_occurrence], "file_source"
         body = blocks.get(dialogue_ids.get(unit.id, ""))
         if body is None:
             return ExistingTranslationScanner._fallback_translation(
@@ -345,14 +393,14 @@ class ExistingTranslationScanner:
                 source_occurrence,
                 statement_rows,
                 source_rows,
-            )
+            ), "fallback"
         for line in body:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
             segments = _quoted_segments(stripped)
             if unit.literal_ordinal < len(segments):
-                return segments[unit.literal_ordinal][3]
+                return segments[unit.literal_ordinal][3], "block_id"
         return ExistingTranslationScanner._fallback_translation(
             key,
             occurrence,
@@ -360,7 +408,47 @@ class ExistingTranslationScanner:
             source_occurrence,
             statement_rows,
             source_rows,
-        )
+        ), "fallback"
+
+    @staticmethod
+    def _unique_exact_source_translation(
+        unit: TextUnit,
+        exact_source_rows: dict[str, list[tuple[str, str]]],
+    ) -> str | None:
+        valid = {
+            translated
+            for translated, _location in exact_source_rows.get(unit.source, [])
+            if not ExistingTranslationScanner._structural_issue(unit, translated)
+        }
+        return next(iter(valid)) if len(valid) == 1 else None
+
+    @staticmethod
+    def _pending_unit(unit: TextUnit, reason: str, detail: str) -> dict:
+        return {
+            "text_id": unit.id,
+            "source": unit.source,
+            "file": unit.location.relative_path,
+            "line": unit.location.line,
+            "channel": str(unit.channel),
+            "reason": reason,
+            "detail": detail,
+        }
+
+    @staticmethod
+    def _source_conflicts(exact_source_rows: dict[str, list[tuple[str, str]]]) -> list[dict]:
+        conflicts: list[dict] = []
+        for source, rows in exact_source_rows.items():
+            translations = sorted({translated for translated, _location in rows})
+            if len(translations) <= 1:
+                continue
+            conflicts.append({
+                "source": source,
+                "translations": translations[:20],
+                "locations": [location for _translated, location in rows[:50]],
+                "occurrences": len(rows),
+            })
+        conflicts.sort(key=lambda item: (-item["occurrences"], item["source"]))
+        return conflicts
 
     @staticmethod
     def _fallback_translation(
