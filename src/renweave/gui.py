@@ -2792,8 +2792,6 @@ class RenWeaveDesktopApp:
         actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
         browse = self._button(actions, self.t("game.change"), command, kind="field", width=9)
         browse.pack(side="left")
-        copy_path = self._button(actions, self.t("game.copy_path"), lambda: self._copy_text(value), kind="field", width=10)
-        copy_path.pack(side="left", padx=(6, 0))
         open_path = self._button(
             actions, self.t("game.open_folder"),
             lambda: self._open_folder(value, containing=bool(selected and selected.is_file())),
@@ -2801,7 +2799,6 @@ class RenWeaveDesktopApp:
         )
         open_path.pack(side="left", padx=(6, 0))
         if not value:
-            copy_path.configure(state="disabled")
             open_path.configure(state="disabled")
         self._guide(browse, tooltip_key)
         manual_toggle = self._button(
@@ -3927,7 +3924,8 @@ class RenWeaveDesktopApp:
             else:
                 action_text = self.t("start")
         if self.step < 4:
-            command = self._start if self.step == 3 else self._continue
+            # Recoverable tasks enter step 05 stopped; resuming is an explicit user action.
+            command = self._enter_translation if self.step == 3 and self.resume_candidate else (self._start if self.step == 3 else self._continue)
             self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
             self.next_button.grid(row=0, column=2, sticky="ew")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
@@ -4212,8 +4210,19 @@ class RenWeaveDesktopApp:
             return
         self.step = 4
         self.translation_started = False
+        existing = self._resume_state()
+        if existing:
+            self.progress_payload = existing
+            self.last_stage = str(existing.get("stage", "paused") or "paused")
+            self.last_active_stage = self.last_stage if self.last_stage not in {"paused", "failed", "complete"} else "translating"
+            self.logs = self._load_existing_log()
+            self.status.set(self.t("progress.task.paused" if self.last_stage == "paused" else "progress.task.failed"))
+        else:
+            self.progress_payload = {}
+            self.last_stage = ""
+            self.last_active_stage = ""
+            self.status.set(self.t("progress.ready"))
         self.content_canvas.yview_moveto(0.0)
-        self.status.set(self.t("progress.ready"))
         self._render()
 
     def _persist_profile(self) -> Path:

@@ -641,6 +641,37 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.step, 4)
             self.assertIsNone(app.worker)
 
+            # A recoverable task must enter step 05 stopped, with an explicit
+            # "Continue translation" action instead of starting a worker.
+            resume_payload = {
+                "stage": "paused",
+                "completed_scene_ids": ["scene-1"],
+                "total_scenes": 3,
+                "progress_percent": 33.0,
+            }
+            app.step = 3
+            with (
+                mock.patch.object(app, "_resume_state", return_value=resume_payload),
+                mock.patch.object(app, "_enter_translation") as enter_translation,
+            ):
+                app._render()
+                app.next_button.invoke()
+                enter_translation.assert_called_once_with()
+
+            app.step = 3
+            app.resume_candidate = resume_payload
+            with (
+                mock.patch.object(app, "_resume_state", return_value=resume_payload),
+                mock.patch.object(app, "_load_existing_log", return_value=["paused"]),
+                mock.patch.object(app, "_render"),
+            ):
+                app._enter_translation()
+            self.assertEqual(app.step, 4)
+            self.assertFalse(app.translation_started)
+            self.assertIsNone(app.worker)
+            self.assertEqual(app.last_stage, "paused")
+            self.assertEqual(app.status.get(), "翻译已暂停")
+
             class ActiveWorker:
                 @staticmethod
                 def is_alive():
