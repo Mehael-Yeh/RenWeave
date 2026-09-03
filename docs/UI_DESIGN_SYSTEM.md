@@ -19,8 +19,10 @@ Material Design 3, UI UX Pro Max, and Awesome Design Systems are design referenc
 - Card inset: `18 px`; standard field gap: `6 px`.
 - Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
 - Interactive controls target a `44 px` visual height and use Microsoft YaHei UI for bilingual consistency.
+- Typography uses exactly four size tokens: `SMALL` (9) for metadata and hints, `BODY` (10) for controls and ordinary copy, `TITLE` (18) for dialog/brand emphasis, and `DISPLAY` (24) for page titles and primary progress values. Weight communicates hierarchy within those sizes; page code must not introduce numeric font sizes.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
 - Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
+- Pages should remain structurally fixed within the minimum window. The outer canvas is an overflow fallback, not the normal reading surface; long diagnostics, incremental-scope details, and logs belong in bounded local scroll regions.
 
 ## Action placement
 
@@ -51,7 +53,8 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Provider gallery | `_layout_provider_buttons()` | All provider presets stay visible in a stable grid; there is no fold control or height animation |
 | Translation activity | determinate + indeterminate progress pair | Show overall completion separately from continuous worker activity, exact pipeline stage, and high-level phase state |
 | Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
-| Diagnostic text | styled `tk.Text` | Same border/focus/selection colors as form controls |
+| Diagnostic/long text | bounded styled `tk.Text` | Fixed-height local scrolling with the same border/focus/selection colors as form controls; do not create dozens of wrapping labels that enlarge the whole page |
+| Completed outputs | secondary actions on the progress page and completion dialog | Always offer the RPY directory; offer the RPA-containing directory when an archive was generated |
 | Outer card | `Card.TFrame` | The only bordered content container |
 | Inner layout | `CardBody.TFrame` | No nested pseudo-card borders |
 

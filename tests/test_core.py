@@ -38,6 +38,7 @@ from renweave.gui import (
     Metrics,
     STAGE_LABELS,
     RenWeaveDesktopApp,
+    Typography,
     TranslationRequest,
     default_desktop_settings_path,
     execute_translation,
@@ -313,6 +314,31 @@ class CorePipelineTests(unittest.TestCase):
     def test_desktop_progress_labels_cover_every_pipeline_stage(self) -> None:
         self.assertEqual({str(stage) for stage in PipelineStage} - set(STAGE_LABELS), set())
 
+    def test_desktop_typography_uses_only_shared_size_tokens(self) -> None:
+        source = Path(sys.modules[RenWeaveDesktopApp.__module__].__file__).read_text(encoding="utf-8")
+        self.assertEqual({Typography.SMALL, Typography.BODY, Typography.TITLE, Typography.DISPLAY}, {9, 10, 18, 24})
+        self.assertIsNone(re.search(r"Typography\.(?:UI|MONO),\s*\d+", source))
+
+    def test_desktop_open_folder_resolves_direct_and_containing_paths(self) -> None:
+        app = RenWeaveDesktopApp.__new__(RenWeaveDesktopApp)
+        app.t = lambda key: key
+        app._dialog = mock.Mock()
+        output_dir = Path(self.temp.name) / "rpy-output"
+        output_dir.mkdir()
+        archive = Path(self.temp.name) / "packages" / "translation.rpa"
+        archive.parent.mkdir()
+        archive.write_bytes(b"RPA")
+        with mock.patch("renweave.gui.os.name", "nt"):
+            with mock.patch("renweave.gui.os.startfile", create=True) as startfile:
+                app._open_folder(str(output_dir))
+                app._open_folder(str(archive), containing=True)
+        self.assertEqual(
+            [call.args[0] for call in startfile.call_args_list],
+            [str(output_dir.resolve()), str(archive.parent.resolve())],
+        )
+        app._open_folder("")
+        app._dialog.assert_called_once()
+
     def test_desktop_settings_path_survives_missing_home_environment(self) -> None:
         fallback = Path(self.temp.name) / "fallback"
         with (
@@ -485,6 +511,35 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIn("标准 RPY 始终保留", review_text)
             self.assertIn("编译并验证 RPYC", review_text)
 
+            app.target_language.set("zh_hans")
+            app.scope_preview_signature = app._scope_signature()
+            app.scope_preview_status = "ready"
+            app.scope_preview_inventory = SimpleNamespace(
+                total_units=120,
+                reusable_units=118,
+                model_units=2,
+                files_scanned=3,
+                pending_units=[
+                    {"file": "script.rpy", "line": 12, "source": "First long line", "detail": "missing"},
+                    {"file": "chapter.rpy", "line": 44, "source": "Second long line", "detail": "changed"},
+                ],
+            )
+            app._render()
+
+            def widgets_of_class(widget, class_name):
+                matches = []
+                for child in widget.winfo_children():
+                    if child.winfo_class() == class_name:
+                        matches.append(child)
+                    matches.extend(widgets_of_class(child, class_name))
+                return matches
+
+            review_text_widgets = widgets_of_class(app.content, "Text")
+            self.assertTrue(review_text_widgets)
+            self.assertEqual(int(review_text_widgets[0].cget("height")), 9)
+            self.assertIn("script.rpy", review_text_widgets[0].get("1.0", "end"))
+            self.assertTrue(widgets_of_class(app.content, "TScrollbar"))
+
             class ActiveWorker:
                 @staticmethod
                 def is_alive():
@@ -548,6 +603,22 @@ class CorePipelineTests(unittest.TestCase):
             app._request_pause()
             self.assertTrue(app.cancel_token.cancelled)
             self.assertEqual(app.status.get(), "正在完成当前安全单元并保存检查点……")
+            completed_output = Path(self.temp.name) / "completed-rpy"
+            completed_output.mkdir()
+            completed_archive = Path(self.temp.name) / "completed-rpa" / "translation.rpa"
+            completed_archive.parent.mkdir()
+            completed_archive.write_bytes(b"RPA")
+            app.worker = None
+            app.last_stage = "complete"
+            app.progress_payload.update(
+                progress_percent=100.0,
+                output_dir=str(completed_output),
+                package_path=str(completed_archive),
+            )
+            app._render()
+            completed_text = "\n".join(visible_texts(app.content))
+            self.assertIn("打开 RPY 目录", completed_text)
+            self.assertIn("打开 RPA 目录", completed_text)
             app._save_desktop_settings()
             saved_settings = json.loads(settings_path.read_text(encoding="utf-8"))
             self.assertEqual(saved_settings["provider_id"], "minimax")
