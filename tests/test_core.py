@@ -493,7 +493,7 @@ class CorePipelineTests(unittest.TestCase):
             app.target_language.set("Français")
             app._continue()
             self.assertEqual(app.step, 3)
-            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
+            self.assertEqual(app.start_button.cget("text"), "进入翻译")
             self.assertIsNotNone(app.token_budget)
 
             def visible_texts(widget):
@@ -540,7 +540,7 @@ class CorePipelineTests(unittest.TestCase):
             # contract structurally; the mapped-window smoke test below checks
             # the resulting pixel edges at every responsive breakpoint.
             self.assertEqual(int(app.back_button.cget("width")), Metrics.FOOTER_BACK_WIDTH)
-            self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
+            self.assertEqual(int(app.start_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
             self.assertEqual(int(app.review_options.grid_info()["column"]), 0)
             self.assertEqual(int(app.review_options.grid_info()["columnspan"]), 2)
             self.assertEqual(int(app.review_details.grid_info()["column"]), 0)
@@ -565,6 +565,16 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(int(review_text_widgets[0].cget("height")), 9)
             self.assertIn("script.rpy", review_text_widgets[0].get("1.0", "end"))
             self.assertTrue(widgets_of_class(app.content, "TScrollbar"))
+
+            # Review is non-destructive: opening step 05 must not start a
+            # worker. Translation begins only after the user presses the
+            # action on the translation page.
+            app.start_button.configure(state="normal")
+            app.start_button.invoke()
+            root.update_idletasks()
+            self.assertEqual(app.step, 4)
+            self.assertIsNone(app.worker)
+            self.assertEqual(app.start_button.cget("text"), "开始一键翻译")
 
             class ActiveWorker:
                 @staticmethod
@@ -662,7 +672,9 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIsNotNone(app.back_button)
             with mock.patch.object(app, "_dialog") as back_notice:
                 app.back_button.invoke()
-            self.assertEqual(app.step, 3)
+            # A changed critical setting requires confirmation before leaving;
+            # the page remains visible until the user accepts the warning.
+            self.assertEqual(app.step, 4)
             back_notice.assert_called_once()
             self.assertTrue(back_notice.call_args.kwargs["warning"])
             with mock.patch.object(app, "_dialog") as changed_warning:

@@ -244,6 +244,7 @@ COPY["en"].update({
     "progress.paused": "Paused safely",
     "progress.paused_body": "All completed checkpoints are preserved. Resume with the same project and workspace at any time.",
     "progress.resume": "Resume translation",
+    "progress.enter": "Open translation",
     "progress.retry": "Resume / retry",
     "progress.log_path": "Persistent diagnostic log: {path}",
     "progress.copy_log": "Copy log path",
@@ -367,7 +368,8 @@ COPY["zh"].update({
     "progress.pausing": "正在完成当前安全单元并保存检查点……",
     "progress.paused": "已安全暂停",
     "progress.paused_body": "所有已完成检查点均已保留；以后使用相同项目和工作区即可继续。",
-    "progress.resume": "继续翻译",
+        "progress.resume": "继续翻译",
+        "progress.enter": "进入翻译",
     "progress.retry": "继续 / 重试",
     "progress.log_path": "持久诊断日志：{path}",
     "progress.copy_log": "复制日志路径",
@@ -1207,6 +1209,10 @@ class RenWeaveDesktopApp:
         self.progress_activity = None
         self._progress_activity_running = False
         self.translation_baseline: dict[str, str] | None = None
+        # Entering the translation page is intentionally side-effect free.  This
+        # flag distinguishes that preparation state from a real run so users can
+        # freely inspect earlier pages before starting model work.
+        self.translation_started = False
         self._settings_save_id = None
         self._project_inspection_id = None
         self._auto_sdk_path = ""
@@ -2051,9 +2057,8 @@ class RenWeaveDesktopApp:
         for index, step in enumerate(self.STEPS):
             prefix = "✓" if index < self.step else f"{index + 1:02d}"
             is_current = index == self.step
-            is_available = (
-                (self.step < 4 and index <= self.step)
-                or (self._can_leave_translation() and index < 4)
+            is_available = (self.step < 4 and index <= self.step) or (
+                self.step == 4 and self._can_leave_translation() and index < 4
             )
             if self.narrow_layout:
                 button_text = prefix
@@ -3319,9 +3324,13 @@ class RenWeaveDesktopApp:
             )
             self.back_button.grid(row=0, column=0, sticky="ew")
             self._guide(self.back_button, "tip.back")
-        action_text = self.t("progress.resume") if self.step == 3 and self.resume_candidate else (self.t("start") if self.step == 3 else self.t("continue"))
+        action_text = (
+            self.t("progress.resume")
+            if self.step == 3 and self.resume_candidate
+            else (self.t("progress.enter") if self.step == 3 else self.t("continue"))
+        )
         if self.step < 4:
-            command = self._start if self.step == 3 else self._continue
+            command = self._enter_translation if self.step == 3 else self._continue
             self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
             self.next_button.grid(row=0, column=2, sticky="ew")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
@@ -3337,6 +3346,11 @@ class RenWeaveDesktopApp:
                 self.pause_button = self._button(action_bar, self.t("progress.pause"), self._request_pause, kind="secondary", width=Metrics.FOOTER_ACTION_WIDTH)
                 self.pause_button.grid(row=0, column=2, sticky="ew")
                 self._guide(self.pause_button, "tip.pause")
+            elif not self.translation_started:
+                start_button = self._button(action_bar, self.t("start"), self._start, width=Metrics.FOOTER_ACTION_WIDTH)
+                start_button.grid(row=0, column=2, sticky="ew")
+                self.start_button = start_button
+                self._guide(start_button, "tip.start")
             elif self.last_stage in {"paused", "failed"}:
                 label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
                 resume_button = self._button(action_bar, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
@@ -3498,22 +3512,30 @@ class RenWeaveDesktopApp:
             self.renpy_sdk.set(selected)
 
     def _go_to_step(self, selected: int) -> None:
-        leaving_translation = self.step == 4 and selected < 4 and self._can_leave_translation()
-        if not (0 <= selected <= self.step and (self.step < 4 or leaving_translation)):
+        leaving_translation = self.step == 4 and selected < 4
+        if not (0 <= selected <= self.step and (self.step < 4 or self._can_leave_translation())):
             return
+        if leaving_translation:
+            changes = self._critical_config_changes()
+            if changes:
+                self._dialog(
+                    self.t("progress.config_changed_title"),
+                    self.t("progress.config_changed_body", fields="\n".join(f"• {field}" for field in changes)),
+                    warning=True,
+                    confirm_text=self.t("progress.continue_changed"),
+                    on_confirm=lambda: self._go_to_step_after_warning(selected),
+                )
+                return
+        self._go_to_step_after_warning(selected)
+
+    def _go_to_step_after_warning(self, selected: int) -> None:
         self.step = selected
         self.content_canvas.yview_moveto(0.0)
         self._render()
-        if leaving_translation:
-            self._dialog(
-                self.t("progress.back_warning_title"),
-                self.t("progress.back_warning_body"),
-                warning=True,
-            )
 
     def _can_leave_translation(self) -> bool:
         running = bool(self.worker and self.worker.is_alive())
-        return self.step == 4 and not running and self.last_stage in {"paused", "failed"}
+        return self.step == 4 and not running
 
     @staticmethod
     def _normalized_path(value: str) -> str:
@@ -3573,6 +3595,16 @@ class RenWeaveDesktopApp:
         self.content_canvas.yview_moveto(0.0)
         if self.step == 3:
             self._start_scope_preview()
+        self._render()
+
+    def _enter_translation(self) -> None:
+        """Open step 05 without starting any translation work."""
+        if self.step != 3:
+            return
+        self.step = 4
+        self.translation_started = False
+        self.content_canvas.yview_moveto(0.0)
+        self.status.set(self.t("progress.ready"))
         self._render()
 
     def _persist_profile(self) -> Path:
@@ -3727,6 +3759,7 @@ class RenWeaveDesktopApp:
             self._dialog(self.t("dialog.cannot_start"), str(exc), error=True)
             return
         self.translation_baseline = self._critical_translation_config()
+        self.translation_started = True
         existing = self._resume_state()
         self.step = 4
         self.content_canvas.yview_moveto(0.0)
