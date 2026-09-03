@@ -3944,16 +3944,20 @@ class RenWeaveDesktopApp:
                 self.pause_button = self._button(action_bar, self.t("progress.pause"), self._request_pause, width=Metrics.FOOTER_ACTION_WIDTH)
                 self.pause_button.grid(row=0, column=2, sticky="ew")
                 self._guide(self.pause_button, "tip.pause")
+            elif self.last_stage in {"paused", "failed"}:
+                # A recoverable task must always require an explicit resume,
+                # including after reopening the app (translation_started=False).
+                resume_button = self._button(
+                    action_bar, self.t("progress.resume"), self._start,
+                    width=Metrics.FOOTER_ACTION_WIDTH,
+                )
+                resume_button.grid(row=0, column=2, sticky="ew")
+                self._guide(resume_button, "tip.resume")
             elif not self.translation_started:
                 start_button = self._button(action_bar, self.t("start"), self._start, width=Metrics.FOOTER_ACTION_WIDTH)
                 start_button.grid(row=0, column=2, sticky="ew")
                 self.start_button = start_button
                 self._guide(start_button, "tip.start")
-            elif self.last_stage in {"paused", "failed"}:
-                label = self.t("progress.resume")
-                resume_button = self._button(action_bar, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
-                resume_button.grid(row=0, column=2, sticky="ew")
-                self._guide(resume_button, "tip.resume")
             elif self.last_stage == "complete":
                 output_dir = str(self.progress_payload.get("output_dir", "") or "")
                 output_button = self._button(
