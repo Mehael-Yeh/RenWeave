@@ -374,10 +374,11 @@ class CorePipelineTests(unittest.TestCase):
         archive = Path(self.temp.name) / "packages" / "translation.rpa"
         archive.parent.mkdir()
         archive.write_bytes(b"RPA")
-        with mock.patch("renweave.gui.os.name", "nt"):
-            with mock.patch("renweave.gui.os.startfile", create=True) as startfile:
-                app._open_folder(str(output_dir))
-                app._open_folder(str(archive), containing=True)
+        startfile = mock.Mock()
+        gui_os = SimpleNamespace(name="nt", startfile=startfile)
+        with mock.patch("renweave.gui.os", gui_os):
+            app._open_folder(str(output_dir))
+            app._open_folder(str(archive), containing=True)
         self.assertEqual(
             [call.args[0] for call in startfile.call_args_list],
             [str(output_dir.resolve()), str(archive.parent.resolve())],
