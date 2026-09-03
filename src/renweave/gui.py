@@ -655,7 +655,7 @@ _BASE_COPY = {
         "step_count": "第 {current} 步，共 {total} 步",
         "back": "返回",
         "continue": "继续",
-        "start": "开始一键翻译",
+        "start": "开始翻译",
         "close": "关闭",
         "retry": "重试",
         "cancel": "取消",
@@ -734,7 +734,7 @@ _BASE_COPY = {
         "review.pending_row": "{file}:{line}\n{source}\n原因：{detail}",
         "progress.title": "正在翻译",
         "progress.body": "可在这里查看每个阶段；检查点让中断后的任务能够恢复。",
-        "progress.ready": "正在准备一键翻译流程…",
+        "progress.ready": "正在准备翻译流程…",
         "progress.scenes": "已完成 {count} 个场景",
         "progress.log": "活动记录",
         "progress.started": "任务已启动，分析结果与 AI 产物正在写入独立工作区。",
@@ -792,7 +792,10 @@ COPY["en"].update({
     "review.rpa": "Create a ready-to-use language package",
     "review.rpa_hint": "On by default. RenWeave checks Ren'Py compatibility when translation finishes.",
     "review.rpa_technical": "Technical details: create RPA and compile RPYC when a compatible runtime is available.",
+    "review.technical_show": "Technical details",
+    "review.technical_hide": "Hide technical details",
     "review.install_hint": "Off by default. When enabled, successful translation and validation writes language-package files into the game directory.",
+    "review.install_warning": "This option modifies language-package files in the selected game directory after validation succeeds.",
     "review.resume_body_unknown": "{completed} checkpoints have been saved. RenWeave will verify them before continuing.",
     "budget.title": "AI usage estimate",
     "budget.range": "Main translation text: about {low}–{high} Tokens",
@@ -824,6 +827,7 @@ COPY["en"].update({
     "progress.usage_breakdown": "Input {input} · output {output}",
     "progress.safe_to_close": "Progress is safely saved. You can close RenWeave and resume later.",
     "progress.package_ready": "Language package generated",
+    "progress.installed_output": "Installed in game",
     "error.api_key": "The API key was rejected. Check it and try again.",
     "error.timeout": "The request timed out. Check the network or service address and try again.",
     "error.connection": "Could not reach the AI service. Check the network and service address.",
@@ -860,7 +864,10 @@ COPY["zh"].update({
     "review.rpa": "生成可直接使用的语言包",
     "review.rpa_hint": "默认开启。翻译完成后自动进行 Ren'Py 兼容性检查。",
     "review.rpa_technical": "技术详情：生成 RPA，并在运行环境可用时编译 RPYC。",
+    "review.technical_show": "技术详情",
+    "review.technical_hide": "收起技术详情",
     "review.install_hint": "默认关闭。开启后会在翻译和验证成功后向游戏目录写入语言包文件。",
+    "review.install_warning": "此选项会在验证成功后修改所选游戏目录中的语言包文件。",
     "review.resume_body_unknown": "已保存 {completed} 个检查点；继续前会自动核验其完整性。",
     "budget.title": "AI 用量预估",
     "budget.range": "待翻译主要文本约需 {low}–{high} Token",
@@ -892,6 +899,7 @@ COPY["zh"].update({
     "progress.usage_breakdown": "输入 {input} · 输出 {output}",
     "progress.safe_to_close": "进度已安全保存。可以关闭程序，下次从此处继续。",
     "progress.package_ready": "语言包已生成",
+    "progress.installed_output": "已安装到游戏",
     "error.api_key": "API Key 无效，请检查后重试。",
     "error.timeout": "请求超时，请检查网络或服务地址后重试。",
     "error.connection": "无法连接 AI 服务，请检查网络和服务地址。",
@@ -1461,12 +1469,16 @@ class RenWeaveDesktopApp:
         self.show_key = tk.BooleanVar(value=False)
         self.source_language = tk.StringVar(value="auto")
         self.target_language = tk.StringVar()
+        self.source_language_display = tk.StringVar()
+        self.target_language_display = tk.StringVar()
+        self._language_display_snapshot = {"source": "", "target": ""}
         self.renpy_sdk = tk.StringVar()
         self.generate_rpa = tk.BooleanVar(value=True)
         self.install = tk.BooleanVar(value=False)
         self.require_engine = tk.BooleanVar(value=False)
         self.show_review_details = tk.BooleanVar(value=False)
         self.show_pending_details = tk.BooleanVar(value=False)
+        self.show_package_technical = tk.BooleanVar(value=False)
         self.show_log_details = tk.BooleanVar(value=False)
         self.show_model_advanced = tk.BooleanVar(value=False)
         self.show_manual_paths = tk.BooleanVar(value=False)
@@ -2857,13 +2869,28 @@ class RenWeaveDesktopApp:
             row_offset = 2
         self.ttk.Label(card, text=self.t("languages.source"), style="Field.TLabel").grid(row=row_offset, column=0, sticky="w", padx=(0, 12))
         source_values = ("auto",) + self.LANGUAGE_CHOICES
-        source = self._combobox(card, self.source_language, source_values)
+        self.source_language_display.set(self._display_language_name(self.source_language.get() or "auto"))
+        self._language_display_snapshot["source"] = self.source_language_display.get()
+        source = self._combobox(
+            card,
+            self.source_language_display,
+            tuple(self._display_language_name(value) for value in source_values),
+        )
         source.grid(row=row_offset + 1, column=0, sticky="ew", padx=(0, 12), pady=(5, 0))
         self.ttk.Label(card, text=self.t("languages.target"), style="Field.TLabel").grid(row=row_offset, column=1, sticky="w", padx=(12, 0))
         target_values = tuple(dict.fromkeys([*(item.language for item in self.existing_languages), *self.LANGUAGE_CHOICES]))
-        target = self._combobox(card, self.target_language, target_values)
+        self.target_language_display.set(self._display_language_name(self.target_language.get()))
+        self._language_display_snapshot["target"] = self.target_language_display.get()
+        target = self._combobox(
+            card,
+            self.target_language_display,
+            tuple(self._display_language_name(value) for value in target_values),
+        )
         target.grid(row=row_offset + 1, column=1, sticky="ew", padx=(12, 0), pady=(5, 0))
-        target.bind("<<ComboboxSelected>>", lambda _event: (self._start_scope_preview(), self._render()), add="+")
+        source.bind("<<ComboboxSelected>>", lambda _event: self._commit_language_display("source", refresh=True), add="+")
+        target.bind("<<ComboboxSelected>>", lambda _event: self._commit_language_display("target", refresh=True), add="+")
+        source.bind("<FocusOut>", lambda _event: self._commit_language_display("source"), add="+")
+        target.bind("<FocusOut>", lambda _event: self._commit_language_display("target"), add="+")
         self.ttk.Label(card, text=self.t("languages.hint"), style="Hint.TLabel", wraplength=680, justify="left").grid(row=row_offset + 2, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.ttk.Label(card, text=self.t("languages.source_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=0, sticky="nw", padx=(0, 12), pady=(16, 0))
         self.ttk.Label(card, text=self.t("languages.target_hint"), style="Hint.TLabel", wraplength=340, justify="left").grid(row=row_offset + 3, column=1, sticky="nw", padx=(12, 0), pady=(16, 0))
@@ -2915,6 +2942,29 @@ class RenWeaveDesktopApp:
         name = localized[1 if self.locale.get() == "zh" else 0]
         is_system_code = "_" in language or "-" in language or language.casefold() in {"zh_hans", "zh_hant"}
         return f"{name} ({language})" if is_system_code else name
+
+    def _canonical_language_name(self, display: str) -> str:
+        display = display.strip()
+        candidates = tuple(dict.fromkeys((
+            "auto",
+            *(item.language for item in self.existing_languages),
+            *self.LANGUAGE_CHOICES,
+        )))
+        for candidate in candidates:
+            if display.casefold() == self._display_language_name(candidate).casefold():
+                return candidate
+        return display
+
+    def _commit_language_display(self, field: str, *, refresh: bool = False) -> None:
+        display = self.source_language_display if field == "source" else self.target_language_display
+        value = self.source_language if field == "source" else self.target_language
+        displayed_value = display.get().strip()
+        if displayed_value != self._language_display_snapshot.get(field, "") or not value.get().strip():
+            value.set(self._canonical_language_name(displayed_value))
+        self._language_display_snapshot[field] = displayed_value
+        self._start_scope_preview()
+        if refresh:
+            self._render()
 
     def _incremental_preview(self) -> str:
         if self.scope_preview_signature != self._scope_signature():
@@ -3053,9 +3103,36 @@ class RenWeaveDesktopApp:
         self.review_options = options
         self.ttk.Checkbutton(options, text=self.t("review.rpa"), variable=self.generate_rpa, style="Tint.TCheckbutton").grid(row=0, column=0, sticky="w")
         self.ttk.Label(options, text=self.t("review.rpa_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 0))
-        self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=2, column=0, sticky="w", pady=(2, 0))
-        self.ttk.Checkbutton(options, text=self.t("review.install"), variable=self.install, style="Tint.TCheckbutton").grid(row=3, column=0, sticky="w", pady=(8, 0))
-        self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=4, column=0, sticky="w", pady=(2, 0))
+        self.package_technical_toggle = self._button(
+            options,
+            self.t("review.technical_hide" if self.show_package_technical.get() else "review.technical_show"),
+            lambda: (self.show_package_technical.set(not self.show_package_technical.get()), self._render()),
+            kind="ghost",
+        )
+        self.package_technical_toggle.grid(row=2, column=0, sticky="w", pady=(3, 0))
+        if self.show_package_technical.get():
+            self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=3, column=0, sticky="w", pady=(2, 0))
+        self.ttk.Checkbutton(
+            options,
+            text=self.t("review.install"),
+            variable=self.install,
+            command=self._render,
+            style="Tint.TCheckbutton",
+        ).grid(row=4, column=0, sticky="w", pady=(8, 0))
+        self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(2, 0))
+        if self.install.get():
+            warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
+            warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
+            self.tk.Label(
+                warning,
+                text=self.t("review.install_warning"),
+                background=Colors.WARNING_CONTAINER,
+                foreground=Colors.WARNING,
+                font=(Typography.UI, Typography.SMALL, "bold"),
+                wraplength=730,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x")
 
         if self.resume_candidate:
             completed = len(self.resume_candidate.get("completed_scene_ids", []))
@@ -3498,6 +3575,7 @@ class RenWeaveDesktopApp:
         elif self.last_stage == "complete":
             output_dir = str(payload.get("output_dir", "") or "")
             package_path = str(payload.get("package_path", "") or "")
+            installed_dir = str(payload.get("installed_dir", "") or "")
             outputs = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=11)
             outputs.grid(row=6, column=0, sticky="ew", pady=(0, 12))
             outputs.columnconfigure(0, weight=1)
@@ -3518,11 +3596,20 @@ class RenWeaveDesktopApp:
                 anchor="w",
                 justify="left",
             ).grid(row=1, column=0, sticky="w", pady=(3, 0))
+            if installed_dir:
+                self.tk.Label(
+                    outputs,
+                    text=self.t("progress.installed_output"),
+                    background=Colors.SUCCESS_CONTAINER,
+                    foreground=Colors.SUCCESS,
+                    font=(Typography.UI, Typography.SMALL, "bold"),
+                    anchor="w",
+                ).grid(row=2, column=0, sticky="w", pady=(5, 0))
             output_actions = self.ttk.Frame(outputs, style="SuccessActions.TFrame")
             if self.compact_layout:
-                output_actions.grid(row=2, column=0, sticky="w", pady=(10, 0))
+                output_actions.grid(row=3 if installed_dir else 2, column=0, sticky="w", pady=(10, 0))
             else:
-                output_actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(16, 0))
+                output_actions.grid(row=0, column=1, rowspan=3 if installed_dir else 2, sticky="e", padx=(16, 0))
             open_rpy = self._button(
                 output_actions,
                 self.t("progress.open_rpy"),
@@ -4107,9 +4194,12 @@ class RenWeaveDesktopApp:
             if self.renpy_sdk.get().strip() and not Path(self.renpy_sdk.get().strip()).expanduser().exists():
                 self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
                 return
-        elif self.step == 2 and not self.target_language.get().strip():
-            self._dialog(self.t("dialog.cannot_continue"), self.t("languages.required"), error=True)
-            return
+        elif self.step == 2:
+            self._commit_language_display("source")
+            self._commit_language_display("target")
+            if not self.target_language.get().strip():
+                self._dialog(self.t("dialog.cannot_continue"), self.t("languages.required"), error=True)
+                return
         self.step = min(3, self.step + 1)
         self.content_canvas.yview_moveto(0.0)
         if self.step == 3:
@@ -4403,7 +4493,7 @@ class RenWeaveDesktopApp:
                 if state.package_path:
                     self._append_log(f"{self.t('progress.rpa_output')}: {state.package_path}")
                 if state.installed_dir:
-                    self._append_log(f"Installed: {state.installed_dir}")
+                    self._append_log(f"{self.t('progress.installed_output')}: {state.installed_dir}")
                 self._render()
                 body_key = (
                     "progress.complete_body_rpa"
