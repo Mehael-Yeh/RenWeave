@@ -1900,6 +1900,7 @@ class RenWeaveDesktopApp:
     def _build_shell(self) -> None:
         self.shell = self.ttk.Frame(self.root, style="App.TFrame")
         self.shell.grid(row=0, column=0, sticky="nsew")
+        self._setup_folder_drop_target()
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         self.shell.columnconfigure(1, weight=1)
@@ -2790,29 +2791,39 @@ class RenWeaveDesktopApp:
             self.ttk.Label(summary, text=self._display_path(value, max_chars=44 if self.compact_layout else 60), style="StatusBody.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         actions = self.ttk.Frame(summary, style="TintCard.TFrame")
         actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
-        browse = self._button(actions, self.t("game.change"), command, kind="field", width=9)
+        browse = self._button(actions, self.t("game.open_folder"), command, kind="field", width=12)
         browse.pack(side="left")
-        open_path = self._button(
-            actions, self.t("game.open_folder"),
-            lambda: self._open_folder(value, containing=bool(selected and selected.is_file())),
-            kind="field", width=10,
-        )
-        open_path.pack(side="left", padx=(6, 0))
-        if not value:
-            open_path.configure(state="disabled")
         self._guide(browse, tooltip_key)
-        manual_toggle = self._button(
-            summary,
-            self.t("game.hide_manual_path" if self.show_manual_paths.get() else "game.manual_path"),
-            lambda: (self.show_manual_paths.set(not self.show_manual_paths.get()), self._render()),
-            kind="ghost",
-        )
-        manual_toggle.grid(row=2, column=0, sticky="w", pady=(5, 0))
-        if self.show_manual_paths.get():
-            entry = self._entry(summary, variable)
-            entry.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-            self._guide(entry, tooltip_key)
         self.ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
+
+    def _setup_folder_drop_target(self) -> None:
+        """Accept a dropped game folder when the optional TkDnD root is active."""
+        if not hasattr(self.root, "drop_target_register"):
+            return
+        try:
+            from tkinterdnd2 import DND_FILES
+
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind("<<Drop>>", self._handle_folder_drop)
+        except (ImportError, AttributeError, self.tk.TclError):
+            return
+
+    def _handle_folder_drop(self, event) -> None:
+        try:
+            dropped = self.root.tk.splitlist(event.data)
+        except (AttributeError, self.tk.TclError, TypeError):
+            dropped = (str(getattr(event, "data", "")),)
+        for raw_path in dropped:
+            candidate = Path(str(raw_path)).expanduser()
+            if not candidate.is_dir():
+                continue
+            self.project.set(str(candidate))
+            if not self.workspace.get().strip():
+                self._suggest_workspace(str(candidate))
+            self._inspect_project_selection()
+            if self.step in {1, 2}:
+                self._render()
+            return
 
     def _render_languages(self) -> None:
         card = self._card()
@@ -3914,18 +3925,10 @@ class RenWeaveDesktopApp:
             )
             self.back_button.grid(row=0, column=0, sticky="ew")
             self._guide(self.back_button, "tip.back")
-        inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
         action_text = self.t("continue")
-        if self.step == 3:
-            if self.resume_candidate:
-                action_text = self.t("progress.resume")
-            elif inventory is not None and inventory.model_units:
-                action_text = self.t("review.start_remaining", count=inventory.model_units)
-            else:
-                action_text = self.t("start")
         if self.step < 4:
             # Recoverable tasks enter step 05 stopped; resuming is an explicit user action.
-            command = self._enter_translation if self.step == 3 and self.resume_candidate else (self._start if self.step == 3 else self._continue)
+            command = self._enter_translation if self.step == 3 else self._continue
             self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
             self.next_button.grid(row=0, column=2, sticky="ew")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
@@ -3947,7 +3950,7 @@ class RenWeaveDesktopApp:
                 self.start_button = start_button
                 self._guide(start_button, "tip.start")
             elif self.last_stage in {"paused", "failed"}:
-                label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
+                label = self.t("progress.resume")
                 resume_button = self._button(action_bar, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
                 resume_button.grid(row=0, column=2, sticky="ew")
                 self._guide(resume_button, "tip.resume")
@@ -4213,10 +4216,18 @@ class RenWeaveDesktopApp:
         existing = self._resume_state()
         if existing:
             self.progress_payload = existing
-            self.last_stage = str(existing.get("stage", "paused") or "paused")
-            self.last_active_stage = self.last_stage if self.last_stage not in {"paused", "failed", "complete"} else "translating"
+            # Any recoverable state means the user must explicitly resume from
+            # step 05. A worker cannot survive an app restart, so an old
+            # ``translating`` stage is presented as paused rather than being
+            # mistaken for an actively running translation.
+            existing_stage = str(existing.get("stage", "paused") or "paused")
+            self.last_stage = "paused" if existing_stage not in {"complete", "paused"} else existing_stage
+            self.last_active_stage = (
+                existing_stage if existing_stage not in {"paused", "failed", "complete"}
+                else "translating"
+            )
             self.logs = self._load_existing_log()
-            self.status.set(self.t("progress.task.paused" if self.last_stage == "paused" else "progress.task.failed"))
+            self.status.set(self.t("progress.task.paused"))
         else:
             self.progress_payload = {}
             self.last_stage = ""
@@ -4705,7 +4716,12 @@ def launch_gui(*, initial_project: str = "", initial_workspace: str = "") -> int
     except ImportError as exc:
         raise RuntimeError("Tk is not installed for this Python environment") from exc
     try:
-        root = tk.Tk()
+        try:
+            from tkinterdnd2 import TkinterDnD
+
+            root = TkinterDnD.Tk()
+        except ImportError:
+            root = tk.Tk()
     except Exception as exc:
         raise RuntimeError(f"Unable to start the desktop interface: {exc}") from exc
     root.withdraw()

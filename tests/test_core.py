@@ -541,18 +541,13 @@ class CorePipelineTests(unittest.TestCase):
             app._continue()
             self.assertEqual(app.step, 1)
             self.assertNotIn("TEntry", widget_classes(app.content))
-            app.show_manual_paths.set(True)
-            app._render()
-            self.assertGreaterEqual(widget_classes(app.content).count("TEntry"), 2)
-            app.show_manual_paths.set(False)
-            app._render()
             app._continue()
             self.assertEqual(app.step, 2)
             self.assertEqual(app.source_language_display.get(), "自动检测")
             app.target_language.set("Français")
             app._continue()
             self.assertEqual(app.step, 3)
-            self.assertEqual(app.start_button.cget("text"), "开始翻译")
+            self.assertEqual(app.start_button.cget("text"), "继续")
             self.assertIsNotNone(app.token_budget)
 
             def visible_texts(widget):
@@ -631,11 +626,11 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIn("script.rpy", review_text_widgets[0].get("1.0", "end"))
             self.assertTrue(widgets_of_class(app.content, "TScrollbar"))
 
-            # The review page owns the single unambiguous start action.
-            with mock.patch.object(app, "_start") as start_translation:
-                app.start_button.configure(command=app._start, state="normal")
+            # The review page only enters step 05; translation starts there.
+            with mock.patch.object(app, "_enter_translation") as enter_translation:
+                app.start_button.configure(command=app._enter_translation, state="normal")
                 app.start_button.invoke()
-                start_translation.assert_called_once_with()
+                enter_translation.assert_called_once_with()
             app._enter_translation()
             root.update_idletasks()
             self.assertEqual(app.step, 4)
