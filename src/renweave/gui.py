@@ -14,7 +14,11 @@ from . import __version__
 from .build_validation import RenpySdkLocator
 from .credentials import CredentialStorageError, SecureCredentialStore
 from .discovery import ProjectDiscovery
-from .existing_translations import ExistingLanguageSummary, discover_existing_languages
+from .existing_translations import (
+    ExistingLanguageSummary,
+    ExistingTranslationInventory,
+    discover_existing_languages,
+)
 from .io import atomic_write_json, read_json
 from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
@@ -531,6 +535,11 @@ _BASE_COPY = {
         "review.key_safe": "API key stays in encrypted system storage or session memory",
         "review.incremental_scope": "Incremental scope: {units} text units in {scenes} scenes / {files} files",
         "review.incremental_scope_unknown": "Incremental scope will be scanned before model work",
+        "review.incremental_scanning": "Scanning the complete existing language pack now…",
+        "review.incremental_scan_failed": "Preflight scan failed: {error}",
+        "review.incremental_scope_exact": "Current source: {total} · safely reused: {reused} · needs translation: {units} · preserved files: {files}",
+        "review.pending_title": "Texts that still need translation ({count})",
+        "review.pending_row": "{file}:{line}\n{source}\nReason: {detail}",
         "progress.title": "Translation in progress",
         "progress.body": "You can follow each stage here. Checkpoints make interrupted work resumable.",
         "progress.ready": "Preparing the one-click pipeline…",
@@ -646,6 +655,11 @@ _BASE_COPY = {
         "review.key_safe": "API 密钥仅保存在系统加密凭据库或会话内存",
         "review.incremental_scope": "增量范围：{units} 个文本单元，{scenes} 个场景，{files} 个文件",
         "review.incremental_scope_unknown": "将在调用模型前扫描并确认实际增量范围",
+        "review.incremental_scanning": "正在完整扫描现有语言包，不会调用模型……",
+        "review.incremental_scan_failed": "预检扫描失败：{error}",
+        "review.incremental_scope_exact": "当前原文 {total} 条 · 安全复用 {reused} 条 · 待翻译 {units} 条 · 原样保留 {files} 个文件",
+        "review.pending_title": "仍需翻译的文本（{count} 条）",
+        "review.pending_row": "{file}:{line}\n{source}\n原因：{detail}",
         "progress.title": "正在翻译",
         "progress.body": "可在这里查看每个阶段；检查点让中断后的任务能够恢复。",
         "progress.ready": "正在准备一键翻译流程…",
@@ -1168,6 +1182,12 @@ class RenWeaveDesktopApp:
         self._project_inspection_id = None
         self._auto_sdk_path = ""
         self.existing_languages: list[ExistingLanguageSummary] = []
+        self.scope_preview_status = "idle"
+        self.scope_preview_signature: tuple[str, str, str, str] | None = None
+        self.scope_preview_inventory: ExistingTranslationInventory | None = None
+        self.scope_preview_budget: TokenBudget | None = None
+        self.scope_preview_error = ""
+        self.scope_preview_worker: threading.Thread | None = None
         self._session_keys: dict[tuple[str, str], str] = {}
         self._tooltips: list[GuidedTooltip] = []
         self.credential_store = credential_store or SecureCredentialStore()
@@ -1497,6 +1517,12 @@ class RenWeaveDesktopApp:
         return f"{value:,}"
 
     def _get_token_budget(self) -> TokenBudget | None:
+        if (
+            self.scope_preview_status == "ready"
+            and self.scope_preview_signature == self._scope_signature()
+            and self.scope_preview_budget is not None
+        ):
+            return self.scope_preview_budget
         target = self.project.get().strip()
         if not target:
             return None
@@ -1952,6 +1978,8 @@ class RenWeaveDesktopApp:
         self._render_header()
         getattr(self, f"_render_{self.STEPS[self.step]}")()
         self._render_footer()
+        self.root.update_idletasks()
+        self._sync_content_layout()
         self._schedule_content_layout()
 
     def _render_nav(self) -> None:
@@ -2522,23 +2550,63 @@ class RenWeaveDesktopApp:
         return f"{localized[1 if self.locale.get() == 'zh' else 0]} ({language})" if localized else language
 
     def _incremental_preview(self) -> str:
-        """Show the last deterministic scan on the confirmation page when available."""
-        workspace = self.workspace.get().strip()
-        if not workspace:
+        if self.scope_preview_signature != self._scope_signature():
             return self.t("review.incremental_scope_unknown")
-        try:
-            payload = json.loads((Path(workspace).expanduser() / "existing-translations.json").read_text(encoding="utf-8-sig"))
-            units = int(payload.get("missing_units", 0)) + int(payload.get("invalid_units", 0)) + int(payload.get("source_fallback_units", 0))
-            scenes = max(0, int(payload.get("partial_scenes", 0)) + int(payload.get("missing_scenes", 0)))
-            files = int(payload.get("files_scanned", 0))
-            if units or payload.get("complete"):
-                return self.t("review.incremental_scope", units=units, scenes=scenes, files=files)
-        except (OSError, ValueError, TypeError):
-            pass
+        if self.scope_preview_status == "scanning":
+            return self.t("review.incremental_scanning")
+        if self.scope_preview_status == "error":
+            return self.t("review.incremental_scan_failed", error=self.scope_preview_error)
+        inventory = self.scope_preview_inventory
+        if inventory is not None:
+            return self.t(
+                "review.incremental_scope_exact",
+                total=inventory.total_units,
+                reused=inventory.reusable_units,
+                units=inventory.model_units,
+                files=inventory.files_scanned,
+            )
         return self.t("review.incremental_scope_unknown")
+
+    def _scope_signature(self) -> tuple[str, str, str, str]:
+        return (
+            self._normalized_path(self.project.get()),
+            self._normalized_path(self.workspace.get()),
+            self.source_language.get().strip() or "auto",
+            self.target_language.get().strip().casefold(),
+        )
+
+    def _start_scope_preview(self) -> None:
+        signature = self._scope_signature()
+        if not all(signature[:2]) or not signature[3]:
+            return
+        if self.scope_preview_signature == signature and self.scope_preview_status in {"scanning", "ready"}:
+            return
+        self.scope_preview_signature = signature
+        self.scope_preview_status = "scanning"
+        self.scope_preview_inventory = None
+        self.scope_preview_budget = None
+        self.scope_preview_error = ""
+
+        project, workspace, source_language, target_language = signature
+
+        def run() -> None:
+            try:
+                result = RenWeavePipeline(workspace).preview_translation_scope(
+                    project,
+                    source_language=source_language,
+                    target_language=target_language,
+                )
+                self.events.put(("scope_preview_ready", (signature, result)))
+            except BaseException as exc:
+                self.events.put(("scope_preview_error", (signature, str(exc))))
+
+        self.scope_preview_worker = threading.Thread(target=run, daemon=True)
+        self.scope_preview_worker.start()
 
     def _select_existing_language(self, language: str) -> None:
         self.target_language.set(language)
+        if self.step == 3:
+            self._start_scope_preview()
         self._render()
 
     def _render_review(self) -> None:
@@ -2662,6 +2730,32 @@ class RenWeaveDesktopApp:
                 ),
                 style="StatusBody.TLabel",
             ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
+        if incremental and inventory is not None and inventory.pending_units:
+            details = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
+            details.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+            details.columnconfigure(0, weight=1)
+            self.ttk.Label(
+                details,
+                text=self.t("review.pending_title", count=inventory.model_units),
+                style="Status.TLabel",
+            ).grid(row=0, column=0, sticky="w")
+            for row, item in enumerate(inventory.pending_units[:50], start=1):
+                text = self.t(
+                    "review.pending_row",
+                    file=item.get("file", ""),
+                    line=item.get("line", 0),
+                    source=item.get("source", ""),
+                    detail=item.get("detail", ""),
+                )
+                self.ttk.Label(
+                    details,
+                    text=text,
+                    style="StatusBody.TLabel",
+                    wraplength=620 if self.compact_layout else 820,
+                    justify="left",
+                ).grid(row=row, column=0, sticky="w", pady=(6, 0))
 
     def _render_progress(self) -> None:
         payload = self.progress_payload
@@ -3090,6 +3184,8 @@ class RenWeaveDesktopApp:
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
             if self.step == 3:
                 self.start_button = self.next_button
+                if self.scope_preview_status == "scanning":
+                    self.next_button.configure(state="disabled")
             if self.step == 0 and self.connection_state != "verified":
                 self.next_button.configure(state="disabled")
         elif self.step == 4:
@@ -3332,6 +3428,8 @@ class RenWeaveDesktopApp:
             return
         self.step = min(3, self.step + 1)
         self.content_canvas.yview_moveto(0.0)
+        if self.step == 3:
+            self._start_scope_preview()
         self._render()
 
     def _persist_profile(self) -> Path:
@@ -3433,6 +3531,17 @@ class RenWeaveDesktopApp:
         self.root.destroy()
 
     def _start(self, *, skip_config_warning: bool = False) -> None:
+        incremental = any(
+            self.target_language.get().strip().casefold() == item.language.casefold()
+            for item in self.existing_languages
+        )
+        if incremental and (
+            self.scope_preview_signature != self._scope_signature()
+            or self.scope_preview_status != "ready"
+        ):
+            self._start_scope_preview()
+            self._render()
+            return
         if self.worker and self.worker.is_alive():
             return
         changes = self._critical_config_changes()
@@ -3538,6 +3647,28 @@ class RenWeaveDesktopApp:
                 self.update_check_state = "failed"
                 if manual:
                     self._dialog(self.t("settings.update_title"), str(error), error=True)
+            elif kind == "scope_preview_ready":
+                signature, result = value
+                if signature == self._scope_signature():
+                    inventory, budget = result
+                    self.scope_preview_signature = signature
+                    self.scope_preview_inventory = inventory
+                    self.scope_preview_budget = budget
+                    self.scope_preview_status = "ready"
+                    self.scope_preview_worker = None
+                    if self.step == 3:
+                        self._render()
+            elif kind == "scope_preview_error":
+                signature, message = value
+                if signature == self._scope_signature():
+                    self.scope_preview_signature = signature
+                    self.scope_preview_inventory = None
+                    self.scope_preview_budget = None
+                    self.scope_preview_status = "error"
+                    self.scope_preview_error = message
+                    self.scope_preview_worker = None
+                    if self.step == 3:
+                        self._render()
             elif kind == "progress":
                 assert isinstance(value, dict)
                 self._apply_progress_payload(value)

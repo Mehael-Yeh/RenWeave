@@ -750,6 +750,43 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(inventory.exact_source_reused_units, 1)
         self.assertNotIn(unit.id, {item["text_id"] for item in inventory.pending_units})
 
+    def test_existing_translation_scanner_reuses_only_safe_normalized_source(self) -> None:
+        original = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in original.text_units}
+        RenpyTranslationEmitter().emit(original, translations, "zh_hans", self.root)
+
+        for replacement in ("WE MADE IT.", "We, made it."):
+            with self.subTest(replacement=replacement):
+                (self.game / "script.rpy").write_text(
+                    SAMPLE_SCRIPT.replace("We made it.", replacement),
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                changed = ProjectIndexer().build(self.root)
+                unit = next(item for item in changed.text_units if item.source == replacement)
+                inventory = ExistingTranslationScanner().scan(changed, "zh_hans")
+                self.assertEqual(
+                    inventory.translations_by_scene[unit.scene_id][unit.id],
+                    "ZH: We made it.",
+                )
+                self.assertEqual(inventory.normalized_source_reused_units, 1)
+
+    def test_existing_translation_scanner_does_not_reuse_changed_wording(self) -> None:
+        original = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in original.text_units}
+        RenpyTranslationEmitter().emit(original, translations, "zh_hans", self.root)
+        replacement = "We finally made it."
+        (self.game / "script.rpy").write_text(
+            SAMPLE_SCRIPT.replace("We made it.", replacement),
+            encoding="utf-8",
+            newline="\n",
+        )
+        changed = ProjectIndexer().build(self.root)
+        unit = next(item for item in changed.text_units if item.source == replacement)
+        inventory = ExistingTranslationScanner().scan(changed, "zh_hans")
+        self.assertNotIn(unit.id, inventory.translations_by_scene.get(unit.scene_id, {}))
+        self.assertIn(unit.id, {item["text_id"] for item in inventory.pending_units})
+
     def test_incremental_emitter_preserves_existing_scripts_byte_for_byte(self) -> None:
         existing_dir = self.game / "tl" / "zh_hans"
         preserved_path = existing_dir / "custom" / "user_owned.rpy"
@@ -1206,7 +1243,8 @@ class CorePipelineTests(unittest.TestCase):
 
     def test_token_budget_exposes_preflight_and_indexed_ranges(self) -> None:
         preflight = estimate_project_tokens(self.root)
-        indexed = estimate_index_tokens(ProjectIndexer().build(self.root))
+        project_index = ProjectIndexer().build(self.root)
+        indexed = estimate_index_tokens(project_index)
         for budget in (preflight, indexed):
             self.assertGreater(budget.source_token_equivalent, 0)
             self.assertGreater(budget.estimated_total_low, 0)
@@ -1215,6 +1253,12 @@ class CorePipelineTests(unittest.TestCase):
             self.assertGreaterEqual(budget.estimated_output_high, budget.estimated_output_low)
         self.assertEqual(indexed.basis, "indexed_translatable_text")
         self.assertEqual(indexed.confidence, "medium")
+        empty = estimate_index_tokens(project_index, set())
+        self.assertEqual(empty.estimated_total_low, 0)
+        self.assertEqual(empty.estimated_total_high, 0)
+        self.assertEqual(empty.source_token_equivalent, 0)
+        self.assertEqual(empty.scene_count, 0)
+        self.assertEqual(empty.script_count, 0)
 
     def test_pipeline_repairs_only_invalid_texts(self) -> None:
         class RepairingGateway:

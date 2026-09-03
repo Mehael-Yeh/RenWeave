@@ -26,7 +26,7 @@ from .provider import ModelProfile, OpenAICompatibleGateway
 from .refinement import GlobalTranslationRefiner
 from .runtime import CancellationRequested, CancellationToken, RunLogger, exclusive_workspace_run
 from .translation import SceneTranslator
-from .usage import estimate_index_tokens
+from .usage import TokenBudget, estimate_index_tokens
 from .validation import TranslationValidator
 
 
@@ -312,6 +312,33 @@ class RenWeavePipeline:
             allow_tool_download=allow_tool_download,
         )
 
+    def preview_translation_scope(
+        self,
+        target: str | Path,
+        *,
+        source_language: str,
+        target_language: str,
+        cancel_token: CancellationToken | None = None,
+        progress_callback: Callable[[PipelineState], None] | None = None,
+    ) -> tuple[ExistingTranslationInventory, TokenBudget]:
+        """Analyze without a model call and report the exact remaining scope."""
+        index, _knowledge = self.analyze(
+            target,
+            source_language=source_language,
+            target_language=target_language,
+            cancel_token=cancel_token,
+            progress_callback=progress_callback,
+        )
+        inventory = ExistingTranslationScanner().scan(index, target_language)
+        atomic_write_json(self.existing_translations_path, inventory.to_dict())
+        reused_ids = {
+            text_id
+            for scene_translations in inventory.translations_by_scene.values()
+            for text_id in scene_translations
+        }
+        pending_ids = {unit.id for unit in index.text_units if unit.id not in reused_ids}
+        return inventory, estimate_index_tokens(index, pending_ids)
+
     def _decompile_roots(
         self,
         source_roots: list[Path],
@@ -407,15 +434,6 @@ class RenWeavePipeline:
             candidates = candidates[:limit]
         state.total_scenes = len(candidates)
         state.total_text_units = sum(len(scene.text_units) for scene in candidates)
-        budget = estimate_index_tokens(index)
-        state.estimated_input_tokens_low = budget.estimated_input_low
-        state.estimated_input_tokens_high = budget.estimated_input_high
-        state.estimated_output_tokens_low = budget.estimated_output_low
-        state.estimated_output_tokens_high = budget.estimated_output_high
-        state.estimated_total_tokens_low = budget.estimated_total_low
-        state.estimated_total_tokens_high = budget.estimated_total_high
-        state.source_token_equivalent = budget.source_token_equivalent
-        state.token_estimate_confidence = budget.confidence
         validator = TranslationValidator()
         existing_inventory = self._import_existing_translations(
             index,
@@ -424,6 +442,22 @@ class RenWeavePipeline:
             validator,
             target_language,
         )
+        candidate_ids = {unit.id for scene in candidates for unit in scene.text_units}
+        reused_ids = {
+            text_id
+            for translations in existing_inventory.translations_by_scene.values()
+            for text_id in translations
+        }
+        budget_ids = candidate_ids - reused_ids if existing_inventory.has_existing_language else candidate_ids
+        budget = estimate_index_tokens(index, budget_ids)
+        state.estimated_input_tokens_low = budget.estimated_input_low
+        state.estimated_input_tokens_high = budget.estimated_input_high
+        state.estimated_output_tokens_low = budget.estimated_output_low
+        state.estimated_output_tokens_high = budget.estimated_output_high
+        state.estimated_total_tokens_low = budget.estimated_total_low
+        state.estimated_total_tokens_high = budget.estimated_total_high
+        state.source_token_equivalent = budget.source_token_equivalent
+        state.token_estimate_confidence = budget.confidence
         self._reconcile_completed_scenes(index, candidates, state, validator)
         state.workflow_mode = "incremental" if existing_inventory.has_existing_language else "full"
         state.knowledge_strategy = "reuse-existing" if state.workflow_mode == "incremental" else "lightweight-route-map"

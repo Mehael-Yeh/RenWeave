@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import re
+import unicodedata
 
 from .emitter import RenpyTranslationEmitter, normalize_renpy_language
 from .io import read_text_preserving
@@ -44,6 +45,7 @@ class ExistingTranslationInventory:
     translations_by_scene: dict[str, dict[str, str]] = field(repr=False)
     model_units: int = 0
     exact_source_reused_units: int = 0
+    normalized_source_reused_units: int = 0
     total_existing_records: int = 0
     duplicate_source_conflict_groups: int = 0
     duplicate_source_conflict_units: int = 0
@@ -142,6 +144,7 @@ class ExistingTranslationScanner:
         invalid_ids: set[str] = set()
         source_fallback_ids: set[str] = set()
         exact_source_fallback_ids: set[str] = set()
+        normalized_source_fallback_ids: set[str] = set()
         pending_units: list[dict] = []
         statement_offsets: dict[tuple[str, str, int], int] = {}
         source_offsets: dict[tuple[str, str, int], int] = {}
@@ -165,6 +168,14 @@ class ExistingTranslationScanner:
                         translated = exact_translation
                         structural_issue = ""
                         match_kind = "exact_source"
+                if translated is None or structural_issue:
+                    normalized_translation = self._unique_normalized_source_translation(
+                        unit, exact_source_rows
+                    )
+                    if normalized_translation is not None:
+                        translated = normalized_translation
+                        structural_issue = ""
+                        match_kind = "normalized_source"
                 if translated is None and self._language_neutral(unit.source):
                     translated = unit.source
                     source_fallback_ids.add(unit.id)
@@ -185,6 +196,8 @@ class ExistingTranslationScanner:
                 scene_translations[unit.id] = translated
                 if match_kind == "exact_source":
                     exact_source_fallback_ids.add(unit.id)
+                elif match_kind == "normalized_source":
+                    normalized_source_fallback_ids.add(unit.id)
             if scene_translations:
                 translations_by_scene[scene.id] = scene_translations
 
@@ -220,6 +233,7 @@ class ExistingTranslationScanner:
             translations_by_scene=translations_by_scene,
             model_units=max(0, total_units - reusable_units),
             exact_source_reused_units=len(exact_source_fallback_ids),
+            normalized_source_reused_units=len(normalized_source_fallback_ids),
             total_existing_records=sum(len(items) for items in exact_source_rows.values()),
             duplicate_source_conflict_groups=len(conflicts),
             duplicate_source_conflict_units=sum(item["occurrences"] for item in conflicts),
@@ -421,6 +435,43 @@ class ExistingTranslationScanner:
             if not ExistingTranslationScanner._structural_issue(unit, translated)
         }
         return next(iter(valid)) if len(valid) == 1 else None
+
+    @staticmethod
+    def _unique_normalized_source_translation(
+        unit: TextUnit,
+        exact_source_rows: dict[str, list[tuple[str, str]]],
+    ) -> str | None:
+        """Reuse only uniquely translated sources differing by harmless typography.
+
+        This deliberately does not perform fuzzy or semantic matching. It accepts
+        Unicode-width, whitespace, letter-case, and comma-only differences while
+        requiring Ren'Py placeholders and text tags to remain identical.
+        """
+        key = ExistingTranslationScanner._normalized_source_key(unit.source)
+        valid: set[str] = set()
+        for old_source, rows in exact_source_rows.items():
+            if old_source == unit.source:
+                continue
+            if ExistingTranslationScanner._normalized_source_key(old_source) != key:
+                continue
+            if sorted(TAG_RE.findall(old_source)) != sorted(TAG_RE.findall(unit.source)):
+                continue
+            if sorted(PLACEHOLDER_RE.findall(old_source)) != sorted(PLACEHOLDER_RE.findall(unit.source)):
+                continue
+            valid.update(
+                translated
+                for translated, _location in rows
+                if not ExistingTranslationScanner._structural_issue(unit, translated)
+            )
+            if len(valid) > 1:
+                return None
+        return next(iter(valid)) if len(valid) == 1 else None
+
+    @staticmethod
+    def _normalized_source_key(source: str) -> str:
+        normalized = unicodedata.normalize("NFKC", source)
+        normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
+        return normalized.translate(str.maketrans("", "", ",，､﹐﹑"))
 
     @staticmethod
     def _pending_unit(unit: TextUnit, reason: str, detail: str) -> dict:

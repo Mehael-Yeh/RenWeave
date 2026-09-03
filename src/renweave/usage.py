@@ -27,15 +27,28 @@ class TokenBudget:
         return asdict(self)
 
 
-def estimate_index_tokens(index: ProjectIndex) -> TokenBudget:
-    characters = sum(len(unit.source) for unit in index.text_units)
-    scenes = sum(1 for scene in index.scenes if scene.text_units)
+def estimate_index_tokens(
+    index: ProjectIndex,
+    unit_ids: set[str] | None = None,
+) -> TokenBudget:
+    selected = (
+        index.text_units
+        if unit_ids is None
+        else [unit for unit in index.text_units if unit.id in unit_ids]
+    )
+    characters = sum(len(unit.source) for unit in selected)
+    scene_ids = {unit.scene_id for unit in selected}
+    script_paths = {unit.location.relative_path for unit in selected}
     return _budget(
         characters,
-        scenes=scenes,
-        scripts=len(index.files),
+        scenes=len(scene_ids),
+        scripts=len(index.files) if unit_ids is None else len(script_paths),
         confidence="medium",
-        basis="indexed_translatable_text",
+        basis=(
+            "indexed_translatable_text"
+            if unit_ids is None
+            else "indexed_pending_translation_text"
+        ),
     )
 
 
@@ -78,6 +91,21 @@ def _budget(
     confidence: str,
     basis: str,
 ) -> TokenBudget:
+    if characters <= 0:
+        return TokenBudget(
+            source_characters=0,
+            source_token_equivalent=0,
+            estimated_input_low=0,
+            estimated_input_high=0,
+            estimated_output_low=0,
+            estimated_output_high=0,
+            estimated_total_low=0,
+            estimated_total_high=0,
+            scene_count=max(0, scenes),
+            script_count=max(0, scripts),
+            confidence=confidence,
+            basis=basis,
+        )
     source_tokens = max(1, math.ceil(max(0, characters) / 4))
     # The range includes narrative synthesis, contextual scene prompts, target output,
     # selective repairs, and risk-only refinement. Provider retries are excluded.
