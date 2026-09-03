@@ -445,6 +445,10 @@ class CorePipelineTests(unittest.TestCase):
                 app.settings_button.winfo_reqheight(),
                 app.language_button.winfo_reqheight(),
             )
+            self.assertEqual(
+                app.settings_button.winfo_reqwidth(),
+                app.language_button.winfo_reqwidth(),
+            )
             settings_tooltip = next(
                 tooltip
                 for tooltip in app._tooltips
@@ -525,6 +529,28 @@ class CorePipelineTests(unittest.TestCase):
                 ],
             )
             app._render()
+            root.update_idletasks()
+            app._sync_content_layout()
+            root.update_idletasks()
+
+            def right(widget):
+                return widget.winfo_rootx() + widget.winfo_width()
+
+            # This unit test keeps the root withdrawn, so assert the layout
+            # contract structurally; the mapped-window smoke test below checks
+            # the resulting pixel edges at every responsive breakpoint.
+            self.assertEqual(int(app.back_button.cget("width")), Metrics.FOOTER_BACK_WIDTH)
+            self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
+            self.assertEqual(int(app.review_options.grid_info()["column"]), 0)
+            self.assertEqual(int(app.review_options.grid_info()["columnspan"]), 2)
+            self.assertEqual(int(app.review_details.grid_info()["column"]), 0)
+            self.assertEqual(int(app.review_details.grid_info()["columnspan"]), 2)
+            self.assertTrue({"e", "w"}.issubset(set(str(app.review_options.grid_info()["sticky"]))))
+            self.assertTrue({"e", "w"}.issubset(set(str(app.review_details.grid_info()["sticky"]))))
+            self.assertEqual(
+                int(app.review_pending_title.grid_info()["column"]),
+                int(app.review_detail_host.grid_info()["column"]),
+            )
 
             def widgets_of_class(widget, class_name):
                 matches = []

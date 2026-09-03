@@ -749,7 +749,10 @@ class Metrics:
     SPACE_4 = 16
     SPACE_5 = 20
     SPACE_6 = 24
-    CARD_PADDING = 22
+    PAGE_INSET = 36
+    COMPACT_PAGE_INSET = 24
+    SCROLLBAR_GUTTER = 13
+    CARD_PADDING = 20
     FIELD_GAP = 6
     CONTROL_PADDING_Y = 9
     ANIMATION_FRAME_MS = 16
@@ -760,7 +763,7 @@ class Metrics:
     BUTTON_WIDTH = 18
     FIELD_ACTION_WIDTH = 16
     DIALOG_ACTION_WIDTH = 15
-    FOOTER_BACK_WIDTH = 14
+    FOOTER_BACK_WIDTH = 17
     FOOTER_ACTION_WIDTH = 17
     FOOTER_SLOT_WIDTH = 180
     COMPACT_FOOTER_SLOT_WIDTH = 150
@@ -1261,6 +1264,12 @@ class RenWeaveDesktopApp:
         self.start_button = None
         self.next_button = None
         self.back_button = None
+        self.page_card = None
+        self.review_options = None
+        self.review_details = None
+        self.review_pending_title = None
+        self.review_detail_host = None
+        self.review_detail_text = None
         self.progress = None
         self.log = None
         self.content = None
@@ -1578,13 +1587,14 @@ class RenWeaveDesktopApp:
         style.configure("App.TFrame", background=Colors.SURFACE)
         style.configure("TopBar.TFrame", background=Colors.CARD)
         style.configure("Footer.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
+        style.configure("FooterRule.TFrame", background=Colors.OUTLINE_VARIANT, relief="flat", borderwidth=0)
         style.configure("FooterSlot.TFrame", background=Colors.SURFACE)
         style.configure("ActionBar.TFrame", background=Colors.SURFACE, relief="flat", borderwidth=0)
         style.configure("LanguageGroup.TFrame", background=Colors.SURFACE_HIGH, relief="flat", borderwidth=0)
         style.configure("Content.TFrame", background=Colors.SURFACE, padding=(36, 24))
         style.configure("Card.TFrame", background=Colors.CARD, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("CardBody.TFrame", background=Colors.CARD, relief="flat", borderwidth=0)
-        style.configure("TintCard.TFrame", background=Colors.SURFACE_CONTAINER, relief="flat")
+        style.configure("TintCard.TFrame", background=Colors.SURFACE_CONTAINER, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("Dialog.TFrame", background=Colors.CARD)
         style.configure("SuccessActions.TFrame", background=Colors.SUCCESS_CONTAINER)
         style.configure("TopLabel.TLabel", background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL, "bold"))
@@ -1602,6 +1612,7 @@ class RenWeaveDesktopApp:
         style.configure("ErrorBody.TLabel", background=Colors.CARD, foreground=Colors.ERROR, font=(Typography.UI, Typography.BODY))
         style.configure("Status.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"))
         style.configure("StatusBody.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
+        style.configure("TintHint.TLabel", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
         style.configure("Primary.TButton", anchor="center", padding=(16, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, Typography.BODY, "bold"), foreground=Colors.ON_PRIMARY, background=Colors.PRIMARY, borderwidth=0, relief="flat")
         style.map("Primary.TButton", background=[("pressed", Colors.PRIMARY_HOVER), ("active", Colors.PRIMARY_HOVER), ("disabled", Colors.OUTLINE_VARIANT)], foreground=[("disabled", Colors.CARD)], bordercolor=[("focus", Colors.ON_PRIMARY_CONTAINER)])
         style.configure("Secondary.TButton", anchor="center", padding=(14, Metrics.CONTROL_PADDING_Y), font=(Typography.UI, Typography.BODY, "bold"), foreground=Colors.ON_SURFACE, background=Colors.SURFACE_HIGH, borderwidth=0, relief="flat")
@@ -1650,6 +1661,8 @@ class RenWeaveDesktopApp:
         style.map("Workspace.TCombobox", bordercolor=[("focus", Colors.PRIMARY)], fieldbackground=[("readonly", Colors.CARD), ("disabled", Colors.SURFACE_CONTAINER)], selectbackground=[("readonly", Colors.CARD)], selectforeground=[("readonly", Colors.ON_SURFACE)], arrowcolor=[("disabled", Colors.OUTLINE)])
         style.configure("Material.TCheckbutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY), padding=(0, 5), focuscolor=Colors.CARD)
         style.map("Material.TCheckbutton", background=[("active", Colors.CARD)], foreground=[("disabled", Colors.OUTLINE)])
+        style.configure("Tint.TCheckbutton", background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY), padding=(0, 5), focuscolor=Colors.SURFACE_CONTAINER)
+        style.map("Tint.TCheckbutton", background=[("active", Colors.SURFACE_CONTAINER)], foreground=[("disabled", Colors.OUTLINE)])
         style.configure("Material.TRadiobutton", background=Colors.CARD, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY), padding=(0, 5), focuscolor=Colors.CARD)
         style.map("Material.TRadiobutton", background=[("active", Colors.CARD)], foreground=[("focus", Colors.PRIMARY)])
         style.configure("ModelList.Treeview", background=Colors.CARD, fieldbackground=Colors.CARD, foreground=Colors.ON_SURFACE, bordercolor=Colors.OUTLINE_VARIANT, lightcolor=Colors.OUTLINE_VARIANT, darkcolor=Colors.OUTLINE_VARIANT, rowheight=Metrics.LIST_ROW_HEIGHT, font=(Typography.UI, Typography.BODY), relief="flat")
@@ -1718,7 +1731,11 @@ class RenWeaveDesktopApp:
         )
         self.privacy_label.grid(row=3, column=0, sticky="ew", padx=18, pady=20)
 
-        self.top = self.ttk.Frame(self.shell, style="TopBar.TFrame", padding=(36, 0, 36, 0))
+        self.top = self.ttk.Frame(
+            self.shell,
+            style="TopBar.TFrame",
+            padding=(Metrics.PAGE_INSET, 0, Metrics.PAGE_INSET + Metrics.SCROLLBAR_GUTTER, 0),
+        )
         self.top.grid(row=0, column=1, sticky="ew")
         self.top.columnconfigure(1, weight=1)
         self.workspace_label = self.ttk.Label(self.top, style="TopLabel.TLabel")
@@ -1733,14 +1750,14 @@ class RenWeaveDesktopApp:
             self._language_toggle_text(),
             self._toggle_locale,
             kind="ghost",
-            width=9,
+            width=10,
         )
         self.language_button.grid(row=0, column=3, sticky="e")
 
         content_host = self.ttk.Frame(self.shell, style="App.TFrame")
         content_host.grid(row=1, column=1, sticky="nsew")
         content_host.columnconfigure(0, weight=1)
-        content_host.columnconfigure(1, minsize=13)
+        content_host.columnconfigure(1, minsize=Metrics.SCROLLBAR_GUTTER)
         content_host.rowconfigure(0, weight=1)
         self.content_canvas = self.tk.Canvas(
             content_host,
@@ -1755,16 +1772,29 @@ class RenWeaveDesktopApp:
         self.content_scrollbar.grid(row=0, column=1, sticky="ns")
         self.content_scrollbar.grid_remove()
         self.content_canvas.configure(yscrollcommand=self.content_scrollbar.set)
-        self.content = self.ttk.Frame(self.content_canvas, style="Content.TFrame", padding=(36, 0, 36, 0))
+        self.content = self.ttk.Frame(
+            self.content_canvas,
+            style="Content.TFrame",
+            padding=(Metrics.PAGE_INSET, 0, Metrics.PAGE_INSET, 0),
+        )
         self.content_window = self.content_canvas.create_window((0, 0), window=self.content, anchor="nw")
         self.content.columnconfigure(0, weight=1)
         self.content.rowconfigure(1, weight=1)
         self.content_canvas.bind("<Configure>", self._schedule_content_layout)
         self.content.bind("<Configure>", self._schedule_content_layout)
 
-        self.footer = self.ttk.Frame(self.shell, style="Footer.TFrame", padding=(36, 6, 36, 8))
+        self.footer = self.ttk.Frame(
+            self.shell,
+            style="Footer.TFrame",
+            padding=(
+                Metrics.PAGE_INSET,
+                0,
+                Metrics.PAGE_INSET + Metrics.SCROLLBAR_GUTTER,
+                Metrics.SPACE_2,
+            ),
+        )
         self.footer.grid(row=2, column=1, sticky="ew")
-        self.footer.columnconfigure(1, weight=1)
+        self.footer.columnconfigure(0, weight=1)
 
     def _change_locale(self, _event=None) -> None:
         self._set_locale("zh" if self.locale_display.get() == "简体中文" else "en")
@@ -1960,10 +1990,11 @@ class RenWeaveDesktopApp:
         self.settings_button.configure(text=self.t("settings.title"))
         self.language_button.configure(text=self._language_toggle_text())
         self.privacy_label.configure(text=self.t("nav_privacy"))
-        inset = 24 if self.compact_layout else 36
-        self.top.configure(padding=(inset, 10, inset, 10))
+        inset = Metrics.COMPACT_PAGE_INSET if self.compact_layout else Metrics.PAGE_INSET
+        aligned_right_inset = inset + Metrics.SCROLLBAR_GUTTER
+        self.top.configure(padding=(inset, 10, aligned_right_inset, 10))
         self.content.configure(padding=(inset, 0, inset, 0))
-        self.footer.configure(padding=(inset, 6, inset, 8))
+        self.footer.configure(padding=(inset, 0, aligned_right_inset, Metrics.SPACE_2))
         for index, button in enumerate(getattr(self, "nav_buttons", [])):
             is_current = index == self.step
             prefix = "✓" if index < self.step else f"{index + 1:02d}"
@@ -1997,6 +2028,12 @@ class RenWeaveDesktopApp:
         self.next_button = None
         self.back_button = None
         self.start_button = None
+        self.page_card = None
+        self.review_options = None
+        self.review_details = None
+        self.review_pending_title = None
+        self.review_detail_host = None
+        self.review_detail_text = None
         for parent in (self.nav, self.content, self.footer):
             for child in parent.winfo_children():
                 child.destroy()
@@ -2074,10 +2111,11 @@ class RenWeaveDesktopApp:
             justify="left",
         ).grid(row=1, column=0, sticky="w", pady=(6, 14))
 
-    def _card(self, parent=None, *, row: int = 2, padding: int = 20):
+    def _card(self, parent=None, *, row: int = 2, padding: int = Metrics.CARD_PADDING):
         card = self.ttk.Frame(parent or self.page, style="Card.TFrame", padding=padding)
         card.grid(row=row, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
+        self.page_card = card
         return card
 
     def _field(self, parent, row: int, label: str, variable, *, hint: str = "", secret: bool = False):
@@ -2089,7 +2127,7 @@ class RenWeaveDesktopApp:
         return entry
 
     def _render_model(self) -> None:
-        card = self._card(padding=20)
+        card = self._card()
         card.columnconfigure(0, weight=1)
 
         title_row = self.ttk.Frame(card, style="CardBody.TFrame")
@@ -2665,7 +2703,7 @@ class RenWeaveDesktopApp:
                 row=index // 2,
                 column=index % 2,
                 sticky="nsew",
-                padx=(0 if index % 2 == 0 else 6, 0),
+                padx=(0, 4) if index % 2 == 0 else (4, 0),
                 pady=(0 if index < 2 else 8, 0),
             )
             summary.columnconfigure(0, weight=1)
@@ -2718,34 +2756,38 @@ class RenWeaveDesktopApp:
         else:
             self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.BODY), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
 
+        options = self.ttk.Frame(card, style="TintCard.TFrame", padding=(14, 10))
+        options.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        options.columnconfigure(0, weight=1)
+        self.review_options = options
         self.ttk.Checkbutton(
-            card,
+            options,
             text=self.t("review.rpa"),
             variable=self.generate_rpa,
-            style="Material.TCheckbutton",
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(16, 0))
+            style="Tint.TCheckbutton",
+        ).grid(row=0, column=0, sticky="w")
         self.ttk.Label(
-            card,
+            options,
             text=self.t("review.rpa_hint"),
-            style="Hint.TLabel",
+            style="TintHint.TLabel",
             wraplength=720,
             justify="left",
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
         self.ttk.Checkbutton(
-            card,
+            options,
             text=self.t("review.install"),
             variable=self.install,
-            style="Material.TCheckbutton",
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(14, 0))
+            style="Tint.TCheckbutton",
+        ).grid(row=2, column=0, sticky="w", pady=(8, 0))
         self.ttk.Label(
-            card, text=self.t("review.install_hint"), style="Hint.TLabel"
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
+            options, text=self.t("review.install_hint"), style="TintHint.TLabel"
+        ).grid(row=3, column=0, sticky="w", pady=(2, 0))
         self.ttk.Label(
-            card, text=self.t("review.key_safe"), style="Hint.TLabel"
-        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(12, 0))
+            options, text=self.t("review.key_safe"), style="TintHint.TLabel"
+        ).grid(row=4, column=0, sticky="w", pady=(8, 0))
         if self.resume_candidate:
             resume = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
-            resume.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+            resume.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(12, 0))
             self.ttk.Label(resume, text=self.t("review.resume_found"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
             self.ttk.Label(
                 resume,
@@ -2760,16 +2802,22 @@ class RenWeaveDesktopApp:
         inventory = self.scope_preview_inventory if self.scope_preview_signature == self._scope_signature() else None
         if incremental and inventory is not None and inventory.pending_units:
             details = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
-            details.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+            details.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
             details.columnconfigure(0, weight=1)
-            self.ttk.Label(
+            details.rowconfigure(1, weight=1)
+            card.rowconfigure(5, weight=1)
+            self.review_details = details
+            self.review_pending_title = self.ttk.Label(
                 details,
                 text=self.t("review.pending_title", count=inventory.model_units),
                 style="Status.TLabel",
-            ).grid(row=0, column=0, sticky="w")
+            )
+            self.review_pending_title.grid(row=0, column=0, sticky="w")
             detail_host = self.ttk.Frame(details, style="TintCard.TFrame")
-            detail_host.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+            detail_host.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
             detail_host.columnconfigure(0, weight=1)
+            detail_host.rowconfigure(0, weight=1)
+            self.review_detail_host = detail_host
             detail_text = self.tk.Text(
                 detail_host,
                 height=9,
@@ -2789,7 +2837,8 @@ class RenWeaveDesktopApp:
                 pady=10,
                 takefocus=True,
             )
-            detail_text.grid(row=0, column=0, sticky="ew")
+            detail_text.grid(row=0, column=0, sticky="nsew")
+            self.review_detail_text = detail_text
             detail_scrollbar = self._scrollbar(detail_host, command=detail_text.yview)
             detail_scrollbar.grid(row=0, column=1, sticky="ns")
             detail_text.configure(yscrollcommand=detail_scrollbar.set)
@@ -2811,7 +2860,7 @@ class RenWeaveDesktopApp:
         self._displayed_progress_percent = percent
         self.progress_value = self.tk.DoubleVar(value=percent)
         self.progress_percent_text = self.tk.StringVar(value=f"{percent:.0f}%")
-        card = self._card(padding=18)
+        card = self._card()
         card.columnconfigure(0, weight=1)
         heading = self.ttk.Frame(card, style="CardBody.TFrame")
         heading.grid(row=0, column=0, sticky="ew")
@@ -3240,40 +3289,41 @@ class RenWeaveDesktopApp:
 
     def _render_footer(self) -> None:
         slot_width = Metrics.COMPACT_FOOTER_SLOT_WIDTH if self.compact_layout else Metrics.FOOTER_SLOT_WIDTH
+        rule = self.ttk.Frame(self.footer, style="FooterRule.TFrame", height=1)
+        rule.grid(row=0, column=0, sticky="ew")
+        rule.grid_propagate(False)
         action_bar = self.ttk.Frame(self.footer, style="ActionBar.TFrame")
-        action_bar.grid(row=0, column=0, columnspan=3, sticky="ew")
-        action_bar.columnconfigure(0, minsize=slot_width)
+        action_bar.grid(row=1, column=0, sticky="ew", pady=(Metrics.SPACE_2, 0))
+        action_bar.columnconfigure(0, minsize=slot_width, uniform="footer_actions")
         action_bar.columnconfigure(1, weight=1)
-        action_bar.columnconfigure(2, minsize=slot_width)
-        left_slot = self.ttk.Frame(action_bar, style="FooterSlot.TFrame")
-        left_slot.grid(row=0, column=0, sticky="w")
-        right_slot = self.ttk.Frame(action_bar, style="FooterSlot.TFrame")
-        right_slot.grid(row=0, column=2, sticky="e")
+        action_bar.columnconfigure(2, minsize=slot_width, uniform="footer_actions")
+        self.footer_action_bar = action_bar
         model_blocked = self.step == 0 and self.connection_state != "verified"
         effect = self.ttk.Label(
             action_bar,
             text=self.t("model.required") if model_blocked else self.t(f"footer.effect.{self.STEPS[self.step]}"),
             style="ActionWarning.TLabel" if model_blocked else "ActionHint.TLabel",
             wraplength=260 if self.compact_layout else 560,
-            justify="left",
+            anchor="center",
+            justify="center",
         )
         effect_padding = Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4
-        effect.grid(row=0, column=1, sticky="w", padx=effect_padding)
+        effect.grid(row=0, column=1, sticky="ew", padx=effect_padding)
         if (self.step > 0 and self.step < 4) or self._can_leave_translation():
             self.back_button = self._button(
-                left_slot,
+                action_bar,
                 self.t("back"),
                 lambda: self._go_to_step(3 if self.step == 4 else self.step - 1),
                 kind="secondary",
                 width=Metrics.FOOTER_BACK_WIDTH,
             )
-            self.back_button.pack(side="left")
+            self.back_button.grid(row=0, column=0, sticky="ew")
             self._guide(self.back_button, "tip.back")
         action_text = self.t("progress.resume") if self.step == 3 and self.resume_candidate else (self.t("start") if self.step == 3 else self.t("continue"))
         if self.step < 4:
             command = self._start if self.step == 3 else self._continue
-            self.next_button = self._button(right_slot, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
-            self.next_button.pack(side="right")
+            self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
+            self.next_button.grid(row=0, column=2, sticky="ew")
             self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
             if self.step == 3:
                 self.start_button = self.next_button
@@ -3284,17 +3334,17 @@ class RenWeaveDesktopApp:
         elif self.step == 4:
             running = bool(self.worker and self.worker.is_alive())
             if running:
-                self.pause_button = self._button(right_slot, self.t("progress.pause"), self._request_pause, kind="secondary", width=Metrics.FOOTER_ACTION_WIDTH)
-                self.pause_button.pack(side="right")
+                self.pause_button = self._button(action_bar, self.t("progress.pause"), self._request_pause, kind="secondary", width=Metrics.FOOTER_ACTION_WIDTH)
+                self.pause_button.grid(row=0, column=2, sticky="ew")
                 self._guide(self.pause_button, "tip.pause")
             elif self.last_stage in {"paused", "failed"}:
                 label = self.t("progress.resume") if self.last_stage == "paused" else self.t("progress.retry")
-                resume_button = self._button(right_slot, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
-                resume_button.pack(side="right")
+                resume_button = self._button(action_bar, label, self._start, width=Metrics.FOOTER_ACTION_WIDTH)
+                resume_button.grid(row=0, column=2, sticky="ew")
                 self._guide(resume_button, "tip.resume")
             else:
-                close_button = self._button(right_slot, self.t("close"), self._close_window, width=Metrics.FOOTER_ACTION_WIDTH)
-                close_button.pack(side="right")
+                close_button = self._button(action_bar, self.t("close"), self._close_window, width=Metrics.FOOTER_ACTION_WIDTH)
+                close_button.grid(row=0, column=2, sticky="ew")
 
     def _bind_provider_changes(self) -> None:
         for setting_name, variable in (

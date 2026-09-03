@@ -16,11 +16,12 @@ Material Design 3, UI UX Pro Max, and Awesome Design Systems are design referenc
 - Default window: `1240 × 840`; minimum: `900 × 640`.
 - Workflow rail: `232 px` by default and a compact `76 px` rail below the narrow breakpoint.
 - Main canvas horizontal inset: `36 px` by default and `24 px` in compact layouts.
-- Card inset: `18 px`; standard field gap: `6 px`.
+- Card inset: `20 px`; standard field gap: `6 px`.
 - Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
 - Interactive controls target a `44 px` visual height and use Microsoft YaHei UI for bilingual consistency.
 - Typography uses exactly four size tokens: `SMALL` (9) for metadata and hints, `BODY` (10) for controls and ordinary copy, `TITLE` (18) for dialog/brand emphasis, and `DISPLAY` (24) for page titles and primary progress values. Weight communicates hierarchy within those sizes; page code must not introduce numeric font sizes.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
+- Top-bar actions, content cards, and footer actions share one right edge; the top and footer reserve the same `13 px` scrollbar gutter as the content host.
 - Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
 - Pages should remain structurally fixed within the minimum window. The outer canvas is an overflow fallback, not the normal reading surface; long diagnostics, incremental-scope details, and logs belong in bounded local scroll regions.
 
@@ -55,8 +56,9 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 | Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
 | Diagnostic/long text | bounded styled `tk.Text` | Fixed-height local scrolling with the same border/focus/selection colors as form controls; do not create dozens of wrapping labels that enlarge the whole page |
 | Completed outputs | secondary actions on the progress page and completion dialog | Always offer the RPY directory; offer the RPA-containing directory when an archive was generated |
-| Outer card | `Card.TFrame` | The only bordered content container |
-| Inner layout | `CardBody.TFrame` | No nested pseudo-card borders |
+| Outer card | `Card.TFrame` | Main page boundary; uses the standard outline |
+| Section panel | `TintCard.TFrame` | Bounded summary, option, and detail groups; uses the subtle outline and shared inset |
+| Inner layout | `CardBody.TFrame` | Borderless structural rows inside a card or section panel |
 
 ## Interaction states
 
@@ -88,7 +90,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 
 Before merging UI changes, render all five workflow pages plus the model picker and error dialog at default, compact, and minimum window sizes. Verify:
 
-1. Left edges, field heights, button heights, and footer slots do not move between pages.
+1. Left edges, right edges, field heights, button heights, and footer slots do not move between pages; card and primary-action right edges differ by no more than `1 px`.
 2. English and Simplified Chinese copy does not clip.
 3. Hover, focus, selected, disabled, paused, failed, and unavailable-usage states remain legible.
 4. Text fields, list rows, diagnostic text, and scrollbars use the documented styles.
@@ -96,4 +98,4 @@ Before merging UI changes, render all five workflow pages plus the model picker 
 6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
 7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint.
 8. Windows builds render one GUI window with an integrated dark title bar and no console window.
-9. CI uploads 36 pixel screenshots covering the bilingual workflow, three responsive sizes, connecting/retry/paused states, Settings, model selection, and the error dialog; inspect the artifact for clipping and font fallback.
+9. CI uploads 38 pixel screenshots covering the bilingual workflow, three responsive sizes, incremental review details, connecting/retry/paused states, Settings, model selection, and the error dialog; inspect the artifact for clipping and font fallback.

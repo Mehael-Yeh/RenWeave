@@ -138,6 +138,28 @@ def verify_layout(output_dir: Path | None = None) -> None:
                         raise RuntimeError(
                             f"Workflow action is too small at {width}x{height}, {locale}, step {step}"
                         )
+                    if app.next_button is not None:
+                        card_right = app.page_card.winfo_rootx() + app.page_card.winfo_width()
+                        action_right = app.next_button.winfo_rootx() + app.next_button.winfo_width()
+                        if abs(card_right - action_right) > 1:
+                            raise RuntimeError(
+                                f"Workflow action is not aligned to the card at "
+                                f"{width}x{height}, {locale}, step {step}: "
+                                f"card_right={card_right}, action_right={action_right}"
+                            )
+                    if app.back_button is not None and app.next_button is not None:
+                        if app.back_button.winfo_width() != app.next_button.winfo_width():
+                            raise RuntimeError(
+                                f"Footer actions have unequal widths at "
+                                f"{width}x{height}, {locale}, step {step}"
+                            )
+                    if (
+                        app.settings_button.winfo_width() != app.language_button.winfo_width()
+                        or app.settings_button.winfo_height() != app.language_button.winfo_height()
+                    ):
+                        raise RuntimeError(
+                            f"Header actions have unequal dimensions at {width}x{height}, {locale}"
+                        )
                     if output_dir is not None:
                         root.update()
                         capture_window(
@@ -158,6 +180,48 @@ def verify_layout(output_dir: Path | None = None) -> None:
         if output_dir is not None:
             root.geometry("1240x840+20+20")
             root.update()
+            app._set_locale("zh")
+            app.source_language.set("English")
+            app.target_language.set("zh_hans")
+            app.scope_preview_signature = app._scope_signature()
+            app.scope_preview_status = "ready"
+            pending_units = [
+                {
+                    "file": f"game/story/chapter_{index:02d}.rpy",
+                    "line": index * 17,
+                    "source": f"Incremental source line {index}",
+                    "detail": "missing" if index % 2 else "changed",
+                }
+                for index in range(1, 19)
+            ]
+            app.scope_preview_inventory = SimpleNamespace(
+                total_units=430,
+                reusable_units=412,
+                model_units=len(pending_units),
+                files_scanned=28,
+                pending_units=pending_units,
+            )
+            app.step = 3
+            app.worker = None
+            app._render()
+            root.update()
+            if app.review_details is None or app.review_detail_host is None:
+                raise RuntimeError("Incremental review details were not rendered")
+            options_left = app.review_options.winfo_rootx()
+            details_left = app.review_details.winfo_rootx()
+            options_right = options_left + app.review_options.winfo_width()
+            details_right = details_left + app.review_details.winfo_width()
+            title_left = app.review_pending_title.winfo_rootx()
+            detail_left = app.review_detail_host.winfo_rootx()
+            if abs(options_left - details_left) > 1 or abs(options_right - details_right) > 1:
+                raise RuntimeError("Incremental review panel does not share the options alignment")
+            if abs(title_left - detail_left) > 1:
+                raise RuntimeError("Incremental review title and local scroller are not left-aligned")
+            capture_window(root, output_dir / "zh-review-incremental.png")
+            app.content_canvas.yview_moveto(1.0)
+            root.update()
+            capture_window(root, output_dir / "zh-review-incremental-details.png")
+
             app._set_locale("en")
             app.status.set("Translating chapter_two")
             app.step = 0
