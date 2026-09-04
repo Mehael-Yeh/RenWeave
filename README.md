@@ -3,6 +3,7 @@
 [![CI](https://github.com/Mehael-Yeh/RenWeave/actions/workflows/ci.yml/badge.svg)](https://github.com/Mehael-Yeh/RenWeave/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB)](https://www.python.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/Mehael-Yeh/RenWeave/total?label=Downloads)](https://github.com/Mehael-Yeh/RenWeave/releases)
 
 **English** · [简体中文](docs/README.zh-CN.md)
 
