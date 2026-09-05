@@ -13,21 +13,18 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMainWindow,
     QMessageBox,
-    QFileDialog,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -42,7 +39,13 @@ from PySide6.QtWidgets import (
 from .build_validation import RenpySdkLocator
 from .discovery import ProjectDiscovery
 from .existing_translations import discover_existing_languages
-from .gui import COPY, _user_home_fallback, default_desktop_settings_path, execute_translation
+from .desktop_core import (
+    TranslationRequest,
+    _user_home_fallback,
+    default_desktop_settings_path,
+    execute_blank_translation,
+    execute_translation,
+)
 from .io import atomic_write_json, read_json
 from .pipeline import RenWeavePipeline
 from .provider import ModelProfile, OpenAICompatibleCatalog
@@ -637,8 +640,6 @@ class QtRenWeaveWindow(QMainWindow):
             workspace.mkdir(parents=True, exist_ok=True)
             provider_path = workspace / ".renweave" / "provider.json"
             profile.save(provider_path)
-            from .gui import TranslationRequest
-
             request = TranslationRequest(
                 project=self.project_edit.text().strip(),
                 workspace=str(workspace),
@@ -683,7 +684,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.step = 4
         self._refresh_shell()
         self._run_worker(
-            lambda emit: __import__("renweave.gui", fromlist=["execute_blank_translation"]).execute_blank_translation(
+            lambda emit: execute_blank_translation(
                 project,
                 workspace,
                 source,
