@@ -1137,7 +1137,7 @@ class GuidedTooltip:
             pady=9,
         )
         shell.pack()
-        self.app.tk.Label(
+        self.app.ttk.Label(
             shell,
             text=self.app.t(self.translation_key),
             background=Colors.NAV,
@@ -2036,14 +2036,14 @@ class RenWeaveDesktopApp:
         self.brand = self.tk.Frame(self.sidebar, background=Colors.NAV)
         self.brand.grid(row=0, column=0, sticky="ew", padx=20, pady=(24, 20))
         self.brand.columnconfigure(1, weight=1)
-        self.brand_mark = self.tk.Label(
+        self.brand_mark = self.ttk.Label(
             self.brand,
             image=self._app_icon,
             background=Colors.NAV,
             borderwidth=0,
         )
         self.brand_mark.grid(row=0, column=0, sticky="w")
-        self.brand_title = self.tk.Label(
+        self.brand_title = self.ttk.Label(
             self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_TEXT,
@@ -2053,7 +2053,7 @@ class RenWeaveDesktopApp:
             wraplength=215,
         )
         self.brand_title.grid(row=0, column=1, sticky="w", padx=(10, 0))
-        self.brand_subtitle = self.tk.Label(
+        self.brand_subtitle = self.ttk.Label(
             self.brand,
             background=Colors.NAV,
             foreground=Colors.NAV_MUTED,
@@ -2066,7 +2066,7 @@ class RenWeaveDesktopApp:
 
         self.nav = self.tk.Frame(self.sidebar, background=Colors.NAV)
         self.nav.grid(row=1, column=0, sticky="ew", padx=14)
-        self.privacy_label = self.tk.Label(
+        self.privacy_label = self.ttk.Label(
             self.sidebar,
             background=Colors.NAV_ACTIVE,
             foreground=Colors.NAV_MUTED,
@@ -2074,8 +2074,7 @@ class RenWeaveDesktopApp:
             justify="left",
             anchor="w",
             wraplength=160,
-            padx=14,
-            pady=12,
+            padding=(14, 12),
         )
         self.privacy_label.grid(row=3, column=0, sticky="ew", padx=18, pady=20)
 
@@ -2417,14 +2416,13 @@ class RenWeaveDesktopApp:
 
     def _render_header(self) -> None:
         step_name = self.STEPS[self.step]
-        step_badge = self.tk.Label(
+        step_badge = self.ttk.Label(
             self.page_mount,
             text=self.t("step_count", current=self.step + 1, total=len(self.STEPS)),
             background=Colors.PRIMARY_CONTAINER,
             foreground=Colors.ON_PRIMARY_CONTAINER,
             font=(Typography.UI, Typography.SMALL, "bold"),
-            padx=10,
-            pady=5,
+            padding=(10, 5),
         )
         step_badge.grid(row=0, column=0, sticky="w")
         body = self.ttk.Frame(self.page_mount, style="App.TFrame")
@@ -2734,14 +2732,14 @@ class RenWeaveDesktopApp:
             pady=9,
         )
         runtime.grid(row=7, column=0, sticky="ew")
-        self.tk.Label(
+        self.ttk.Label(
             runtime,
             text="✓" if runtime_found else "i",
             background=Colors.SUCCESS_CONTAINER if runtime_found else Colors.SURFACE_CONTAINER,
             foreground=Colors.SUCCESS if runtime_found else Colors.ON_SURFACE_VARIANT,
             font=(Typography.UI, Typography.BODY, "bold"),
         ).pack(side="left")
-        self.tk.Label(
+        self.ttk.Label(
             runtime,
             text=(
                 self.t("game.runtime_found", path=self._display_path(self.renpy_sdk.get(), max_chars=70))
@@ -2762,11 +2760,11 @@ class RenWeaveDesktopApp:
         self.ttk.Checkbutton(card, text=self.t("game.require_engine"), variable=self.require_engine, style="Material.TCheckbutton").grid(row=9, column=0, sticky="w", pady=(12, 0))
         safety = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=12, pady=9)
         safety.grid(row=10, column=0, sticky="ew", pady=(16, 0))
-        self.tk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold")).pack(side="left")
+        self.ttk.Label(safety, text="✓", background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold")).pack(side="left")
         safety_copy = self.tk.Frame(safety, background=Colors.SUCCESS_CONTAINER)
         safety_copy.pack(side="left", fill="x", expand=True, padx=(9, 0))
-        self.tk.Label(safety_copy, text=self.t("game.safety_title"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), justify="left", anchor="w").pack(fill="x")
-        self.tk.Label(safety_copy, text=self.t("game.safety_body"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=540 if self.compact_layout else 700, justify="left", anchor="w").pack(fill="x", pady=(2, 0))
+        self.ttk.Label(safety_copy, text=self.t("game.safety_title"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), justify="left", anchor="w").pack(fill="x")
+        self.ttk.Label(safety_copy, text=self.t("game.safety_body"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=540 if self.compact_layout else 700, justify="left", anchor="w").pack(fill="x", pady=(2, 0))
 
     def _path_field(self, parent, row: int, label: str, variable, hint: str, command: Callable[[], None], tooltip_key: str) -> None:
         self.ttk.Label(parent, text=label, style="Field.TLabel").grid(row=row, column=0, sticky="w")
@@ -2831,7 +2829,7 @@ class RenWeaveDesktopApp:
             existing = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=14, pady=12)
             existing.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
             existing.columnconfigure(0, weight=1)
-            self.tk.Label(
+            self.ttk.Label(
                 existing,
                 text=self.t("languages.existing_title"),
                 background=Colors.SUCCESS_CONTAINER,
@@ -2839,7 +2837,7 @@ class RenWeaveDesktopApp:
                 font=(Typography.UI, Typography.BODY, "bold"),
                 anchor="w",
             ).grid(row=0, column=0, sticky="w")
-            self.tk.Label(
+            self.ttk.Label(
                 existing,
                 text=self.t("languages.existing_body"),
                 background=Colors.SUCCESS_CONTAINER,
@@ -2863,7 +2861,7 @@ class RenWeaveDesktopApp:
                 )
                 button.grid(row=2 + item_index, column=0, sticky="ew", pady=(0 if item_index == 0 else 6, 0))
             if any(self.target_language.get().strip().casefold() == item.language.casefold() for item in self.existing_languages):
-                self.tk.Label(
+                self.ttk.Label(
                     existing,
                     text=self.t("languages.incremental_selected"),
                     background=Colors.SUCCESS_CONTAINER,
@@ -2906,17 +2904,17 @@ class RenWeaveDesktopApp:
             summary = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=14, pady=12)
             summary.grid(row=row_offset + 4, column=0, columnspan=2, sticky="ew", pady=(18, 0))
             summary.columnconfigure(0, weight=1)
-            self.tk.Label(
+            self.ttk.Label(
                 summary, text=self.t("languages.scan_summary"), background=Colors.SUCCESS_CONTAINER,
                 foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), anchor="w",
             ).grid(row=0, column=0, sticky="w")
-            self.tk.Label(
+            self.ttk.Label(
                 summary,
                 text=self.t("languages.scan_counts", reused=inventory.reusable_units, pending=inventory.model_units, files=inventory.files_scanned),
                 background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
                 font=(Typography.UI, Typography.BODY), justify="left", anchor="w",
             ).grid(row=1, column=0, sticky="w", pady=(7, 0))
-            self.tk.Label(
+            self.ttk.Label(
                 summary, text=self.t("languages.incremental_choice"), background=Colors.SUCCESS_CONTAINER,
                 foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w",
             ).grid(row=2, column=0, sticky="w", pady=(8, 0))
@@ -3047,8 +3045,8 @@ class RenWeaveDesktopApp:
         task_card = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=18, pady=16)
         task_card.grid(row=0, column=0, sticky="ew")
         task_card.columnconfigure(0, weight=1)
-        self.tk.Label(task_card, text=game_name, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
-        self.tk.Label(
+        self.ttk.Label(task_card, text=game_name, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+        self.ttk.Label(
             task_card,
             text=f"{self._display_language_name(self.source_language.get() or 'auto')}  →  {self._display_language_name(self.target_language.get())}",
             background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
@@ -3056,10 +3054,10 @@ class RenWeaveDesktopApp:
         ).grid(row=1, column=0, sticky="w", pady=(5, 0))
         if self.blank_translation_mode or incremental:
             mode_key = "review.blank_mode" if self.blank_translation_mode else "review.task_mode"
-            self.tk.Label(task_card, text=self.t(mode_key), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
+            self.ttk.Label(task_card, text=self.t(mode_key), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
             if inventory is not None:
-                self.tk.Label(task_card, text=self.t("review.remaining", count=pending), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=3, column=0, sticky="w", pady=(4, 0))
-                self.tk.Label(task_card, text=self.t("review.preserved", count=reused), background=Colors.SURFACE_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL), anchor="w").grid(row=4, column=0, sticky="w", pady=(3, 0))
+                self.ttk.Label(task_card, text=self.t("review.remaining", count=pending), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=3, column=0, sticky="w", pady=(4, 0))
+                self.ttk.Label(task_card, text=self.t("review.preserved", count=reused), background=Colors.SURFACE_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL), anchor="w").grid(row=4, column=0, sticky="w", pady=(3, 0))
 
         facts = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
         facts.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -3100,10 +3098,10 @@ class RenWeaveDesktopApp:
             budget_note = self.t("budget.note", scripts=budget.script_count, confidence=self.t(f"budget.confidence.{budget.confidence}"))
         else:
             budget_text, budget_note = self.t("budget.unavailable"), ""
-        self.tk.Label(budget_card, text=self.t("budget.title"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
-        self.tk.Label(budget_card, text=budget_text, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
+        self.ttk.Label(budget_card, text=self.t("budget.title"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
+        self.ttk.Label(budget_card, text=budget_text, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
         if budget_note:
-            self.tk.Label(budget_card, text=budget_note, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").pack(fill="x", pady=(5, 0))
+            self.ttk.Label(budget_card, text=budget_note, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").pack(fill="x", pady=(5, 0))
 
         options = self.ttk.Frame(card, style="TintCard.TFrame", padding=(14, 10))
         options.grid(row=5, column=0, sticky="ew", pady=(12, 0))
@@ -3134,7 +3132,7 @@ class RenWeaveDesktopApp:
             if self.install.get():
                 warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
                 warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
-                self.tk.Label(
+                self.ttk.Label(
                     warning,
                     text=self.t("review.install_warning"),
                     background=Colors.WARNING_CONTAINER,
@@ -3149,8 +3147,8 @@ class RenWeaveDesktopApp:
             output = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=11)
             output.grid(row=6, column=0, sticky="ew", pady=(12, 0))
             output.columnconfigure(0, weight=1)
-            self.tk.Label(output, text=self.t("blank.ready"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
-            self.tk.Label(output, text=self.t("blank.ready_body", path=self._display_path(str(self.progress_payload.get("output_dir", "")), max_chars=80)), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.ttk.Label(output, text=self.t("blank.ready"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+            self.ttk.Label(output, text=self.t("blank.ready_body", path=self._display_path(str(self.progress_payload.get("output_dir", "")), max_chars=80)), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
             open_blank = self._button(output, self.t("progress.open_rpy"), lambda: self._open_folder(str(self.progress_payload.get("output_dir", ""))), kind="secondary")
             open_blank.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
 
@@ -3229,12 +3227,12 @@ class RenWeaveDesktopApp:
         budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
         budget_card.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
         budget_card.columnconfigure(0, weight=1)
-        self.tk.Label(budget_card, text=self.t("budget.title").upper(), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+        self.ttk.Label(budget_card, text=self.t("budget.title").upper(), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
         if budget:
             low = self._format_token_count(budget.estimated_total_low)
             high = self._format_token_count(budget.estimated_total_high)
-            self.tk.Label(budget_card, text=self.t("budget.range", low=low, high=high), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
-            self.tk.Label(
+            self.ttk.Label(budget_card, text=self.t("budget.range", low=low, high=high), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            self.ttk.Label(
                 budget_card,
                 text=self.t(
                     "budget.breakdown",
@@ -3248,7 +3246,7 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, Typography.SMALL, "bold"),
                 anchor="w",
             ).grid(row=2, column=0, sticky="w", pady=(4, 0))
-            self.tk.Label(
+            self.ttk.Label(
                 budget_card,
                 text=self.t(
                     "budget.note",
@@ -3263,7 +3261,7 @@ class RenWeaveDesktopApp:
                 anchor="w",
             ).grid(row=3, column=0, sticky="w", pady=(5, 0))
         else:
-            self.review_budget_unavailable = self.tk.Label(
+            self.review_budget_unavailable = self.ttk.Label(
                 budget_card,
                 text=self.t("budget.unavailable"),
                 background=Colors.PRIMARY_CONTAINER,
@@ -3444,7 +3442,7 @@ class RenWeaveDesktopApp:
             style="Field.TLabel",
         )
         self.progress_heading.grid(row=0, column=0, sticky="w")
-        self.progress_percent_label = self.tk.Label(
+        self.progress_percent_label = self.ttk.Label(
             heading,
             textvariable=self.progress_percent_text,
             background=Colors.CARD,
@@ -3475,7 +3473,7 @@ class RenWeaveDesktopApp:
         runtime.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         runtime.columnconfigure(1, weight=1)
         self.progress_runtime_panel = runtime
-        self.progress_runtime_title = self.tk.Label(
+        self.progress_runtime_title = self.ttk.Label(
             runtime,
             text=self.t("progress.runtime").upper(),
             background=Colors.SUCCESS_CONTAINER,
@@ -3483,7 +3481,7 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, Typography.SMALL, "bold"),
         )
         self.progress_runtime_title.grid(row=0, column=0, sticky="w")
-        self.progress_runtime_state = self.tk.Label(
+        self.progress_runtime_state = self.ttk.Label(
             runtime,
             text="",
             background=Colors.SUCCESS_CONTAINER,
@@ -3491,7 +3489,7 @@ class RenWeaveDesktopApp:
             font=(Typography.UI, Typography.BODY, "bold"),
         )
         self.progress_runtime_state.grid(row=0, column=1, sticky="w", padx=(14, 0))
-        self.progress_stage_counter = self.tk.Label(
+        self.progress_stage_counter = self.ttk.Label(
             runtime,
             text="",
             background=Colors.SUCCESS_CONTAINER,
@@ -3513,7 +3511,7 @@ class RenWeaveDesktopApp:
         for column, (name, threshold) in enumerate(phases):
             phase_row.columnconfigure(column, weight=1)
             active = percent >= threshold or (threshold == 0 and self.last_stage)
-            phase_label = self.tk.Label(
+            phase_label = self.ttk.Label(
                 phase_row,
                 text=("●  " if active else "○  ") + self.t(f"progress.phase.{name}"),
                 background=Colors.CARD,
@@ -3554,8 +3552,8 @@ class RenWeaveDesktopApp:
                 padx=(0 if column == 0 else 5, 0),
                 pady=(0 if row == 0 else 5, 0),
             )
-            self.tk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
-            value_label = self.tk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w", wraplength=210, justify="left")
+            self.ttk.Label(tile, text=label.upper(), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
+            value_label = self.ttk.Label(tile, text=value, background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w", wraplength=210, justify="left")
             value_label.pack(fill="x", pady=(5, 0))
             self.progress_stat_tiles.append(tile)
             self.progress_stat_value_labels.append(value_label)
@@ -3579,7 +3577,7 @@ class RenWeaveDesktopApp:
         estimate_high = int(payload.get("estimated_total_tokens_high", 0) or 0)
         strip_background = Colors.WARNING_CONTAINER if usage_status == "unavailable" else Colors.PRIMARY_CONTAINER
         strip_foreground = Colors.WARNING if usage_status == "unavailable" else Colors.ON_PRIMARY_CONTAINER
-        actual_usage = self.tk.Label(
+        actual_usage = self.ttk.Label(
             token_strip,
             text=self.t("progress.usage_actual", total=self._format_token_count(tokens)),
             background=strip_background,
@@ -3589,19 +3587,19 @@ class RenWeaveDesktopApp:
         actual_usage.grid(row=0, column=0, columnspan=2 if self.compact_layout else 1, sticky="w")
         self.progress_actual_usage = actual_usage
         breakdown = self.t("progress.usage_breakdown", input=self._format_token_count(input_tokens), output=self._format_token_count(output_tokens))
-        projected_usage = self.tk.Label(token_strip, text=breakdown, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
+        projected_usage = self.ttk.Label(token_strip, text=breakdown, background=strip_background, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL))
         projected_usage.grid(row=1 if self.compact_layout else 0, column=0 if self.compact_layout else 1, sticky="w", padx=(0 if self.compact_layout else 18, 0), pady=(4, 0) if self.compact_layout else (0, 0))
         self.progress_projected_usage = projected_usage
         estimate = self.t("budget.projected", low=self._format_token_count(estimate_low), high=self._format_token_count(estimate_high)) if estimate_high else self.t(f"budget.reporting.{usage_status}")
-        reporting = self.tk.Label(token_strip, text=estimate, background=strip_background, foreground=strip_foreground, font=(Typography.UI, Typography.SMALL, "bold"))
+        reporting = self.ttk.Label(token_strip, text=estimate, background=strip_background, foreground=strip_foreground, font=(Typography.UI, Typography.SMALL, "bold"))
         reporting.grid(row=2 if self.compact_layout else 0, column=0 if self.compact_layout else 2, columnspan=2 if self.compact_layout else 1, sticky="w" if self.compact_layout else "e", pady=(4, 0) if self.compact_layout else (0, 0))
         self.progress_reporting = reporting
 
         if self.last_stage == "paused":
             notice = self.tk.Frame(card, background=Colors.WARNING_CONTAINER, padx=12, pady=9)
             notice.grid(row=6, column=0, sticky="ew", pady=(0, 12))
-            self.tk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=(Typography.UI, Typography.SMALL, "bold")).pack(side="left")
-            self.tk.Label(notice, text=self.t("progress.safe_to_close"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
+            self.ttk.Label(notice, text=self.t("progress.paused"), background=Colors.WARNING_CONTAINER, foreground=Colors.WARNING, font=(Typography.UI, Typography.SMALL, "bold")).pack(side="left")
+            self.ttk.Label(notice, text=self.t("progress.safe_to_close"), background=Colors.WARNING_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=650, justify="left").pack(side="left", padx=(10, 0))
         elif self.last_stage == "complete":
             output_dir = str(payload.get("output_dir", "") or "")
             package_path = str(payload.get("package_path", "") or "")
@@ -3609,7 +3607,7 @@ class RenWeaveDesktopApp:
             outputs = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=11)
             outputs.grid(row=6, column=0, sticky="ew", pady=(0, 12))
             outputs.columnconfigure(0, weight=1)
-            self.tk.Label(
+            self.ttk.Label(
                 outputs,
                 text=self.t("progress.package_ready"),
                 background=Colors.SUCCESS_CONTAINER,
@@ -3617,7 +3615,7 @@ class RenWeaveDesktopApp:
                 font=(Typography.UI, Typography.BODY, "bold"),
                 anchor="w",
             ).grid(row=0, column=0, sticky="w")
-            self.tk.Label(
+            self.ttk.Label(
                 outputs,
                 text=self.t("progress.outputs_hint"),
                 background=Colors.SUCCESS_CONTAINER,
@@ -3627,7 +3625,7 @@ class RenWeaveDesktopApp:
                 justify="left",
             ).grid(row=1, column=0, sticky="w", pady=(3, 0))
             if installed_dir:
-                self.tk.Label(
+                self.ttk.Label(
                     outputs,
                     text=self.t("progress.installed_output"),
                     background=Colors.SUCCESS_CONTAINER,
