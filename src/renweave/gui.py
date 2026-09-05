@@ -2772,15 +2772,10 @@ class RenWeaveDesktopApp:
             self.ttk.Label(summary, text=self._display_path(value, max_chars=44 if self.compact_layout else 60), style="StatusBody.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
         actions = self.ttk.Frame(summary, style="TintCard.TFrame")
         actions.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
-        browse = self._button(actions, self.t("game.open_folder"), command, kind="field", width=12)
+        browse = self._button(actions, "选择文件夹" if variable is self.project else self.t("game.open_folder"), command, kind="field", width=14 if variable is self.project else 12)
         browse.pack(side="left")
         self._guide(browse, tooltip_key)
         if variable is self.project:
-            executable = self._button(
-                actions, self.t("game.choose_executable"), self._browse_project_executable,
-                kind="field", width=11,
-            )
-            executable.pack(side="left", padx=(8, 0))
             state_text = {
                 "pending": self.t("game.detecting"),
                 "valid": self.t("game.detected"),
