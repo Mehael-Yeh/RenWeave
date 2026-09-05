@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QFileDialog,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -37,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from .build_validation import RenpySdkLocator
+from .credentials import CredentialStorageError, SecureCredentialStore
 from .discovery import ProjectDiscovery
 from .existing_translations import discover_existing_languages
 from .desktop_core import (
@@ -122,6 +124,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_logged_operation = ""
         self._settings_path = default_desktop_settings_path()
         self._settings = self._load_settings()
+        self._credential_store = SecureCredentialStore()
 
         self._configure_palette()
         self._build_shell()
@@ -257,10 +260,19 @@ class QtRenWeaveWindow(QMainWindow):
         card, card_layout = self._card()
         self.project_edit = self._field(card_layout, "Game project", self.initial_project)
         self.project_edit.textChanged.connect(lambda: self._inspection_timer.start(150))
+        project_browse = QPushButton("Browse project", objectName="Secondary")
+        project_browse.clicked.connect(self._browse_project)
+        card_layout.addWidget(project_browse)
         self.project_status = QLabel("Waiting for project", objectName="Hint")
         card_layout.addWidget(self.project_status)
         self.workspace_edit = self._field(card_layout, "Workspace", self.initial_workspace)
+        workspace_browse = QPushButton("Browse workspace", objectName="Secondary")
+        workspace_browse.clicked.connect(self._browse_workspace)
+        card_layout.addWidget(workspace_browse)
         self.renpy_sdk_edit = self._field(card_layout, "Ren'Py SDK (optional)")
+        sdk_browse = QPushButton("Browse SDK", objectName="Secondary")
+        sdk_browse.clicked.connect(self._browse_sdk)
+        card_layout.addWidget(sdk_browse)
         self.require_engine_check = QCheckBox("Require engine validation")
         card_layout.addWidget(self.require_engine_check)
         layout.addWidget(card)
@@ -442,6 +454,9 @@ class QtRenWeaveWindow(QMainWindow):
     def _continue(self) -> None:
         if self.step == 0:
             self._inspect_project()
+            if self._project_validation_state == "pending":
+                QMessageBox.information(self, "Project", "Project inspection is still running.")
+                return
             if self._project_validation_state != "valid":
                 QMessageBox.warning(self, "Project", self._project_validation_error or "Select a valid Ren'Py project first.")
                 return
@@ -480,6 +495,7 @@ class QtRenWeaveWindow(QMainWindow):
             self._project_validation_state = "idle"
             self.project_status.setText("Waiting for project")
             return
+        self._project_validation_state = "pending"
         self.project_status.setText("Inspecting project…")
 
         def inspect():
@@ -499,6 +515,16 @@ class QtRenWeaveWindow(QMainWindow):
         if sdk is not None and not self.renpy_sdk_edit.text().strip():
             self.renpy_sdk_edit.setText(str(sdk.root))
             self.require_engine_check.setChecked(True)
+        current_target = self.target_combo.currentText().strip()
+        self.target_combo.blockSignals(True)
+        self.target_combo.clear()
+        self.target_combo.addItems(
+            [item.language for item in languages]
+            + ["简体中文", "繁體中文", "English", "日本語", "Français"]
+        )
+        if current_target:
+            self.target_combo.setCurrentText(current_target)
+        self.target_combo.blockSignals(False)
         self.project_status.setText(f"Project detected · {len(languages)} existing language(s)")
         self._start_scope_preview()
 
@@ -758,15 +784,26 @@ class QtRenWeaveWindow(QMainWindow):
         return payload if isinstance(payload, dict) else {}
 
     def _restore_state(self) -> None:
+        saved_locale = str(self._settings.get("locale", "en"))
+        if saved_locale in {"en", "zh"}:
+            self.locale = saved_locale
+            self.locale_button.setText("中文" if self.locale == "en" else "English")
         provider_id = str(self._settings.get("provider_id", "openai"))
         if provider_id in self.provider_ids:
             self.provider_combo.setCurrentIndex(self.provider_ids.index(provider_id))
         self.model_edit.setText(str(self._settings.get("model", "")))
         self.endpoint_edit.setText(str(self._settings.get("base_url", self.endpoint_edit.text())))
+        identity = (provider_id, self.endpoint_edit.text().strip())
+        try:
+            secret = self._credential_store.get(*identity)
+        except CredentialStorageError:
+            secret = ""
+        self.api_key_edit.setText(secret or "")
 
     def _save_settings(self) -> None:
         payload = {
             "schema_version": 1,
+            "locale": self.locale,
             "provider_id": self.provider_ids[self.provider_combo.currentIndex()],
             "model": self.model_edit.text().strip(),
             "base_url": self.endpoint_edit.text().strip(),
@@ -776,7 +813,36 @@ class QtRenWeaveWindow(QMainWindow):
         except OSError:
             pass
 
+    def _save_api_key(self) -> None:
+        provider_id = self.provider_ids[self.provider_combo.currentIndex()]
+        identity = (provider_id, self.endpoint_edit.text().strip())
+        secret = self.api_key_edit.text()
+        if not secret:
+            return
+        try:
+            self._credential_store.set(*identity, secret)
+        except CredentialStorageError:
+            self._logs.append("Could not save the API key in the system credential store.")
+
+    def _browse_project(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Select Ren'Py project")
+        if selected:
+            self.project_edit.setText(selected)
+
+    def _browse_workspace(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Select workspace")
+        if selected:
+            self.workspace_edit.setText(selected)
+
+    def _browse_sdk(self) -> None:
+        selected = QFileDialog.getExistingDirectory(self, "Select Ren'Py SDK")
+        if selected:
+            self.renpy_sdk_edit.setText(selected)
+            self.require_engine_check.setChecked(True)
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._save_api_key()
+        self._save_settings()
         self.thread_pool.clear()
         event.accept()
 
