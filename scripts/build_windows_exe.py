@@ -83,31 +83,20 @@ def write_version_resource(path: Path, version: str) -> None:
 
 def write_app_icon(path: Path) -> None:
     size = 256
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    pixels = image.load()
-    top = (91, 92, 226)
-    bottom = (28, 184, 205)
-    for y in range(size):
-        ratio = y / (size - 1)
-        color = tuple(round(top[index] * (1 - ratio) + bottom[index] * ratio) for index in range(3))
-        for x in range(size):
-            pixels[x, y] = (*color, 255)
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle((4, 4, 252, 252), radius=56, fill=255)
-    image.putalpha(mask)
+    image = Image.new("RGBA", (size, size), "#0B1020")
     draw = ImageDraw.Draw(image)
-    draw.line(
-        [(48, 62), (83, 192), (128, 103), (173, 192), (208, 62)],
-        fill=(255, 255, 255, 245),
-        width=25,
-        joint="curve",
+    scale = size // 32
+    bars = (
+        (5, 6, 10, 24, "#20B8CD"),
+        (11, 10, 16, 28, "#5B5CE2"),
+        (17, 6, 22, 24, "#8B8CF6"),
+        (23, 10, 28, 28, "#20B8CD"),
     )
-    draw.line(
-        [(83, 192), (128, 103), (173, 192)],
-        fill=(225, 231, 255, 255),
-        width=13,
-        joint="curve",
-    )
+    for left, top, right, bottom, color in bars:
+        draw.rectangle(
+            (left * scale, top * scale, right * scale - 1, bottom * scale - 1),
+            fill=color,
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 

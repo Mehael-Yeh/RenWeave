@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QCloseEvent, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -305,38 +305,32 @@ UI_COPY = {
     },
 }
 
-APP_ICON_PATH = Path(__file__).with_name("assets") / "renweave.svg"
-
-
 def _application_icon() -> QIcon:
-    """Create the small runtime icon without depending on a platform SVG plugin."""
-    pixmap = QPixmap(64, 64)
+    """Recreate the original Tk geometric RenWeave mark."""
+    pixmap = QPixmap(32, 32)
+    pixmap.fill(QColor("#0B1020"))
+    painter = QPainter(pixmap)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.fillRect(5, 6, 5, 18, QColor("#20B8CD"))
+    painter.fillRect(11, 10, 5, 18, QColor("#5B5CE2"))
+    painter.fillRect(17, 6, 5, 18, QColor("#8B8CF6"))
+    painter.fillRect(23, 10, 5, 18, QColor("#20B8CD"))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _provider_icon(accent: str) -> QIcon:
+    """Recreate the original compact geometric provider mark."""
+    pixmap = QPixmap(20, 20)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    gradient = QLinearGradient(0, 0, 0, 64)
-    gradient.setColorAt(0, QColor("#5b5ce2"))
-    gradient.setColorAt(1, QColor("#1cb8cd"))
-    painter.setBrush(gradient)
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawRoundedRect(1, 1, 62, 62, 14, 14)
-    path = QPainterPath()
-    path.moveTo(12, 16)
-    path.lineTo(21, 49)
-    path.lineTo(32, 27)
-    path.lineTo(43, 49)
-    path.lineTo(52, 16)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    painter.setPen(
-        QPen(
-            QColor("#ffffff"),
-            7,
-            Qt.PenStyle.SolidLine,
-            Qt.PenCapStyle.RoundCap,
-            Qt.PenJoinStyle.RoundJoin,
-        )
-    )
-    painter.drawPath(path)
+    for y in range(1, 19):
+        inset = 4 if y in {1, 18} else 2 if y in {2, 17} else 1
+        painter.fillRect(inset, y, 20 - inset * 2, 1, QColor(accent))
+    painter.fillRect(5, 6, 2, 8, QColor("#FFFFFF"))
+    painter.fillRect(9, 4, 2, 12, QColor("#FFFFFF"))
+    painter.fillRect(13, 7, 2, 6, QColor("#FFFFFF"))
     painter.end()
     return QIcon(pixmap)
 
@@ -437,8 +431,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.sidebar.setFixedWidth(232)
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(18, 24, 18, 18)
+        brand_row = QHBoxLayout()
+        brand_icon = QLabel()
+        brand_icon.setPixmap(_application_icon().pixmap(28, 28))
+        brand_row.addWidget(brand_icon)
         brand = QLabel("RenWeave", objectName="Brand")
-        sidebar_layout.addWidget(brand)
+        brand_row.addWidget(brand)
+        brand_row.addStretch()
+        sidebar_layout.addLayout(brand_row)
         sidebar_layout.addSpacing(26)
         self.nav_buttons: list[QPushButton] = []
         for index, key in enumerate(self.STEPS):
@@ -648,6 +648,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.provider_buttons = []
         for index, preset in enumerate(PROVIDER_PRESETS):
             button = QPushButton(preset.name, objectName="Secondary")
+            button.setIcon(_provider_icon(preset.accent))
             button.setCheckable(True)
             button.clicked.connect(lambda _checked=False, selected=index: self._select_provider(selected))
             provider_grid.addWidget(button, index // 4, index % 4)
