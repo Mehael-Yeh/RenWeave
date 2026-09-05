@@ -915,11 +915,13 @@ class QtRenWeaveWindow(QMainWindow):
         self._project_revision += 1
         self._discovered_project = None
         self._project_validation_error = ""
-        self._project_validation_state = "idle"
+        has_project = bool(self.project_edit.text().strip())
+        self._project_validation_state = "pending" if has_project else "idle"
         self._inspection_revision = None
         self._inspection_value = ""
         self._scope_preview_signature = None
         self._scope_preview_status = "idle"
+        self.project_status.setText(self._t("game.inspecting" if has_project else "game.waiting"))
         self._inspection_timer.start(150)
         self._refresh_shell()
 

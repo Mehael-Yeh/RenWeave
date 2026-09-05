@@ -110,7 +110,8 @@ class QtFrontendTests(unittest.TestCase):
             window._inspection_value = "first"
             window.project_edit.setText("second")
             self.assertGreater(window._project_revision, first_revision)
-            self.assertEqual(window._project_validation_state, "idle")
+            self.assertEqual(window._project_validation_state, "pending")
+            self.assertFalse(window.action_button.isEnabled())
             window._project_inspected((object(), [], None), first_revision, "first")
             self.assertIsNone(window._discovered_project)
         finally:
