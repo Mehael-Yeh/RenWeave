@@ -597,6 +597,12 @@ class CorePipelineTests(unittest.TestCase):
             app.blank_translation_mode = False
             app.step = 2
             app._render()
+            nav_children = len(app.nav.winfo_children())
+            footer_children = len(app.footer.winfo_children())
+            app._render()
+            app._render()
+            self.assertEqual(len(app.nav.winfo_children()), nav_children)
+            self.assertEqual(len(app.footer.winfo_children()), footer_children)
 
             app.model.set("translation-model")
             app._render()
@@ -655,13 +661,16 @@ class CorePipelineTests(unittest.TestCase):
             self.assertIn("生成可直接使用的语言包", review_text)
             self.assertIn("不会修改游戏原文件", review_text)
             self.assertNotIn("技术详情：生成 RPA", review_text)
+            review_page = app.page
             app.package_technical_toggle.invoke()
             root.update_idletasks()
+            self.assertIs(app.page, review_page)
             review_text = "\n".join(visible_texts(app.content))
             self.assertIn("技术详情：生成 RPA", review_text)
             app.install.set(True)
-            app._render()
+            app._refresh_review_controls()
             root.update_idletasks()
+            self.assertIs(app.page, review_page)
             review_text = "\n".join(visible_texts(app.content))
             self.assertIn("会在验证成功后修改", review_text)
 
@@ -694,9 +703,10 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(int(app.review_options.grid_info()["column"]), 0)
             self.assertTrue({"e", "w"}.issubset(set(str(app.review_options.grid_info()["sticky"]))))
             self.assertIsNone(app.review_details)
-            app.show_pending_details.set(True)
-            app._render()
+            pending_page = app.page
+            app._toggle_pending_details()
             root.update_idletasks()
+            self.assertIs(app.page, pending_page)
             self.assertIsNotNone(app.review_details)
 
             def widgets_of_class(widget, class_name):
