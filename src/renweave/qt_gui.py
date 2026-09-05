@@ -137,6 +137,7 @@ UI_COPY = {
         "model.endpoint": "Endpoint",
         "model.reasoning": "Thinking level",
         "model.reasoning_hint": "Automatic uses the provider default.",
+        "model.reasoning_unavailable": "This provider uses the model default.",
         "reasoning.auto": "Automatic (provider default)",
         "reasoning.low": "Low",
         "reasoning.high": "High",
@@ -167,6 +168,11 @@ UI_COPY = {
         "progress.files": "File progress",
         "progress.eta": "Estimated remaining",
         "progress.usage": "Model usage",
+        "progress.phase.prepare": "Prepare",
+        "progress.phase.analyze": "Analyze",
+        "progress.phase.translate": "Translate",
+        "progress.phase.validate": "Validate",
+        "progress.phase.build": "Build",
         "progress.show_log": "Show log",
         "progress.hide_log": "Hide log",
         "progress.complete": "Translation package is ready",
@@ -252,6 +258,7 @@ UI_COPY = {
         "model.endpoint": "接口地址",
         "model.reasoning": "思考设置",
         "model.reasoning_hint": "自动使用提供商或模型的默认思考设置。",
+        "model.reasoning_unavailable": "此提供商使用模型默认思考设置。",
         "reasoning.auto": "自动（提供商默认）",
         "reasoning.low": "低",
         "reasoning.high": "高",
@@ -282,6 +289,11 @@ UI_COPY = {
         "progress.files": "文件进度",
         "progress.eta": "预计剩余",
         "progress.usage": "模型用量",
+        "progress.phase.prepare": "准备",
+        "progress.phase.analyze": "分析",
+        "progress.phase.translate": "翻译",
+        "progress.phase.validate": "校验",
+        "progress.phase.build": "构建",
         "progress.show_log": "显示日志",
         "progress.hide_log": "隐藏日志",
         "progress.complete": "翻译包已准备完成",
@@ -434,7 +446,8 @@ class QtRenWeaveWindow(QMainWindow):
             QPushButton#Nav { color: #98a2b3; text-align: left; border: 0; padding: 8px 14px; }
             QPushButton#Nav:hover { background: #1b2440; }
             QPushButton#Nav[current="true"] { background: #5b5ce2; color: #ffffff; font-weight: 700; }
-            QLineEdit, QComboBox, QTextEdit { background: #ffffff; color: #344054; selection-background-color: #5b5ce2; selection-color: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; min-height: 36px; }
+            QLineEdit, QComboBox { background: #ffffff; color: #344054; selection-background-color: #5b5ce2; selection-color: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 0 10px; min-height: 34px; max-height: 34px; }
+            QTextEdit { background: #ffffff; color: #344054; selection-background-color: #5b5ce2; selection-color: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; }
             QLineEdit:focus, QComboBox:focus, QTextEdit:focus { border: 1px solid #5b5ce2; }
             QLineEdit::placeholder { color: #98a2b3; }
             QComboBox QAbstractItemView { background: #ffffff; color: #344054; selection-background-color: #e7e9ff; selection-color: #101828; }
@@ -840,8 +853,9 @@ class QtRenWeaveWindow(QMainWindow):
         card_layout.addWidget(runtime)
         phase_row = QHBoxLayout()
         self.progress_phase_labels = []
-        for phase in ("Prepare", "Analyze", "Translate", "Validate", "Build"):
-            label = QLabel(f"○  {phase}", objectName="Hint")
+        for phase in ("prepare", "analyze", "translate", "validate", "build"):
+            label = QLabel(f"○  {self._t(f'progress.phase.{phase}')}", objectName="Hint")
+            label.setProperty("phase_key", phase)
             phase_row.addWidget(label, 1)
             self.progress_phase_labels.append(label)
         card_layout.addLayout(phase_row)
@@ -1016,7 +1030,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.reasoning_combo.setItemText(1, self._t("reasoning.low"))
         self.reasoning_combo.setItemText(2, self._t("reasoning.high"))
         self.reasoning_combo.setItemText(3, self._t("reasoning.maximum"))
-        self.reasoning_hint_label.setText(self._t("model.reasoning_hint"))
+        self._refresh_reasoning_hint()
         for preset, button in zip(PROVIDER_PRESETS, self.provider_buttons):
             button.setText(preset.display_name(self.locale))
         self.use_model_check.setText(self._t("model.use"))
@@ -1045,6 +1059,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.log_toggle.setText(self._t("progress.hide_log" if self.log_edit.isVisible() else "progress.show_log"))
         for key, label in self.progress_stat_titles:
             label.setText(self._t(key))
+        for label in self.progress_phase_labels:
+            phase = label.property("phase_key")
+            label.setText(f"○  {self._t(f'progress.phase.{phase}')}")
         if self._project_validation_state == "idle":
             self.project_status.setText(self._t("game.waiting"))
         elif self._project_validation_state == "pending":
@@ -1242,6 +1259,13 @@ class QtRenWeaveWindow(QMainWindow):
         self._scope_preview_status = "error"
         self.language_scope_label.setText(self._t("scope.failed", error=str(error)))
 
+    def _refresh_reasoning_hint(self) -> None:
+        provider_id = self.provider_ids[self.provider_combo.currentIndex()]
+        preset = PROVIDER_PRESETS_BY_ID[provider_id]
+        self.reasoning_hint_label.setText(
+            self._t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint")
+        )
+
     def _persist_api_key(self, provider_id: str, base_url: str, secret: str) -> None:
         identity = (provider_id, base_url.strip())
         self._api_key_cache[identity] = secret
@@ -1307,6 +1331,7 @@ class QtRenWeaveWindow(QMainWindow):
             self.model_edit.setCurrentText(remembered_model)
         self.model_edit.blockSignals(False)
         self.reasoning_combo.setEnabled(preset.reasoning_control != "none")
+        self._refresh_reasoning_hint()
         for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
             button.setChecked(button_index == index)
         self._save_settings()
@@ -1399,7 +1424,11 @@ class QtRenWeaveWindow(QMainWindow):
         )
         if budget is not None:
             self.budget_label.setText(
-                f"Estimated usage: {budget.estimated_total_low:,}–{budget.estimated_total_high:,} tokens"
+                (
+                    f"预估用量：{budget.estimated_total_low:,}–{budget.estimated_total_high:,} Token"
+                    if self.locale == "zh"
+                    else f"Estimated usage: {budget.estimated_total_low:,}–{budget.estimated_total_high:,} tokens"
+                )
             )
             self.budget_note.setText(
                 "预估范围会在建立索引后更新。" if self.locale == "zh" else "The estimate is refined after indexing."
@@ -1407,7 +1436,11 @@ class QtRenWeaveWindow(QMainWindow):
         else:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
             self.budget_note.clear()
-        self.pending_title.setText(f"Pending units ({len(inventory.pending_units)})")
+        self.pending_title.setText(
+            f"待处理单元（{len(inventory.pending_units)}）"
+            if self.locale == "zh"
+            else f"Pending units ({len(inventory.pending_units)})"
+        )
         rows = []
         for item in inventory.pending_units[:50]:
             rows.append(f"{item.get('file', '')}:{item.get('line', 0)}  {item.get('source', '')}")
@@ -1540,11 +1573,15 @@ class QtRenWeaveWindow(QMainWindow):
         percent = float(self._progress_payload.get("progress_percent", 0) or 0)
         self.progress_bar.setValue(max(0, min(100, round(percent))))
         self.progress_percent.setText(f"{percent:.0f}%")
-        self.progress_heading.setText(str(self._progress_payload.get("current_operation", "Translating")))
+        self.progress_heading.setText(
+            str(self._progress_payload.get("current_operation", "翻译中" if self.locale == "zh" else "Translating"))
+        )
         completed = self._progress_payload.get("completed_scenes", 0)
         total = self._progress_payload.get("total_scenes", 0)
-        self.progress_stats.setText(f"Scenes: {completed}/{total}")
-        self.progress_runtime.setText(str(self._progress_payload.get("stage", "running")))
+        self.progress_stats.setText(
+            f"场景：{completed}/{total}" if self.locale == "zh" else f"Scenes: {completed}/{total}"
+        )
+        self.progress_runtime.setText(str(self._progress_payload.get("stage", "运行中" if self.locale == "zh" else "running")))
         operation = str(self._progress_payload.get("current_operation", "") or "")
         eta_seconds = self._progress_payload.get("eta_seconds", -1)
         eta = "—" if not isinstance(eta_seconds, (int, float)) or eta_seconds < 0 else f"{int(eta_seconds)}s"
@@ -1555,7 +1592,11 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_stat_values[0].setText(operation or "—")
         self.progress_stat_values[1].setText(f"{completed}/{total}")
         self.progress_stat_values[2].setText(eta)
-        self.progress_stat_values[3].setText(f"{calls} calls · {tokens:,} tokens")
+        self.progress_stat_values[3].setText(
+            f"{calls} 次调用 · {tokens:,} Token"
+            if self.locale == "zh"
+            else f"{calls} calls · {tokens:,} tokens"
+        )
         if operation and operation != self._last_logged_operation:
             self._last_logged_operation = operation
             self.log_edit.append(operation)
