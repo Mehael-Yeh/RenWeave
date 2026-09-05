@@ -14,12 +14,11 @@ Material Design 3, UI UX Pro Max, and Awesome Design Systems are design referenc
 ## Layout grid
 
 - Default window: `1240 × 840`; minimum: `900 × 640`. Visual regression coverage also includes `1920 × 1080`, `1600 × 900`, `1440 × 900`, `1366 × 768`, and `1280 × 720`.
-- Workflow rail: `232 px` by default and a compact `76 px` rail below the narrow breakpoint.
-- Main canvas horizontal inset: `36 px` by default and `24 px` in compact layouts.
-- Card inset: `20 px`; standard field gap: `6 px`.
-- Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
-- Interactive controls target a `44 px` visual height and use Microsoft YaHei UI for bilingual consistency.
-- Typography uses three rendered sizes: `SMALL` (9) for metadata and hints, `BODY` (10) for controls and copy, and a shared 20 px heading size for `TITLE` and `DISPLAY`. Weight—not extra sizes—creates hierarchy; page code must not introduce numeric font sizes.
+- Workflow rail: `224 px` fixed width; Qt's layout system handles the remaining width.
+- Main canvas horizontal inset: `28 px`; card inset: `18 px`; standard field gap: `9 px`.
+- Spacing uses the shared Qt layout rhythm of 8/9/12/14/16/18/28 px.
+- Interactive controls target a `32 px` minimum height and use the platform UI font for bilingual consistency.
+- Typography uses the semantic Qt stylesheet roles `PageTitle`, `SectionTitle`, `Body`, `Hint`, and `Status`; page code must not add one-off font declarations.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
 - Top-bar actions, content cards, and footer actions share one right edge; the top and footer reserve the same `13 px` scrollbar gutter as the content host.
 - Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
@@ -40,25 +39,24 @@ The workflow action row never changes its column geometry between pages. It must
 
 ## Components
 
-All interactive widgets come from `RenWeaveDesktopApp` component factories or one of the two documented navigation/provider styles.
+All interactive widgets come from the persistent Qt shell and its page-local component builders.
 
 | Component | Required implementation | Rules |
 | --- | --- | --- |
-| Primary button | `_button(..., kind="primary")` | One per action region; fixed height and standard width |
-| Secondary button | `_button(..., kind="secondary")` | Back, cancel, pause, and non-destructive alternatives |
-| Field action | `_button(..., kind="field")` | Browse, choose, copy, and attached field actions |
-| Text field | `_entry(...)` | Shared padding, border, focus, disabled, selection, and typography |
-| Combo box | `_combobox(...)` | Same visual height as text fields; editable unless explicitly read-only |
-| Checkbox | `Material.TCheckbutton` | Left-aligned with the form text column |
-| Model list | `ModelList.Treeview` | `38 px` rows, single selection, consistent selected state |
-| Provider gallery | `_layout_provider_buttons()` | All provider presets stay visible in a stable grid; there is no fold control or height animation |
-| Translation activity | determinate + indeterminate progress pair | Show overall completion separately from continuous worker activity, exact pipeline stage, and high-level phase state |
-| Vertical scroll | `_scrollbar(...)` | Shared narrow track, thumb, hover, and arrow treatment |
-| Diagnostic/long text | bounded styled `tk.Text` | Fixed-height local scrolling with the same border/focus/selection colors as form controls; do not create dozens of wrapping labels that enlarge the whole page |
-| Completed outputs | secondary actions on the progress page and completion dialog | Always offer the RPY directory; offer the RPA-containing directory when an archive was generated |
-| Outer card | `Card.TFrame` | Main page boundary; uses the standard outline |
-| Section panel | `TintCard.TFrame` | Bounded summary, option, and detail groups; uses the subtle outline and shared inset |
-| Inner layout | `CardBody.TFrame` | Borderless structural rows inside a card or section panel |
+| Primary button | `QPushButton#Primary` | One per action region; fixed semantic role and standard padding |
+| Secondary button | `QPushButton#Secondary` | Back, cancel, pause, and non-destructive alternatives |
+| Field action | `QPushButton#Secondary` beside a field | Browse and other field-specific actions stay attached to the field |
+| Text field | `QLineEdit` | Shared padding, border, focus, disabled, selection, and typography |
+| Combo box | `QComboBox` | Same visual height as text fields; editable only when needed |
+| Checkbox | `QCheckBox` | Left-aligned with the form text column |
+| Provider selector | `QComboBox` | Provider presets stay in one stable control; no height animation |
+| Translation activity | `QProgressBar` plus status labels | Show overall completion separately from the worker stage and readable activity text |
+| Vertical scroll | `QScrollArea` | Page scroll hosts stay mounted while their local content changes |
+| Diagnostic/long text | bounded read-only `QTextEdit` | Fixed-height local scrolling; do not create dozens of wrapping labels that enlarge the whole page |
+| Completed outputs | secondary actions on the progress page | Offer the generated output directory without rebuilding the page |
+| Outer card | `QFrame#Card` | Main page boundary with the standard outline |
+| Section panel | `QFrame#Card` | Bounded summary, option, and detail group |
+| Inner layout | `QVBoxLayout` / `QHBoxLayout` | Structural rows inside a card or page |
 
 ## Interaction states
 
@@ -69,7 +67,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - The RPA choice is on by default, and its inline copy always states that validated RPY files remain available when it is off.
 - API-contacting actions state whether they normally consume Tokens.
 - Step 04 has one primary decision per route: extract blank RPY files without a model, or enter step 05 for model-backed translation. The blank route remains on step 04 after completion.
-- Step 05 derives its title, color, percentage, stage markers, current operation, and actions from one UI `TaskState`: `idle`, `preparing`, `analyzing`, `translating`, `validating`, `building`, `completed`, `pausing`, `paused`, `failed`, or `cancelled`.
+- Step 05 derives its title, percentage, current operation, and actions from the progress payload published by the worker; the page keeps the progress widgets mounted while those values change.
 - `100%` is reserved for `completed`. Percentages render only when the total is positive and finite; unknown totals use a completed-unit count without a denominator or progress bar.
 - Token estimates describe the main translation text only. They must explicitly exclude context, validation, retry, and other model calls unless a full-task estimator exists.
 - Raw logs are collapsed by default. The normal surface shows at most three recent user-readable events, with persistent paths and technical records available under **View log**.
@@ -83,11 +81,11 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 
 ## Prohibited patterns
 
-- Do not instantiate page-specific `tk.Button`, `ttk.Entry`, `ttk.Combobox`, `Listbox`, or default `Scrollbar` controls.
+- Do not instantiate page-specific controls outside the Qt page builder methods.
 - Do not center form labels, instructions, lists, or arbitrary page sections.
 - Do not move the primary workflow action between pages.
-- Do not apply `Card.TFrame` to an internal layout row.
-- Do not add one-off colors, padding values, fonts, or control heights outside `Colors`, `Metrics`, and `_configure_styles`.
+- Do not use a card frame for an internal layout row.
+- Do not add one-off colors, padding values, fonts, or control heights outside the shared Qt stylesheet and layout helpers.
 - Do not use decorative emoji as interface icons.
 - Do not add a profile-import control to the desktop model flow; built-in presets and automatic non-secret settings persistence are the supported path.
 - Do not rebuild the model page for provider selection, connection, or verification state changes; update existing widgets in place.

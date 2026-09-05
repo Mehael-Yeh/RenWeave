@@ -1,15 +1,5 @@
 # Third-party notices
 
-## Sun Valley ttk theme
-
-RenWeave uses `sv-ttk` to provide its Windows 11–informed desktop component theme.
-
-- Project: https://github.com/rdbende/Sun-Valley-ttk-theme
-- License: MIT
-- Copyright: rdbende and contributors
-
-The full package license is included in the installed `sv-ttk` distribution metadata and in standalone executable builds.
-
 RenWeave includes the following third-party component so required game-processing tools are available offline.
 
 ## unrpyc
