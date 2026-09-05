@@ -367,7 +367,7 @@ class CorePipelineTests(unittest.TestCase):
 
     def test_desktop_typography_uses_only_shared_size_tokens(self) -> None:
         source = Path(sys.modules[RenWeaveDesktopApp.__module__].__file__).read_text(encoding="utf-8")
-        self.assertEqual({Typography.SMALL, Typography.BODY, Typography.TITLE, Typography.DISPLAY}, {9, 10, 18, 24})
+        self.assertEqual({Typography.SMALL, Typography.BODY, Typography.TITLE, Typography.DISPLAY}, {9, 10, 20})
         self.assertIsNone(re.search(r"Typography\.(?:UI|MONO),\s*\d+", source))
 
     def test_desktop_open_folder_resolves_direct_and_containing_paths(self) -> None:

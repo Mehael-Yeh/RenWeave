@@ -13,13 +13,13 @@ Material Design 3, UI UX Pro Max, and Awesome Design Systems are design referenc
 
 ## Layout grid
 
-- Default window: `1240 × 840`; minimum: `900 × 640`.
+- Default window: `1240 × 840`; minimum: `900 × 640`. Visual regression coverage also includes `1920 × 1080`, `1600 × 900`, `1440 × 900`, `1366 × 768`, and `1280 × 720`.
 - Workflow rail: `232 px` by default and a compact `76 px` rail below the narrow breakpoint.
 - Main canvas horizontal inset: `36 px` by default and `24 px` in compact layouts.
 - Card inset: `20 px`; standard field gap: `6 px`.
 - Spacing uses the shared 4/8/12/16/20/24 scale from `Metrics`.
 - Interactive controls target a `44 px` visual height and use Microsoft YaHei UI for bilingual consistency.
-- Typography uses exactly four size tokens: `SMALL` (9) for metadata and hints, `BODY` (10) for controls and ordinary copy, `TITLE` (18) for dialog/brand emphasis, and `DISPLAY` (24) for page titles and primary progress values. Weight communicates hierarchy within those sizes; page code must not introduce numeric font sizes.
+- Typography uses three rendered sizes: `SMALL` (9) for metadata and hints, `BODY` (10) for controls and copy, and a shared 20 px heading size for `TITLE` and `DISPLAY`. Weight—not extra sizes—creates hierarchy; page code must not introduce numeric font sizes.
 - Page titles, body copy, cards, fields, and activity content share one left edge.
 - Top-bar actions, content cards, and footer actions share one right edge; the top and footer reserve the same `13 px` scrollbar gutter as the content host.
 - Text and form content is left-aligned. Center alignment is reserved for button labels and compact numeric status.
@@ -105,6 +105,6 @@ Before merging UI changes, render all five workflow pages plus both model-route 
 4. Text fields, list rows, diagnostic text, and scrollbars use the documented styles.
 5. No control is hidden behind the fixed footer and no horizontal scrollbar is required.
 6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
-7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint.
+7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint. Live resize coalesces layout work to at most one commit per 16 ms display frame and updates mounted breakpoint geometry in place.
 8. Windows builds render one GUI window with an integrated dark title bar and no console window.
-9. CI uploads pixel screenshots covering the bilingual workflow, three responsive sizes, incremental review details, blank/model route selection, paused states, Settings, and the error dialog; inspect the artifact for clipping and font fallback.
+9. CI uploads pixel screenshots covering the bilingual workflow, the full seven-size desktop matrix, incremental review details, blank/model route selection, paused states, Settings, and the error dialog; inspect the artifact for clipping and font fallback.

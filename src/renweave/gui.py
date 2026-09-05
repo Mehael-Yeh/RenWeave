@@ -299,8 +299,8 @@ COPY["en"].update({
     "settings.update_available": "Version {latest} is available. You currently have {current}.",
     "settings.up_to_date": "RenWeave {current} is up to date. Latest release: {latest}.",
     "model.reasoning": "Thinking level",
-    "model.reasoning_hint": "Auto follows the model default. Other levels are translated to the selected provider's supported reasoning controls.",
-    "model.reasoning_unavailable": "This provider does not expose a supported reasoning-level control; the selected model decides automatically.",
+    "model.reasoning_hint": "Auto uses the model default.",
+    "model.reasoning_unavailable": "This provider uses the model default.",
     "reasoning.auto": "Automatic (provider default)",
     "reasoning.low": "Low",
     "reasoning.high": "High",
@@ -424,8 +424,8 @@ COPY["zh"].update({
     "settings.update_available": "已有新版本 {latest}；当前版本为 {current}。",
     "settings.up_to_date": "织译 {current} 已是最新版本；最新发布版为 {latest}。",
     "model.reasoning": "思考等级",
-    "model.reasoning_hint": "“auto”遵循模型默认值；其他等级会转换成所选提供商正式支持的推理参数。",
-    "model.reasoning_unavailable": "该提供商未公开受支持的思考等级参数；将由所选模型自动决定。",
+    "model.reasoning_hint": "自动即使用模型默认值。",
+    "model.reasoning_unavailable": "此提供商使用模型默认值。",
     "reasoning.auto": "自动（提供商默认）",
     "reasoning.low": "低",
     "reasoning.high": "高",
@@ -575,9 +575,9 @@ _BASE_COPY = {
         "model.provider": "Provider name",
         "model.endpoint": "Base URL",
         "model.key": "API key",
-        "model.key_hint": "Encrypted system storage is the default. Change this anytime in Settings.",
+        "model.key_hint": "Stored securely by the system unless changed in Settings.",
         "model.show_key": "Show key",
-        "model.settings_saved": "Saved automatically",
+        "model.settings_saved": "Auto-saved",
         "model.connect": "Connect and load models",
         "model.model": "Model",
         "model.model_hint": "Choose a discovered model or enter an exact model ID.",
@@ -700,9 +700,9 @@ _BASE_COPY = {
         "model.provider": "服务名称",
         "model.endpoint": "基础 URL",
         "model.key": "API 密钥",
-        "model.key_hint": "默认使用系统加密存储；可随时在“设置”中改为仅内存。",
+        "model.key_hint": "默认由系统加密保存，可在设置中更改。",
         "model.show_key": "显示密钥",
-        "model.settings_saved": "设置自动保存",
+        "model.settings_saved": "自动保存",
         "model.connect": "连接并获取模型",
         "model.model": "模型",
         "model.model_hint": "选择获取到的模型，或输入准确的模型 ID。",
@@ -806,14 +806,14 @@ for _locale, _strings in _BASE_COPY.items():
     COPY[_locale].update(_strings)
 
 COPY["en"].update({
-    "model.body": "Model setup is optional. The model route is selected by default; enter an API key and exact model ID to use model translation, or turn it off to extract blank RPY files for manual translation.",
+    "model.body": "Enter an API key and model ID, or turn off model translation to extract blank RPY files.",
     "model.sequence": "1  Provider     2  Model ID     3  Choose translation mode",
     "model.selection": "Model selection",
     "model.optional_hint": "These settings are only used when the translation checkbox is selected.",
     "model.model_hint": "Enter the exact model ID used by your provider.",
     "model.use_for_translation": "Use model for translation",
     "model.use_for_translation_hint": "Selected by default. When enabled, the next step reviews the scope and Token estimate; translation starts explicitly on step 05.",
-    "footer.effect.model": "Next: review the scope and Token budget. Translation starts explicitly on step 05.",
+    "footer.effect.model": "Next: review scope and Token estimate.",
     "review.blank_title": "Extract blank translation files",
     "review.blank_body": "RenWeave has scanned and validated the project scope. No model will be called; the output will contain the existing translations plus blank entries for missing text.",
     "review.blank_mode": "Model-free blank translation",
@@ -832,7 +832,7 @@ COPY["en"].update({
     "blank.paused": "Blank extraction paused",
     "blank.failed": "Blank extraction stopped",
     "blank.failed_body": "The workspace and any completed output were kept. You can retry the blank extraction.",
-    "footer.effect.blank_model": "Next: scan and extract blank RPY files. No model is required.",
+    "footer.effect.blank_model": "Next: extract blank RPY files without a model.",
     "footer.effect.blank_review": "Extracts validated RPY files only; this action never enters AI translation or creates RPA.",
     "tip.blank_extract": "Scan the project and create blank RPY files in the workspace. No API request or RPA archive is created.",
     "tip.model_use": "Choose whether step 05 should use the selected model or only extract blank RPY files.",
@@ -863,7 +863,7 @@ COPY["en"].update({
     "budget.range": "Main translation text: about {low}–{high} Tokens",
     "budget.note": "Initial estimate from {scripts} script sources ({confidence} confidence). Context, validation, retries, and other model calls can use additional Tokens.",
     "budget.projected": "Initial text estimate {low}–{high} · excludes context and validation calls",
-    "budget.unavailable": "No translatable text is available for an estimate yet. RenWeave will update this after scanning.",
+    "budget.unavailable": "Token estimate available after scanning.",
     "progress.task.idle": "Ready to start",
     "progress.task.preparing": "Preparing translation",
     "progress.task.analyzing": "Analyzing the game",
@@ -907,14 +907,14 @@ COPY["en"].update({
 })
 
 COPY["zh"].update({
-    "model.body": "模型设置是可选的。默认勾选使用模型翻译；填写 API 密钥和准确的模型 ID即可使用模型翻译，取消勾选即可提取空白 RPY 文件进行手工翻译。",
+    "model.body": "填写 API 密钥和模型 ID；取消模型翻译可提取空白 RPY 文件。",
     "model.sequence": "1  提供商     2  模型 ID     3  选择翻译方式",
     "model.selection": "模型选择",
     "model.optional_hint": "只有勾选使用模型翻译时，下面这些设置才会生效。",
     "model.model_hint": "填写提供商实际使用的准确模型 ID。",
     "model.use_for_translation": "使用模型进行翻译",
     "model.use_for_translation_hint": "默认已勾选。启用后，下一步会确认范围和 Token 预估；模型翻译必须在第 05 页明确开始。",
-    "footer.effect.model": "下一步确认范围与 Token 预算；模型翻译必须在第 05 页明确开始。",
+    "footer.effect.model": "下一步确认范围与 Token 预估。",
     "review.blank_title": "提取空白翻译文件",
     "review.blank_body": "项目范围已经完成扫描和校验。本流程不会调用模型；输出会保留已有翻译，并为缺失文本加入空白译文，供你手动填写。",
     "review.blank_mode": "无模型空白翻译",
@@ -933,7 +933,7 @@ COPY["zh"].update({
     "blank.paused": "空白提取已暂停",
     "blank.failed": "空白提取已停止",
     "blank.failed_body": "工作区与已经生成的输出均已保留，可以重试空白提取。",
-    "footer.effect.blank_model": "下一步扫描并提取空白 RPY 文件；无需模型。",
+    "footer.effect.blank_model": "下一步提取空白 RPY 文件，无需模型。",
     "footer.effect.blank_review": "只生成已校验的 RPY 文件，不会进入 AI 翻译，也不会生成 RPA。",
     "tip.blank_extract": "扫描项目并在工作区生成空白 RPY 文件，不会发起 API 请求，也不会创建 RPA。",
     "tip.model_use": "选择第 05 页使用模型翻译，还是只提取空白 RPY 文件。",
@@ -964,7 +964,7 @@ COPY["zh"].update({
     "budget.range": "待翻译主要文本约需 {low}–{high} Token",
     "budget.note": "依据 {scripts} 个脚本来源进行初步估算（准确度：{confidence}）。上下文、校验、重试和其他模型调用可能产生额外 Token。",
     "budget.projected": "初始文本估算 {low}–{high} · 不含上下文和校验调用",
-    "budget.unavailable": "暂未发现可供估算的待翻译文本；扫描完成后会自动更新。",
+    "budget.unavailable": "扫描后显示 Token 预估。",
     "progress.task.idle": "准备开始",
     "progress.task.preparing": "正在准备",
     "progress.task.analyzing": "正在分析游戏",
@@ -1056,7 +1056,9 @@ class Metrics:
     CONTROL_PADDING_Y = 9
     ANIMATION_FRAME_MS = 16
     ANIMATION_DURATION_MS = 160
-    RESIZE_LAYOUT_FRAME_MS = 40
+    # Configure bursts are coalesced by _schedule_content_layout, so 16 ms
+    # yields at most one layout commit per 60 Hz frame without pointer lag.
+    RESIZE_LAYOUT_FRAME_MS = 16
     ACTIVITY_FRAME_MS = 45
     SCROLL_INCREMENT = 44
     BUTTON_WIDTH = 18
@@ -1080,8 +1082,9 @@ class Typography:
     MONO = "Cascadia Mono"
     SMALL = 9
     BODY = 10
-    TITLE = 18
-    DISPLAY = 24
+    # Three rendered sizes only: 9 metadata, 10 controls/body, 20 headings.
+    TITLE = 20
+    DISPLAY = 20
 
 
 class GuidedTooltip:
@@ -1500,6 +1503,8 @@ class RenWeaveDesktopApp:
         self.narrow_layout = False
         self._responsive_render_id = None
         self._content_layout_id = None
+        self._content_layout_size: tuple[int, int] | None = None
+        self._content_scroll_visible = False
         self._progress_animation_id = None
         self._restore_redraw_id = None
         self._restore_hidden = False
@@ -1925,6 +1930,7 @@ class RenWeaveDesktopApp:
         style.configure("Content.TFrame", background=Colors.SURFACE, padding=(36, 24))
         style.configure("Card.TFrame", background=Colors.CARD, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("CardBody.TFrame", background=Colors.CARD, relief="flat", borderwidth=0)
+        style.configure("TintBody.TFrame", background=Colors.SURFACE_CONTAINER, relief="flat", borderwidth=0)
         style.configure("TintCard.TFrame", background=Colors.SURFACE_CONTAINER, relief="solid", borderwidth=1, bordercolor=Colors.OUTLINE_VARIANT)
         style.configure("Dialog.TFrame", background=Colors.CARD)
         style.configure("SuccessActions.TFrame", background=Colors.SUCCESS_CONTAINER)
@@ -2233,22 +2239,60 @@ class RenWeaveDesktopApp:
     def _render_responsive(self) -> None:
         self._responsive_render_id = None
         self._apply_responsive_shell()
+        self._apply_responsive_page()
+
+    def _apply_responsive_page(self) -> None:
+        """Update breakpoint-sensitive geometry without rebuilding the page."""
+        page_body = getattr(self, "page_body_label", None)
+        if page_body is not None and page_body.winfo_exists():
+            page_body.configure(wraplength=620 if self.compact_layout else 720)
+        budget_empty = getattr(self, "review_budget_unavailable", None)
+        if budget_empty is not None and budget_empty.winfo_exists():
+            budget_empty.configure(wraplength=560 if self.compact_layout else 760)
+
+        provider_grid = getattr(self, "provider_grid", None)
+        if provider_grid is not None and provider_grid.winfo_exists():
+            columns = 4
+            if columns != getattr(self, "provider_columns", columns):
+                self.provider_columns = columns
+                for column in range(4):
+                    provider_grid.columnconfigure(
+                        column,
+                        weight=1 if column < columns else 0,
+                        uniform="provider" if column < columns else "",
+                        minsize=0,
+                    )
+                self._layout_provider_buttons()
+
+        action_bar = getattr(self, "footer_action_bar", None)
+        if action_bar is not None and action_bar.winfo_exists():
+            slot_width = Metrics.COMPACT_FOOTER_SLOT_WIDTH if self.compact_layout else Metrics.FOOTER_SLOT_WIDTH
+            action_bar.columnconfigure(0, minsize=slot_width)
+            action_bar.columnconfigure(2, minsize=slot_width)
+            footer_effect = getattr(self, "footer_effect", None)
+            if footer_effect is not None and footer_effect.winfo_exists():
+                footer_effect.configure(wraplength=260 if self.compact_layout else 560)
+                footer_effect.grid_configure(padx=Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4)
 
     def _on_content_mousewheel(self, event) -> None:
         if not self.content_canvas or not self.content_scrollbar or not self.content_scrollbar.winfo_ismapped():
             return
         try:
-            pointer_x, pointer_y = self.root.winfo_pointerxy()
-            left = self.content_canvas.winfo_rootx()
-            top = self.content_canvas.winfo_rooty()
-            right = left + self.content_canvas.winfo_width()
-            bottom = top + self.content_canvas.winfo_height()
-            pointed = self.root.winfo_containing(pointer_x, pointer_y)
+            pointed = self.root.winfo_containing(*self.root.winfo_pointerxy())
         except self.tk.TclError:
             return
-        if not (left <= pointer_x <= right and top <= pointer_y <= bottom):
+        if pointed is None:
             return
-        if pointed is not None and pointed.winfo_class() in {"Text", "Treeview", "TCombobox"}:
+        widget = pointed
+        inside_content = False
+        while widget is not None:
+            if widget.winfo_class() in {"Text", "Treeview", "TCombobox"}:
+                return
+            if widget is self.content_canvas or widget is self.content:
+                inside_content = True
+                break
+            widget = getattr(widget, "master", None)
+        if not inside_content:
             return
         if not event.delta:
             return
@@ -2267,10 +2311,8 @@ class RenWeaveDesktopApp:
             return
         if self._content_layout_id is not None:
             return
-        # The nested canvas window is the expensive part of live resize. Keep
-        # native window movement responsive and reflow the widget tree at a
-        # steady 25 FPS, with the final Configure event guaranteeing the last
-        # exact layout after the drag ends.
+        # Coalesce event bursts while retaining a display-rate visual commit;
+        # pointer input itself is never debounced or down-sampled.
         self._content_layout_id = self.root.after(Metrics.RESIZE_LAYOUT_FRAME_MS, self._sync_content_layout)
 
     def _sync_content_layout(self) -> None:
@@ -2284,17 +2326,19 @@ class RenWeaveDesktopApp:
         except self.tk.TclError:
             return
         content_height = max(viewport_height, requested_height)
-        bounds = self.content_canvas.bbox(self.content_window)
-        current_width = 0 if bounds is None else bounds[2] - bounds[0]
-        current_height = 0 if bounds is None else bounds[3] - bounds[1]
-        if current_width != viewport_width or current_height != content_height:
+        layout_size = (viewport_width, content_height)
+        if self._content_layout_size != layout_size:
             self.content_canvas.itemconfigure(self.content_window, width=viewport_width, height=content_height)
-        self.content_canvas.configure(scrollregion=(0, 0, viewport_width, content_height))
-        if requested_height > viewport_height + 1:
+            self.content_canvas.configure(scrollregion=(0, 0, viewport_width, content_height))
+            self._content_layout_size = layout_size
+        should_scroll = requested_height > viewport_height + 1
+        if should_scroll and not self._content_scroll_visible:
             self.content_scrollbar.grid()
-        else:
+            self._content_scroll_visible = True
+        elif not should_scroll and self._content_scroll_visible:
             self.content_scrollbar.grid_remove()
             self.content_canvas.yview_moveto(0.0)
+            self._content_scroll_visible = False
 
     def _apply_responsive_shell(self) -> None:
         sidebar_width = Metrics.NARROW_SIDEBAR_WIDTH if self.narrow_layout else Metrics.SIDEBAR_WIDTH
@@ -2444,13 +2488,14 @@ class RenWeaveDesktopApp:
         body_key = "review.blank_body" if step_name == "review" and self.blank_translation_mode else f"{step_name}.body"
         self.page_title_label = self.ttk.Label(body, text=self.t(title_key), style="Headline.TLabel")
         self.page_title_label.grid(row=0, column=0, sticky="w")
-        self.ttk.Label(
+        self.page_body_label = self.ttk.Label(
             body,
             text=self.t(body_key),
             style="SurfaceBody.TLabel",
             wraplength=620 if self.compact_layout else 720,
             justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 14))
+        )
+        self.page_body_label.grid(row=1, column=0, sticky="w", pady=(6, 14))
 
     def _card(self, parent=None, *, row: int = 2, padding: int = Metrics.CARD_PADDING):
         card = self.ttk.Frame(parent or self.page, style="Card.TFrame", padding=padding)
@@ -2468,7 +2513,7 @@ class RenWeaveDesktopApp:
         return entry
 
     def _render_model(self) -> None:
-        card = self._card()
+        card = self._card(padding=Metrics.SPACE_4)
         card.columnconfigure(0, weight=1)
 
         title_row = self.ttk.Frame(card, style="CardBody.TFrame")
@@ -2480,25 +2525,10 @@ class RenWeaveDesktopApp:
             text=self.t("model.settings_saved"),
             style="AutoSave.TLabel",
         ).grid(row=0, column=1, sticky="e")
-        self.ttk.Label(card, text=self.t("provider.choose_hint"), style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 10))
-
-        sequence = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=7)
-        sequence.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        self.tk.Label(
-            sequence,
-            text=self.t("model.sequence"),
-            background=Colors.SURFACE_CONTAINER,
-            foreground=Colors.ON_SURFACE_VARIANT,
-            font=(Typography.UI, Typography.SMALL, "bold"),
-            anchor="w",
-            justify="left",
-            wraplength=680 if self.compact_layout else 760,
-        ).pack(fill="x")
-
         preset_grid = self.tk.Frame(card, background=Colors.CARD)
-        preset_grid.grid(row=3, column=0, sticky="ew")
+        preset_grid.grid(row=1, column=0, sticky="ew", pady=(10, 0))
         self.provider_grid = preset_grid
-        self.provider_columns = 3 if self.compact_layout else 4
+        self.provider_columns = 4
         for column in range(self.provider_columns):
             preset_grid.columnconfigure(column, weight=1, uniform="provider")
         selected_id = self.selected_provider_id.get()
@@ -2522,47 +2552,27 @@ class RenWeaveDesktopApp:
             self._guide(button, "tip.provider")
         self._layout_provider_buttons()
 
-        preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
-        selection = self.tk.Frame(card, background=Colors.SURFACE_CONTAINER, padx=14, pady=9)
-        selection.grid(row=4, column=0, sticky="ew", pady=(2, 14))
-        category = self.t(f"provider.{preset.category}")
-        self.provider_category = self.tk.Label(selection, text=category.upper(), background=preset.accent, foreground="#FFFFFF", font=(Typography.UI, Typography.SMALL, "bold"), padx=7, pady=3)
-        self.provider_category.pack(side="left")
-        self.provider_description = self.tk.Label(
-            selection,
-            text=preset.localized_description(self.locale.get()),
-            background=Colors.SURFACE_CONTAINER,
-            foreground=Colors.ON_SURFACE_VARIANT,
-            font=(Typography.UI, Typography.SMALL),
-            anchor="w",
-            justify="left",
-            wraplength=420 if self.compact_layout else 650,
-        )
-        self.provider_description.pack(side="left", fill="x", expand=True, padx=(10, 0))
-
         separator = self.tk.Frame(card, background=Colors.OUTLINE_VARIANT, height=1)
-        separator.grid(row=5, column=0, sticky="ew", pady=(2, 16))
+        separator.grid(row=2, column=0, sticky="ew", pady=(2, 12))
         config = self.ttk.Frame(card, style="CardBody.TFrame")
-        config.grid(row=6, column=0, sticky="nsew")
+        config.grid(row=3, column=0, sticky="nsew")
         config.columnconfigure(0, weight=1)
         if not self.compact_layout:
             config.columnconfigure(1, weight=1)
         left = self.ttk.Frame(config, style="CardBody.TFrame")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 0 if self.compact_layout else 16))
         left.columnconfigure(0, weight=1)
-        self.ttk.Label(left, text=self.t("model.config"), style="Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
         key_header = self.ttk.Frame(left, style="CardBody.TFrame")
-        key_header.grid(row=1, column=0, sticky="ew")
+        key_header.grid(row=0, column=0, sticky="ew")
         key_header.columnconfigure(0, weight=1)
         self.ttk.Label(key_header, text=self.t("model.key"), style="Field.TLabel").grid(row=0, column=0, sticky="w")
         show_key_button = self.ttk.Checkbutton(key_header, text=self.t("model.show_key"), variable=self.show_key, style="Material.TCheckbutton", command=self._toggle_key)
         show_key_button.grid(row=0, column=1, sticky="e")
         self._guide(show_key_button, "tip.show_key")
         self.api_key_entry = self._entry(left, self.api_key, secret=not self.show_key.get())
-        self.api_key_entry.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.api_key_entry.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self._guide(self.api_key_entry, "tip.api_key")
-        self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=3, column=0, sticky="w", pady=(3, 0))
-        self.ttk.Label(left, text=self.t("model.optional_hint"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=4, column=0, sticky="w", pady=(9, 0))
+        self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=2, column=0, sticky="w", pady=(3, 0))
 
         right = self.ttk.Frame(config, style="CardBody.TFrame")
         right.grid(
@@ -2573,12 +2583,10 @@ class RenWeaveDesktopApp:
             pady=(16, 0) if self.compact_layout else (0, 0),
         )
         right.columnconfigure(0, weight=1)
-        self.ttk.Label(right, text=self.t("model.selection"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 7))
-        self.ttk.Label(right, text=self.t("model.model"), style="Field.TLabel").grid(row=1, column=0, columnspan=2, sticky="w")
+        self.ttk.Label(right, text=self.t("model.model"), style="Field.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
         self.model_box = self._entry(right, self.model)
-        self.model_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self.model_box.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self._guide(self.model_box, "tip.model_id")
-        self.ttk.Label(right, text=self.t("model.model_hint"), style="Hint.TLabel", wraplength=350, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         self.use_model_checkbutton = self.ttk.Checkbutton(
             right,
@@ -2587,24 +2595,23 @@ class RenWeaveDesktopApp:
             command=self._refresh_model_route,
             style="Tint.TCheckbutton",
         )
-        self.use_model_checkbutton.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self.use_model_checkbutton.grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 0))
         self._guide(self.use_model_checkbutton, "tip.model_use")
-        self.ttk.Label(right, text=self.t("model.use_for_translation_hint"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
 
-        self.ttk.Label(config, text=self.t("model.advanced"), style="Section.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=(14, 7))
+        self.ttk.Label(config, text=self.t("model.advanced"), style="Section.TLabel").grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 6))
         advanced = self.ttk.Frame(config, style="TintCard.TFrame", padding=12)
-        advanced.grid(row=3, column=0, columnspan=2, sticky="ew")
+        advanced.grid(row=2, column=0, columnspan=2, sticky="ew")
         advanced.columnconfigure(0, weight=1)
         advanced.columnconfigure(1, weight=1)
         self.model_advanced_panel = advanced
-        endpoint_host = self.ttk.Frame(advanced, style="TintCard.TFrame")
+        endpoint_host = self.ttk.Frame(advanced, style="TintBody.TFrame")
         endpoint_host.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         endpoint_host.columnconfigure(0, weight=1)
         self.ttk.Label(endpoint_host, text=self.t("model.endpoint"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
         self.endpoint_box = self._combobox(endpoint_host, self.base_url, preset.base_urls)
         self.endpoint_box.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         self._guide(self.endpoint_box, "tip.endpoint")
-        reasoning_host = self.ttk.Frame(advanced, style="TintCard.TFrame")
+        reasoning_host = self.ttk.Frame(advanced, style="TintBody.TFrame")
         reasoning_host.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
         reasoning_host.columnconfigure(0, weight=1)
         self.ttk.Label(reasoning_host, text=self.t("model.reasoning"), style="Status.TLabel").grid(row=0, column=0, sticky="w")
@@ -2666,20 +2673,12 @@ class RenWeaveDesktopApp:
 
     def _refresh_model_panel(self) -> None:
         """Refresh provider-dependent fields without rebuilding the model page."""
-        if self.step != 2 or not hasattr(self, "provider_category"):
+        if self.step != 2 or not hasattr(self, "provider_buttons"):
             return
         selected_id = self.selected_provider_id.get()
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
         for provider_id, button in getattr(self, "provider_buttons", {}).items():
             button.configure(style="ProviderSelected.TButton" if provider_id == selected_id else "Provider.TButton")
-        self.provider_category.configure(
-            text=self.t(f"provider.{preset.category}").upper(),
-            background=preset.accent,
-        )
-        self.provider_description.configure(
-            text=preset.localized_description(self.locale.get()),
-            wraplength=420 if self.compact_layout else 650,
-        )
         self.endpoint_box.configure(values=preset.base_urls)
         self.reasoning_box.configure(state="disabled" if preset.reasoning_control == "none" else "readonly")
         self.reasoning_hint_label.configure(
@@ -3304,7 +3303,17 @@ class RenWeaveDesktopApp:
                 anchor="w",
             ).grid(row=3, column=0, sticky="w", pady=(5, 0))
         else:
-            self.tk.Label(budget_card, text=self.t("budget.unavailable"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.BODY), anchor="w").grid(row=1, column=0, sticky="w", pady=(5, 0))
+            self.review_budget_unavailable = self.tk.Label(
+                budget_card,
+                text=self.t("budget.unavailable"),
+                background=Colors.PRIMARY_CONTAINER,
+                foreground=Colors.ON_SURFACE_VARIANT,
+                font=(Typography.UI, Typography.BODY),
+                anchor="w",
+                justify="left",
+                wraplength=560 if self.compact_layout else 760,
+            )
+            self.review_budget_unavailable.grid(row=1, column=0, sticky="ew", pady=(5, 0))
 
         options = self.ttk.Frame(card, style="TintCard.TFrame", padding=(14, 10))
         options.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(12, 0))

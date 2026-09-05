@@ -109,7 +109,11 @@ def verify_layout(output_dir: Path | None = None) -> None:
         }
 
         checked = 0
-        for width, height in ((1240, 840), (1060, 720), (900, 640)):
+        desktop_sizes = (
+            (1920, 1080), (1600, 900), (1440, 900), (1366, 768),
+            (1280, 720), (1060, 720), (900, 640),
+        )
+        for width, height in desktop_sizes:
             root.geometry(f"{width}x{height}+20+20")
             for locale in ("en", "zh"):
                 app._set_locale(locale)
@@ -158,6 +162,12 @@ def verify_layout(output_dir: Path | None = None) -> None:
                         raise RuntimeError(
                             f"Header actions have unequal dimensions at {width}x{height}, {locale}"
                         )
+                    budget_empty = getattr(app, "review_budget_unavailable", None)
+                    if budget_empty is not None and budget_empty.winfo_exists():
+                        if budget_empty.winfo_reqwidth() > budget_empty.winfo_width() + 1:
+                            raise RuntimeError(
+                                f"Review budget copy is clipped at {width}x{height}, {locale}"
+                            )
                     if output_dir is not None:
                         root.update()
                         capture_window(
@@ -175,6 +185,21 @@ def verify_layout(output_dir: Path | None = None) -> None:
                     raise RuntimeError(
                         f"Responsive update rebuilt the page at {width}x{height}, {locale}"
                     )
+
+        root.geometry("1240x840+20+20")
+        app.step = 2
+        app._render()
+        root.update()
+        stable_page = app.page
+        app._on_root_configure(SimpleNamespace(widget=root, width=1000))
+        app._render_responsive()
+        root.update_idletasks()
+        if app.page is not stable_page:
+            raise RuntimeError("Compact breakpoint rebuilt the mounted model page")
+        if app.provider_columns != 4:
+            raise RuntimeError("Provider grid did not preserve the compact four-column layout")
+        if app.footer_action_bar.grid_columnconfigure(0)["minsize"] != 150:
+            raise RuntimeError("Footer action slots did not compact during live resize")
         if output_dir is not None:
             root.geometry("1240x840+20+20")
             root.update()
