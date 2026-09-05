@@ -138,6 +138,7 @@ def main() -> int:
         "--copy-metadata", "renweave",
         "--hidden-import", "pickletools",
         "--hidden-import", "keyring.backends.Windows",
+        "--runtime-hook", str(ROOT / "scripts" / "pyinstaller_qt_runtime.py"),
         "--version-file", str(version_resource),
         "--icon", str(app_icon),
         "--distpath", str(release_root),
