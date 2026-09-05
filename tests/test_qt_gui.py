@@ -88,11 +88,14 @@ class QtFrontendTests(unittest.TestCase):
     def test_locale_switch_retranslates_mounted_widgets(self):
         window = QtRenWeaveWindow()
         try:
+            window.locale = "en"
+            window._retranslate_ui()
             page_widgets = [page.scroll for page in window.pages]
             window._toggle_locale()
             self.assertEqual(window.locale, "zh")
             self.assertEqual(window.pages[0].title.text(), "游戏设置")
             self.assertEqual(window.action_button.text(), "继续")
+            self.assertEqual(window.back_button.text(), "返回")
             self.assertEqual([page.scroll for page in window.pages], page_widgets)
             window._toggle_locale()
             self.assertEqual(window.pages[0].title.text(), "Game setup")
@@ -114,6 +117,21 @@ class QtFrontendTests(unittest.TestCase):
             self.assertFalse(window.action_button.isEnabled())
             window._project_inspected((object(), [], None), first_revision, "first")
             self.assertIsNone(window._discovered_project)
+        finally:
+            window.close()
+
+    def test_model_controls_have_selection_state_and_runtime_icon(self):
+        window = QtRenWeaveWindow()
+        try:
+            self.assertFalse(window.windowIcon().isNull())
+            self.assertEqual(window.model_edit.__class__.__name__, "QComboBox")
+            window.provider_buttons[0].click()
+            self.assertEqual(window.provider_combo.currentIndex(), 0)
+            self.assertTrue(window.provider_buttons[0].isChecked())
+            self.assertFalse(any(button.isChecked() for button in window.provider_buttons[1:]))
+            window.model_edit.addItems(["model-a", "model-b"])
+            window.model_edit.setCurrentText("model-b")
+            self.assertEqual(window.model_edit.currentText(), "model-b")
         finally:
             window.close()
 

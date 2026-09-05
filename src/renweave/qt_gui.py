@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QColor, QIcon, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QStackedWidget,
+    QStyle,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -168,6 +169,7 @@ UI_COPY = {
         "shell.continue": "Continue",
         "shell.start": "Start",
         "shell.pause": "Pause",
+        "shell.extract_blank": "Extract blank translation",
         "shell.breadcrumb": "Step {current} / {total}",
         "footer.default": "Changes are saved locally",
         "footer.game": "Next: choose languages. Game files stay unchanged.",
@@ -181,6 +183,20 @@ UI_COPY = {
         "dialog.project": "Project",
         "dialog.inspecting": "Project inspection is still running.",
         "dialog.invalid_project": "Select a valid Ren'Py project first.",
+        "dialog.cannot_start": "Cannot start",
+        "dialog.missing_fields": "Project, workspace and target language are required.",
+        "dialog.open_output": "Open output",
+        "model.loading": "Loading models…",
+        "model.loaded": "Loaded {count} model(s) · {latency} ms",
+        "model.verifying": "Verifying model…",
+        "model.verified": "Verified {model} · {latency} ms",
+        "model.load_failed": "Model loading failed: {error}",
+        "model.verify_failed": "Verification failed: {error}",
+        "scope.failed": "Scope preview failed: {error}",
+        "translation.failed": "Translation failed: {error}",
+        "translation.ready": "Translation package is ready",
+        "translation.completed": "Completed",
+        "progress.pausing": "Pausing safely…",
     },
     "zh": {
         "nav.game": "游戏设置",
@@ -258,6 +274,7 @@ UI_COPY = {
         "shell.continue": "继续",
         "shell.start": "开始",
         "shell.pause": "暂停",
+        "shell.extract_blank": "提取空白翻译",
         "shell.breadcrumb": "第 {current} / {total} 步",
         "footer.default": "修改会保存到本地",
         "footer.game": "下一步：选择语言。游戏文件保持不变。",
@@ -271,8 +288,57 @@ UI_COPY = {
         "dialog.project": "项目",
         "dialog.inspecting": "项目检查仍在进行中。",
         "dialog.invalid_project": "请先选择有效的 Ren'Py 项目。",
+        "dialog.cannot_start": "无法开始",
+        "dialog.missing_fields": "项目、工作区和目标语言均为必填项。",
+        "dialog.open_output": "打开输出目录",
+        "model.loading": "正在获取模型……",
+        "model.loaded": "已加载 {count} 个模型 · {latency} ms",
+        "model.verifying": "正在验证模型……",
+        "model.verified": "模型已验证：{model} · {latency} ms",
+        "model.load_failed": "获取模型失败：{error}",
+        "model.verify_failed": "模型验证失败：{error}",
+        "scope.failed": "翻译范围预览失败：{error}",
+        "translation.failed": "翻译失败：{error}",
+        "translation.ready": "翻译包已准备完成",
+        "translation.completed": "已完成",
+        "progress.pausing": "正在安全暂停……",
     },
 }
+
+APP_ICON_PATH = Path(__file__).with_name("assets") / "renweave.svg"
+
+
+def _application_icon() -> QIcon:
+    """Create the small runtime icon without depending on a platform SVG plugin."""
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    gradient = QLinearGradient(0, 0, 0, 64)
+    gradient.setColorAt(0, QColor("#5b5ce2"))
+    gradient.setColorAt(1, QColor("#1cb8cd"))
+    painter.setBrush(gradient)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawRoundedRect(1, 1, 62, 62, 14, 14)
+    path = QPainterPath()
+    path.moveTo(12, 16)
+    path.lineTo(21, 49)
+    path.lineTo(32, 27)
+    path.lineTo(43, 49)
+    path.lineTo(52, 16)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.setPen(
+        QPen(
+            QColor("#ffffff"),
+            7,
+            Qt.PenStyle.SolidLine,
+            Qt.PenCapStyle.RoundCap,
+            Qt.PenJoinStyle.RoundJoin,
+        )
+    )
+    painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class QtRenWeaveWindow(QMainWindow):
@@ -283,6 +349,7 @@ class QtRenWeaveWindow(QMainWindow):
     def __init__(self, *, initial_project: str = "", initial_workspace: str = "") -> None:
         super().__init__()
         self.setWindowTitle("RenWeave")
+        self.setWindowIcon(_application_icon())
         self.resize(1240, 840)
         self.setMinimumSize(900, 640)
         self.locale = "en"
@@ -330,7 +397,7 @@ class QtRenWeaveWindow(QMainWindow):
             """
             QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f6fb; color: #101828; font-family: "Microsoft YaHei UI"; }
             QFrame#Sidebar { background: #0b1020; }
-            QFrame#Card { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 12px; }
+            QFrame#Card, QFrame#Footer { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 12px; }
             QFrame#Card QLabel, QFrame#TintCard QLabel, QFrame#SuccessCard QLabel { background: transparent; }
             QFrame#TintCard { background: #eef0ff; border: 1px solid #dfe2ff; border-radius: 10px; }
             QFrame#SuccessCard { background: #ecfdf3; border: 1px solid #c9ecd9; border-radius: 10px; }
@@ -340,15 +407,20 @@ class QtRenWeaveWindow(QMainWindow):
             QLabel#SectionTitle { color: #101828; font-size: 16px; font-weight: 700; }
             QLabel#Hint { color: #667085; }
             QLabel#Status { color: #303176; font-weight: 600; }
-            QPushButton { min-height: 32px; padding: 0 14px; border-radius: 7px; }
+            QPushButton { min-height: 36px; max-height: 36px; padding: 0 14px; border-radius: 7px; color: #344054; }
             QPushButton#Primary { background: #5b5ce2; color: white; font-weight: 700; }
             QPushButton#Primary:hover { background: #494ac8; }
             QPushButton#Secondary { background: #ffffff; color: #344054; border: 1px solid #e0e6ef; }
             QPushButton#Secondary:hover { background: #e7e9ff; }
+            QPushButton#Secondary:checked { background: #5b5ce2; color: #ffffff; border: 1px solid #494ac8; font-weight: 700; }
             QPushButton#Nav { color: #98a2b3; text-align: left; border: 0; padding: 8px 14px; }
             QPushButton#Nav:hover { background: #1b2440; }
             QPushButton#Nav[current="true"] { background: #5b5ce2; color: #ffffff; font-weight: 700; }
-            QLineEdit, QComboBox, QTextEdit { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; }
+            QLineEdit, QComboBox, QTextEdit { background: #ffffff; color: #344054; selection-background-color: #5b5ce2; selection-color: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; min-height: 36px; }
+            QLineEdit:focus, QComboBox:focus, QTextEdit:focus { border: 1px solid #5b5ce2; }
+            QLineEdit::placeholder { color: #98a2b3; }
+            QComboBox QAbstractItemView { background: #ffffff; color: #344054; selection-background-color: #e7e9ff; selection-color: #101828; }
+            QCheckBox { min-height: 28px; color: #344054; }
             QProgressBar { border: 0; background: #e9edf5; border-radius: 5px; height: 10px; }
             QProgressBar::chunk { background: #5b5ce2; border-radius: 5px; }
             """
@@ -371,6 +443,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.nav_buttons: list[QPushButton] = []
         for index, key in enumerate(self.STEPS):
             button = QPushButton(objectName="Nav")
+            nav_icons = (
+                QStyle.StandardPixmap.SP_DirHomeIcon,
+                QStyle.StandardPixmap.SP_DialogApplyButton,
+                QStyle.StandardPixmap.SP_FileDialogDetailedView,
+                QStyle.StandardPixmap.SP_MessageBoxInformation,
+                QStyle.StandardPixmap.SP_MediaPlay,
+            )
+            button.setIcon(self.style().standardIcon(nav_icons[index]))
             button.clicked.connect(lambda _checked=False, selected=index: self._go_to_step(selected))
             self.nav_buttons.append(button)
             sidebar_layout.addWidget(button)
@@ -394,9 +474,11 @@ class QtRenWeaveWindow(QMainWindow):
         self.stack = QStackedWidget()
         main_layout.addWidget(self.stack, 1)
 
-        footer = QFrame(objectName="Card")
+        self.footer = QFrame(objectName="Footer")
+        footer = self.footer
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(14, 10, 14, 10)
+        footer.setFixedHeight(62)
         self.back_button = QPushButton("Back", objectName="Secondary")
         self.back_button.clicked.connect(self._go_back)
         footer_layout.addWidget(self.back_button)
@@ -465,6 +547,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_browse_button = QPushButton(objectName="Secondary")
         self.workspace_browse_button = QPushButton(objectName="Secondary")
         self.sdk_browse_button = QPushButton(objectName="Secondary")
+        browse_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
+        self.project_browse_button.setIcon(browse_icon)
+        self.workspace_browse_button.setIcon(browse_icon)
+        self.sdk_browse_button.setIcon(browse_icon)
         self.project_browse_button.clicked.connect(self._browse_project)
         self.workspace_browse_button.clicked.connect(self._browse_workspace)
         self.sdk_browse_button.clicked.connect(self._browse_sdk)
@@ -548,19 +634,8 @@ class QtRenWeaveWindow(QMainWindow):
     def _build_model_page(self):
         scroll, content, layout = self._new_page("model", "page.model.title", "page.model.body")
         card, card_layout = self._card()
-        fields = QGridLayout()
-        fields.setHorizontalSpacing(12)
-        fields.setVerticalSpacing(8)
-        for column in range(4):
-            fields.setColumnStretch(column, 1)
         self.model_provider_label = QLabel(objectName="SectionTitle")
-        self.api_key_label = QLabel(objectName="SectionTitle")
-        self.model_label = QLabel(objectName="SectionTitle")
-        self.endpoint_label = QLabel(objectName="SectionTitle")
-        fields.addWidget(self.model_provider_label, 0, 0)
-        fields.addWidget(self.api_key_label, 0, 1)
-        fields.addWidget(self.model_label, 0, 2)
-        fields.addWidget(self.endpoint_label, 0, 3)
+        card_layout.addWidget(self.model_provider_label)
         self.provider_combo = QComboBox()
         self.provider_ids = [preset.id for preset in PROVIDER_PRESETS]
         self.provider_combo.addItems([preset.name for preset in PROVIDER_PRESETS])
@@ -577,14 +652,27 @@ class QtRenWeaveWindow(QMainWindow):
             button.clicked.connect(lambda _checked=False, selected=index: self._select_provider(selected))
             provider_grid.addWidget(button, index // 4, index % 4)
             self.provider_buttons.append(button)
-        fields.addWidget(provider_panel, 1, 0, 1, 4)
+        card_layout.addWidget(provider_panel)
+
+        fields = QGridLayout()
+        fields.setHorizontalSpacing(12)
+        fields.setVerticalSpacing(8)
+        for column in range(3):
+            fields.setColumnStretch(column, 1)
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.model_edit = QLineEdit()
+        self.model_edit = QComboBox()
+        self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
-        fields.addWidget(self.api_key_edit, 2, 1)
-        fields.addWidget(self.model_edit, 2, 2)
-        fields.addWidget(self.endpoint_edit, 2, 3)
+        self.api_key_label = QLabel(objectName="SectionTitle")
+        self.model_label = QLabel(objectName="SectionTitle")
+        self.endpoint_label = QLabel(objectName="SectionTitle")
+        fields.addWidget(self.api_key_label, 0, 0)
+        fields.addWidget(self.model_label, 0, 1)
+        fields.addWidget(self.endpoint_label, 0, 2)
+        fields.addWidget(self.api_key_edit, 1, 0)
+        fields.addWidget(self.model_edit, 1, 1)
+        fields.addWidget(self.endpoint_edit, 1, 2)
         card_layout.addLayout(fields)
         self.use_model_check = QCheckBox()
         self.use_model_check.setChecked(True)
@@ -592,6 +680,8 @@ class QtRenWeaveWindow(QMainWindow):
         buttons = QHBoxLayout()
         self.connect_model_button = QPushButton(objectName="Secondary")
         self.verify_model_button = QPushButton(objectName="Secondary")
+        self.connect_model_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.verify_model_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
         self.connect_model_button.clicked.connect(self._connect_models)
         self.verify_model_button.clicked.connect(self._verify_model)
         buttons.addWidget(self.connect_model_button)
@@ -739,10 +829,12 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_output.setWordWrap(True)
         card_layout.addWidget(self.progress_output)
         self.progress_open_button = QPushButton(objectName="Secondary")
+        self.progress_open_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
         self.progress_open_button.clicked.connect(self._open_output_folder)
         self.progress_open_button.setVisible(False)
         card_layout.addWidget(self.progress_open_button)
         self.log_toggle = QPushButton(objectName="Secondary")
+        self.log_toggle.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.log_toggle.clicked.connect(self._toggle_log)
         card_layout.addWidget(self.log_toggle)
         self.log_edit = QTextEdit()
@@ -769,7 +861,7 @@ class QtRenWeaveWindow(QMainWindow):
             self.action_button.setText(self._t("shell.pause"))
             self.action_button.setEnabled(True)
         elif self.step == 3 and self._blank_translation_mode:
-            self.action_button.setText("提取空白翻译" if self.locale == "zh" else "Extract blank translation")
+            self.action_button.setText(self._t("shell.extract_blank"))
             self.action_button.setEnabled(True)
         else:
             self.action_button.setText(self._t("shell.start" if self.step == 3 else "shell.continue"))
@@ -821,7 +913,7 @@ class QtRenWeaveWindow(QMainWindow):
             return
         if self.step == 4 and self._cancel_token is not None:
             self._cancel_token.cancel()
-            self.progress_runtime.setText("Pausing safely…")
+            self.progress_runtime.setText(self._t("progress.pausing"))
 
     def _toggle_locale(self) -> None:
         self.locale = "zh" if self.locale == "en" else "en"
@@ -838,6 +930,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._refresh_static_texts()
 
     def _refresh_static_texts(self) -> None:
+        self.back_button.setText(self._t("shell.back"))
         self.game_project_label.setText(self._t("game.project"))
         self.game_workspace_label.setText(self._t("game.workspace"))
         self.game_sdk_label.setText(self._t("game.sdk"))
@@ -904,12 +997,12 @@ class QtRenWeaveWindow(QMainWindow):
     def _toggle_pending_details(self) -> None:
         visible = not self.pending_details.isVisible()
         self.pending_details.setVisible(visible)
-        self.pending_toggle.setText("Hide details" if visible else "Show details")
+        self.pending_toggle.setText(self._t("review.hide_pending" if visible else "review.show_details"))
 
     def _toggle_log(self) -> None:
         visible = not self.log_edit.isVisible()
         self.log_edit.setVisible(visible)
-        self.log_toggle.setText("Hide log" if visible else "Show log")
+        self.log_toggle.setText(self._t("progress.hide_log" if visible else "progress.show_log"))
 
     def _project_changed(self, _value: str = "") -> None:
         self._project_revision += 1
@@ -1062,7 +1155,7 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _scope_preview_failed(self, error: BaseException) -> None:
         self._scope_preview_status = "error"
-        self.language_scope_label.setText(f"Scope preview failed: {error}")
+        self.language_scope_label.setText(self._t("scope.failed", error=error))
 
     def _provider_changed(self, index: int) -> None:
         if not self.provider_ids:
@@ -1075,25 +1168,32 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _connect_models(self) -> None:
         profile = self._profile()
-        self.model_status.setText("Loading models…")
+        self.model_status.setText(self._t("model.loading"))
         self._run_worker(
             lambda: OpenAICompatibleCatalog(profile).list_models(),
             lambda catalog: self._models_loaded(catalog),
-            lambda error: self.model_status.setText(f"Model loading failed: {error}"),
+            lambda error: self.model_status.setText(self._t("model.load_failed", error=error)),
         )
 
     def _models_loaded(self, catalog) -> None:
-        self.model_status.setText(f"Loaded {len(catalog.models)} model(s) · {catalog.latency_ms} ms")
-        if catalog.models and not self.model_edit.text().strip():
-            self.model_edit.setText(catalog.models[0])
+        self.model_status.setText(self._t("model.loaded", count=len(catalog.models), latency=catalog.latency_ms))
+        current = self.model_edit.currentText().strip()
+        self.model_edit.clear()
+        self.model_edit.addItems(catalog.models)
+        if current:
+            self.model_edit.setCurrentText(current)
+        elif catalog.models:
+            self.model_edit.setCurrentIndex(0)
 
     def _verify_model(self) -> None:
         profile = self._profile(require_model=True)
-        self.model_status.setText("Verifying model…")
+        self.model_status.setText(self._t("model.verifying"))
         self._run_worker(
             lambda: OpenAICompatibleCatalog(profile).verify_model(),
-            lambda result: self.model_status.setText(f"Verified {result.model} · {result.latency_ms} ms"),
-            lambda error: self.model_status.setText(f"Verification failed: {error}"),
+            lambda result: self.model_status.setText(
+                self._t("model.verified", model=result.model, latency=result.latency_ms)
+            ),
+            lambda error: self.model_status.setText(self._t("model.verify_failed", error=error)),
         )
 
     def _profile(self, *, require_model: bool = False) -> ModelProfile:
@@ -1101,7 +1201,7 @@ class QtRenWeaveWindow(QMainWindow):
         preset = PROVIDER_PRESETS_BY_ID[provider_id]
         profile = ModelProfile(
             name=preset.name,
-            model=self.model_edit.text().strip(),
+            model=self.model_edit.currentText().strip(),
             base_url=self.endpoint_edit.text().strip(),
             provider_id=provider_id,
             api_key=self.api_key_edit.text(),
@@ -1133,7 +1233,7 @@ class QtRenWeaveWindow(QMainWindow):
             f"{self.source_combo.currentText().strip() or 'auto'}  →  {self.target_combo.currentText().strip()}"
         )
         self.review_fact_values[0].setText(
-            f"{self.provider_combo.currentText()} · {self.model_edit.text().strip() or '—'}"
+            f"{self.provider_combo.currentText()} · {self.model_edit.currentText().strip() or '—'}"
         )
         self.review_fact_values[1].setText(
             Path(self.project_edit.text().strip()).name or self.project_edit.text().strip() or "—"
@@ -1167,7 +1267,9 @@ class QtRenWeaveWindow(QMainWindow):
     def _toggle_review_details(self) -> None:
         visible = not self.review_details_label.isVisible()
         self.review_details_label.setVisible(visible)
-        self.review_details_toggle.setText("Hide technical details" if visible else "Show technical details")
+        self.review_details_toggle.setText(
+            self._t("review.hide_details" if visible else "review.details")
+        )
         if visible:
             self.review_details_label.setText(
                 f"Project: {self.project_edit.text()}\n"
@@ -1199,7 +1301,7 @@ class QtRenWeaveWindow(QMainWindow):
             )
             request.validate()
         except (OSError, TypeError, ValueError) as exc:
-            QMessageBox.warning(self, "Cannot start", str(exc))
+            QMessageBox.warning(self, self._t("dialog.cannot_start"), str(exc))
             return
         self._translation_started = True
         self._cancel_token = CancellationToken()
@@ -1222,7 +1324,11 @@ class QtRenWeaveWindow(QMainWindow):
         source = self.source_combo.currentText().strip() or "auto"
         target = self.target_combo.currentText().strip()
         if not project or not workspace or not target:
-            QMessageBox.warning(self, "Cannot start", "Project, workspace and target language are required.")
+            QMessageBox.warning(
+                self,
+                self._t("dialog.cannot_start"),
+                self._t("dialog.missing_fields"),
+            )
             return
         self._translation_started = True
         self._cancel_token = CancellationToken()
@@ -1246,8 +1352,8 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_stage = "complete"
         self._progress_payload = state.to_dict()
         self._translation_started = False
-        self.progress_heading.setText("Translation package is ready")
-        self.progress_runtime.setText("Completed")
+        self.progress_heading.setText(self._t("translation.ready"))
+        self.progress_runtime.setText(self._t("translation.completed"))
         output_dir = str(self._progress_payload.get("output_dir", "") or "")
         package_path = str(self._progress_payload.get("package_path", "") or "")
         self.progress_output.setText(
@@ -1262,7 +1368,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _translation_failed(self, error: BaseException) -> None:
         self._last_stage = "failed"
         self._translation_started = False
-        self.progress_runtime.setText(f"Translation failed: {error}")
+        self.progress_runtime.setText(self._t("translation.failed", error=error))
         self._refresh_shell()
 
     def _open_output_folder(self) -> None:
@@ -1278,7 +1384,7 @@ class QtRenWeaveWindow(QMainWindow):
             else:
                 subprocess.Popen(["xdg-open", target])
         except OSError as exc:
-            QMessageBox.warning(self, "Open output", str(exc))
+            QMessageBox.warning(self, self._t("dialog.open_output"), str(exc))
 
     def _progress_received(self, payload) -> None:
         self._progress_payload = payload.to_dict() if hasattr(payload, "to_dict") else dict(payload)
@@ -1320,7 +1426,8 @@ class QtRenWeaveWindow(QMainWindow):
         provider_id = str(self._settings.get("provider_id", "openai"))
         if provider_id in self.provider_ids:
             self.provider_combo.setCurrentIndex(self.provider_ids.index(provider_id))
-        self.model_edit.setText(str(self._settings.get("model", "")))
+        self._select_provider(self.provider_combo.currentIndex())
+        self.model_edit.setCurrentText(str(self._settings.get("model", "")))
         self.endpoint_edit.setText(str(self._settings.get("base_url", self.endpoint_edit.text())))
         identity = (provider_id, self.endpoint_edit.text().strip())
         try:
@@ -1334,7 +1441,7 @@ class QtRenWeaveWindow(QMainWindow):
             "schema_version": 1,
             "locale": self.locale,
             "provider_id": self.provider_ids[self.provider_combo.currentIndex()],
-            "model": self.model_edit.text().strip(),
+            "model": self.model_edit.currentText().strip(),
             "base_url": self.endpoint_edit.text().strip(),
         }
         try:
