@@ -1624,7 +1624,7 @@ class RenWeaveDesktopApp:
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
         self.root.bind("<Map>", self._on_root_map, add="+")
-        self.root.bind("<Expose>", self._on_root_expose, add="+")
+        self.root.bind("<Visibility>", self._on_root_visibility, add="+")
         self.root.bind("<Unmap>", self._on_root_unmap, add="+")
         self.root.bind("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
@@ -2187,7 +2187,7 @@ class RenWeaveDesktopApp:
         if event.widget is self.root:
             self._schedule_restore_redraw()
 
-    def _on_root_expose(self, event) -> None:
+    def _on_root_visibility(self, event) -> None:
         if event.widget is self.root:
             self._schedule_restore_redraw()
 
@@ -2201,7 +2201,10 @@ class RenWeaveDesktopApp:
         if self._restore_redraw_id is not None:
             return
         try:
-            self._restore_redraw_id = self.root.after_idle(self._refresh_after_restore)
+            # Give Windows time to remap child windows before applying the
+            # native border style. Do not force a Canvas layout from a paint
+            # or expose callback.
+            self._restore_redraw_id = self.root.after(50, self._refresh_after_restore)
         except self.tk.TclError:
             self._restore_redraw_id = None
 
@@ -2210,10 +2213,7 @@ class RenWeaveDesktopApp:
         try:
             if not self.root.winfo_exists() or not self.root.winfo_viewable():
                 return
-            self.root.update_idletasks()
             self._style_native_window(self.root, dark=True)
-            self._content_layout_size = None
-            self._sync_content_layout()
         except self.tk.TclError:
             return
 
