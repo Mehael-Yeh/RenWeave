@@ -7,67 +7,69 @@
 
 **English** · [简体中文](docs/README.zh-CN.md)
 
-Context-aware, one-click translation for Ren'Py games. RenWeave understands scenes, story flow, characters, relationships, and terminology before it translates—then validates, refines, and packages the result for any target language supported by your model.
+RenWeave is a context-aware Ren'Py localization tool. It understands scripts as scenes and story flow, preserves existing translation work, validates generated RPY files, and can optionally package the result as an RPA archive.
 
-## Why RenWeave
+## What it does
 
-Line-by-line translation loses callbacks, character voice, running jokes, and terms whose meaning changes with the scene. RenWeave treats the scene as the translation unit and uses the individual line only as the safe write-back address.
-
-- No manual world bible, character list, or glossary forms.
-- Any source and target language; Simplified Chinese is not a hard-coded default.
-- Safe RPA unpacking and isolated RPYC/RPYMC decompilation.
-- Evidence-backed story and character understanding with compact, relevant prompts.
-- A preflight Token budget before starting and a persistent provider-reported usage ledger while running.
-- Structural validation for Ren'Py tags, interpolation, placeholders, IDs, and generated scripts.
-- Existing `game/tl/<language>` folders are detected before translation. Valid user translations are preserved, while only missing, empty, structurally damaged, or source-changed units are sent for incremental translation.
-- Selective cross-scene refinement instead of paying to resend every translated line.
-- Validated standard RPY language directories in every run, plus optional RPA 3.0 archives enabled by default. When a game-bundled Ren'Py runtime or SDK is available, the archive includes verified RPYC sidecars and is marked `runtime_ready`.
-- Original game files remain read-only unless installation is explicitly enabled.
+- Accepts a game root, a `game` directory, or a game executable.
+- Reads loose `.rpy`/`.rpym` files, compiled `.rpyc`/`.rpymc` files, and RPA 2.0/3.0/3.2 archives.
+- Unpacks and decompiles into an isolated workspace with the bundled, integrity-checked `unrpyc` runtime. Processing does not download executable tools.
+- Builds deterministic project, scene, character, relationship, and terminology evidence before any model call.
+- Translates at scene level so callbacks, voice, recurring jokes, and local terminology remain available in context.
+- Repairs only structurally invalid model output and can run a separate risk-focused refinement pass.
+- Detects the target language before translation and reuses valid existing units. Missing, empty, damaged, or source-changed units become incremental work.
+- Produces a complete final language folder: the supplied translation files plus the validated incremental additions or changes.
+- Runs static Ren'Py validation for generated scripts. An optional Ren'Py SDK or compatible game runtime enables isolated engine validation.
+- Keeps completed RPY and RPA artifacts. The original game stays read-only unless installation is explicitly requested.
 
 ## Quick start
 
-Windows users can download the versioned `RenWeave-<version>-windows-x64.exe` from the latest GitHub Release and launch it directly; Python is not required. You still need an API key for a supported provider.
+### Windows executable
 
-To run from source instead, use Python 3.10 or newer:
+Download `RenWeave-<version>-windows-x64.exe` from the [latest GitHub Release](https://github.com/Mehael-Yeh/RenWeave/releases/latest) and launch it. Python is not required for the standalone executable. A model API key is required only when the model translation route is selected.
+
+### Run from source
+
+Python 3.10 or newer is required:
 
 ```powershell
 git clone https://github.com/Mehael-Yeh/RenWeave.git
 cd RenWeave
-python -m pip install .
+py -3.10 -m pip install .
 renweave-gui
 ```
 
-The desktop app guides you through five steps:
+The desktop workflow has five steps:
 
-1. Choose the Ren'Py game and an isolated workspace. A bundled compatible Ren'Py runtime is filled in automatically; the interface explains the built-in static fallback when none exists.
-2. Choose an existing language for incremental translation, or choose any new source and target languages.
-3. Choose whether to use a model for translation. The checkbox is on by default; turn it off to extract blank translation files, or leave it on and continue to review the model-backed task.
-4. Review the exact scope. The blank-translation route shows `0` Tokens, writes only validated RPY files, and never enters step 05 or creates an RPA.
-5. The model-backed route starts once and follows unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
+1. **Game** — choose the Ren'Py game and a separate RenWeave workspace.
+2. **Languages** — select the source and target languages, including a detected existing target language for incremental work.
+3. **Model** — the **Use model for translation** checkbox is enabled by default. The model fields, endpoint, and reasoning controls are displayed directly. Clear the checkbox to use the blank-file route.
+4. **Review** — inspect the indexed scope and token estimate. Blank extraction shows `0` Tokens, produces validated RPY files only, and stays on this step.
+5. **Translation** — only the model route reaches this step. Clicking the explicit start action begins model work; progress, checkpoints, diagnostics, and output are shown here.
 
-English is the default interface language. Use the single **中文** / **English** button beside **Settings** to switch directly to the other interface language. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
+Entering Review never starts a model request. The blank route does not call a model, does not create an RPA, and does not enter step 05. It leaves the extracted and validated RPY translation files for the user to complete manually.
 
-## Providers and model settings
+The interface can switch between English and Simplified Chinese. Provider, endpoint, model, and reasoning choices are restored from user settings. API keys use the operating system credential store by default, or can be kept in memory only. Secrets are not written to RenWeave settings, workspaces, logs, or packages.
 
-The app includes editable presets for common official APIs and aggregators. Enter the exact model ID when model translation is selected; base URL and thinking-level controls are shown directly on the model page. RenWeave no longer requires a separate model-list request or manual verification step before continuing. The selected model is validated by the translation request itself, and the reusable profile is saved without its secret.
+## Model settings
 
-Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key. Secure keys use the dedicated `RenWeave API Credentials` namespace in the OS credential service through `keyring` (Windows Credential Manager on Windows); memory-only mode never persists them.
+The desktop app includes editable presets for:
 
-| Provider | Preset endpoint | Notes |
-| --- | --- | --- |
-| [OpenAI](https://platform.openai.com/docs/api-reference/models) | `https://api.openai.com/v1` | Official model discovery and Chat Completions |
-| [Google Gemini](https://ai.google.dev/gemini-api/docs/openai) | `https://generativelanguage.googleapis.com/v1beta/openai` | Official OpenAI-compatible endpoint |
-| [Anthropic](https://platform.claude.com/docs/en/cli-sdks-libraries/libraries/openai-sdk) | `https://api.anthropic.com/v1` | Claude compatibility layer; JSON response parameters are omitted |
-| [DeepSeek](https://api-docs.deepseek.com/) | `https://api.deepseek.com` | Official OpenAI-compatible API; `/v1` is also selectable |
-| [MiniMax](https://platform.minimax.io/docs/api-reference/models/openai/list-models) | `https://api.minimax.io/v1` | International and mainland China endpoints |
-| [Alibaba Cloud Model Studio](https://help.aliyun.com/en/model-studio/deep-thinking) | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Mainland China and international DashScope endpoints |
-| [Zhipu AI](https://docs.bigmodel.cn/cn/guide/capabilities/thinking) | `https://open.bigmodel.cn/api/paas/v4` | Official BigModel API |
-| [Moonshot AI](https://platform.moonshot.cn/) | `https://api.moonshot.cn/v1` | Official Kimi API |
-| [SiliconFlow](https://docs.siliconflow.cn/cn/api-reference/models/get-model-list) | `https://api.siliconflow.cn/v1` | Aggregated live account catalog |
-| [OpenRouter](https://openrouter.ai/docs/api/api-reference/models/get-models) | `https://openrouter.ai/api/v1` | Aggregated model catalog |
-| Custom | Editable | Any third-party or local OpenAI-compatible endpoint |
+- OpenAI
+- Google Gemini
+- Anthropic
+- DeepSeek
+- MiniMax
+- Alibaba Cloud Model Studio
+- Zhipu AI
+- Moonshot AI
+- SiliconFlow
+- OpenRouter
+- two custom OpenAI-compatible endpoints
 
-For CLI use, copy [`examples/provider.openai-compatible.json`](examples/provider.openai-compatible.json):
+Enter the exact model ID supported by the selected provider. The base URL and reasoning controls are always visible on step 03; there is no separate Advanced Settings page. RenWeave does not require a model-list request or a manual verification button before continuing. The local profile is checked before Review, and the first real provider request occurs only when model translation is explicitly started on step 05.
+
+For command-line use, copy [`examples/provider.openai-compatible.json`](examples/provider.openai-compatible.json) and keep the secret outside the file:
 
 ```json
 {
@@ -80,100 +82,139 @@ For CLI use, copy [`examples/provider.openai-compatible.json`](examples/provider
 }
 ```
 
-Keep secrets outside JSON:
-
 ```powershell
 $env:RENWEAVE_API_KEY = "your-api-key"
 renweave provider-check examples/provider.openai-compatible.json
+```
+
+`provider-check` validates the local JSON profile and reports whether a key is configured; it is an offline check and does not call the provider.
+
+## Command-line interface
+
+```text
+renweave gui [--project PATH] [--workspace PATH]
+renweave analyze TARGET --workspace PATH
+renweave decompile TARGET --workspace PATH
+renweave run TARGET --workspace PATH --provider CONFIG --target-language LANGUAGE
+renweave build --workspace PATH
+renweave provider-check CONFIG
+renweave unpack ARCHIVE --output PATH [--scripts-only]
+```
+
+Command purposes:
+
+- `gui` starts the desktop workflow.
+- `analyze` discovers, unpacks, indexes, and builds deterministic knowledge without calling a model.
+- `decompile` prepares missing source scripts from compiled Ren'Py scripts.
+- `run` executes the model-backed scene translation pipeline.
+- `build` rebuilds from validated workspace checkpoints without another model call.
+- `provider-check` validates a model profile offline.
+- `unpack` safely extracts an RPA archive; `--scripts-only` limits extraction to script-related files.
+
+Example model-backed run:
+
+```powershell
 renweave run "D:\Games\Example" `
   --workspace "D:\RenWeaveWork\Example" `
   --provider examples/provider.openai-compatible.json `
   --source-language auto `
-  --target-language "Português do Brasil"
+  --target-language "简体中文"
 ```
 
-Add `--install` only when you want the verified RPY output copied to `game/tl/<language>`. RPA creation is enabled by default; RenWeave automatically uses a compatible runtime bundled with the game, or `--renpy-sdk`, to compile and validate RPYC sidecars without modifying the original game. `package.json` records whether the archive is immediately loadable as `runtime_ready`. Add `--no-rpa` to keep only the validated RPY files. Use `renweave build --workspace <path>` to rebuild outputs from validated checkpoints without another model call.
+Useful `run` and `build` options include:
 
-## Progress, pause, and recovery
+- `--no-rpa` keeps the validated RPY folder without creating an archive.
+- `--install` copies the validated result into the game's `game/tl/<language>` directory.
+- `--overwrite-existing` allows installation to replace same-name files that were not created by RenWeave.
+- `--renpy-sdk` supplies an SDK for isolated engine compilation; `--require-renpy-validation` makes that validation mandatory.
+- `--no-ai-knowledge` skips model-based narrative synthesis and uses deterministic evidence only.
+- `--no-refine` skips the risk-focused refinement pass.
+- `--limit` and `--repair-attempts` are useful for controlled runs and testing.
 
-The review screen estimates an input/output/total Token range before any translation call. Loose source scripts produce the strongest preflight estimate; compiled scripts and archives use a deliberately wider proxy until indexing reveals the exact translatable text. The range includes narrative synthesis, scene context, target output, likely repairs, and risk-only refinement. It excludes provider retries and currency pricing because prices differ by model and provider.
+Blank translation extraction is currently a desktop workflow: clear **Use model for translation** on step 03 and choose **Extract blank translation**.
 
-During translation, the progress screen separates progress from diagnostics: a continuously moving activity bar confirms the worker is alive, an exact `n/15` pipeline-stage indicator and completed/current/pending phase track show where the job is, and the weighted 0–100% bar shows overall completion. A separate file counter names the file currently being understood, translated, or refined and shows completed and remaining files. Scene checkpoints, model calls, provider-reported input/output Tokens, the current project estimate, and adaptive remaining time remain visible above the separate log area. It also states when a provider does not return usage metadata so a zero never implies free usage. ETA appears after the first scene checkpoint and is recalculated from observed scene durations; it remains approximate because provider latency and scene size vary.
+## Incremental translation and output rules
 
-`usage.json` is updated atomically in the workspace after every state save. It records the estimate, successful calls, attempted requests, reported input/output totals, and separate knowledge, scene translation/repair, and refinement usage. This is a Token ledger, not a billing statement; the provider dashboard remains authoritative for money charged.
+Before translation, RenWeave scans `game/tl/<language>` and the reusable checkpoints in the workspace. A valid existing translation is preserved. Only missing, empty, structurally invalid, or source-changed units are regenerated.
 
-**Pause safely** finishes the current network request or local atomic unit, saves the latest valid checkpoint, and stops before the next unit. Starting again with the same project, workspace, and languages resumes automatically. CLI users can press `Ctrl+C` and rerun the same command.
+The final language directory follows these rules:
 
-Before reusing work, RenWeave verifies:
+1. Start with a complete copy of the original translation files, when they exist.
+2. Merge new or changed dialogue blocks into their corresponding RPY files at the correct source-order position. The resulting order matches a clean build with the same additions.
+3. Keep string translations in one terminal `translate <language> strings:` block. Existing rows are consolidated there; new `old`/`new` pairs are appended without writing another header.
+4. Create a new ordinary RPY file only when its corresponding source file does not already exist.
+5. Build the optional RPA from every RPY in that exact final language directory.
 
-- the content fingerprint of source scripts, compiled scripts, and archives;
-- the saved project and language settings;
-- every completed scene artifact against the current structural validator.
-- every matching existing-language unit against the current English/source statement, Ren'Py tags, interpolation variables, and placeholders.
+This makes the RPY folder and the RPA archive equivalent in script coverage and behavior. `--install` is the only normal route that writes into the original game, and the installer refuses to overwrite non-RenWeave files unless `--overwrite-existing` is supplied.
 
-Missing, damaged, or stale scene artifacts are translated again; valid scenes are not resent. A workspace lock prevents concurrent writers, and three consecutive scene failures open a circuit breaker instead of repeatedly calling an unavailable API.
+## Workspace, checkpoints, and artifacts
 
-Diagnostics are always retained under the workspace:
+Use a dedicated work directory such as `D:\RenWeaveWork\Example`. The workspace stores the project understanding and translation progress so the original game directory remains untouched:
 
-- `state.json` — resumable task state, progress, ETA, usage, and current operation;
-- `usage.json` — preflight/indexed estimate and provider-reported Token ledger by phase;
-- `translations/` and `reports/` — atomic scene checkpoints and validation reports;
-- `existing-translations.json` — detected language, reusable/missing/invalid unit counts, and non-secret issue summaries;
-- `logs/renweave.log` — readable chronological log;
-- `logs/events.jsonl` — structured events with exception type and traceback.
+```text
+RenWeaveWork/Example/
+├─ state.json
+├─ project-index.json
+├─ knowledge.json
+├─ narrative-knowledge.json       (when narrative synthesis is used)
+├─ acquisition.json
+├─ decompilation.json
+├─ acquired/  decompiled/  tools/
+├─ translations/  reports/  validation/
+├─ existing-translations.json
+├─ translation-memory.json
+├─ usage.json
+├─ logs/renweave.log
+├─ logs/events.jsonl
+├─ output/
+│  └─ build-<content-fingerprint>/game/tl/<language>/*.rpy
+├─ packages/
+│  └─ renweave-<language>-<content-fingerprint>.rpa
+├─ package.json
+└─ build-validation.json
+```
 
-Durable project knowledge and work-in-progress also remain in that workspace: `knowledge.json` and optional `narrative-knowledge.json` hold world and story understanding, while `translations/`, `reports/`, `state.json`, and `usage.json` hold validated scene work and progress. Completed artifacts are append-only: each RPY result is written under `output/build-<content-fingerprint>/`, and each RPA under `packages/` has a content fingerprint in its filename. RenWeave never cleans or replaces an earlier RPY/RPA artifact. Automatic deletion is restricted to guarded intermediate files or directories whose own names start with `_`.
+Not every optional file or directory is present in every run. State, knowledge, checkpoints, reports, and usage are saved atomically. `usage.json` records estimates, successful and attempted requests, provider-reported input/output Tokens, and phase totals; it is a usage ledger, not a billing statement.
 
-For an incremental language build, the final `game/tl/<language>/` directory is a complete copy of the supplied translation folder plus the validated delta. Missing or changed dialogue blocks are merged into the corresponding copied RPY file in source order, producing the same ordering as a clean build. Each touched script has at most one terminal `translate <language> strings:` block; existing string rows are consolidated there and new `old`/`new` pairs are appended without another header. A new ordinary RPY file is created only when no corresponding file exists. The RPA is then built from every RPY in that exact final language directory, so the folder and archive expose the same source scripts and translation behavior.
+Completed RPY and RPA artifacts are content-addressed and retained. RenWeave does not delete or replace an already generated RPY or RPA. Automatic cleanup is limited to guarded intermediate files and directories whose own names begin with `_`. Reusing the same project and workspace resumes from valid checkpoints; a workspace lock prevents concurrent writers, and repeated scene failures stop through a circuit breaker instead of endlessly retrying.
 
-## Interface design
+## Validation and compatibility
 
-RenWeave uses an **Aurora Workbench** design: Windows 11–informed rounded controls, an obsidian workflow rail, a cloud-gray work canvas, and restrained indigo/cyan accents. Microsoft YaHei UI and system-native typography keep English and Chinese aligned, while one stable responsive shell prevents resize-driven page rebuilds. The same 8-point spacing rhythm, field treatment, semantic status panels, dialog structure, and three-level button hierarchy are used throughout:
+- Static validation checks generated Ren'Py syntax, tags, interpolation, placeholders, IDs, and translation structure.
+- If a compatible Ren'Py runtime or `--renpy-sdk` is available, engine compilation runs in an isolated staging project. `--require-renpy-validation` turns missing or failed engine validation into an error.
+- RPA output is written only after the final RPY language directory passes validation. When validated compiled sidecars are available, the archive can include them and records `runtime_ready` in `package.json`.
+- The bundled decompiler is pinned and integrity checked. No game asset or Ren'Py runtime is redistributed by the repository.
+- Only process games you are authorized to inspect or modify. Do not put API keys, copyrighted game files, or private model responses in issues or pull requests.
 
-- **Primary** for the single next or confirming action.
-- **Secondary** for back, cancellation, pause, and other non-destructive alternatives.
-- **Field action** for browse, choose, copy, and controls attached to a specific field.
-
-The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Component rendering uses the bundled [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme); semantic states and accessibility follow Material 3 principles. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and workflow. Model setup is step 03 and remains optional: every official, aggregator, and custom endpoint is always visible in one stable grid, and every endpoint stays editable. Built-in presets replace profile importing, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
-
-Keyboard focus uses a solid color border and state contrast—never a dotted focus rectangle. The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
-
-## How it works
+## How the model-backed pipeline works
 
 ```mermaid
 flowchart LR
-    A[Discover] --> B[Unpack and decompile]
-    B --> C[Scene graph and evidence]
-    C --> D[Narrative synthesis]
-    D --> E[Context-aware translation]
+    A[Discover] --> B[Acquire and decompile]
+    B --> C[Index scenes and evidence]
+    C --> D[Narrative knowledge]
+    D --> E[Translate scenes]
     E --> F[Validate and repair]
-    F --> G[Risk-only refinement]
-    G --> H[Build and verify RPY files]
-    H --> I[Optional RPA archive]
+    F --> G[Risk-focused refinement]
+    G --> H[Emit and validate RPY]
+    H --> I[Optional RPA]
 ```
 
-RenWeave limits extra Token use through deterministic pre-analysis, hierarchical evidence summaries, scene-specific context, content-addressed caches, targeted repairs, and risk-only global refinement. Estimated and reported usage, request counts, phase breakdowns, and cache-aware resumability are recorded in the workspace.
-
-## Compatibility and safety
-
-- Reads `.rpy`, `.rpym`, `.rpyc`, `.rpymc`, and RPA 2.0/3.0/3.2 archives.
-- Ships the pinned, integrity-verified unrpyc 2.0.4 runtime and license inside the package; no executable tool is downloaded while processing a game.
-- Always performs static generated-script validation. An optional Ren'Py SDK enables isolated engine compilation; `--require-renpy-validation` makes it mandatory.
-- Only process games you are authorized to modify. Do not report secrets or proprietary game assets in public issues.
-
-See [Security](SECURITY.md) for trust boundaries and vulnerability reporting.
+Deterministic indexing, scene-specific context, content-addressed caches, targeted repairs, and risk-focused refinement keep model work focused. The blank route stops after extraction and static validation, so its token count is exactly zero.
 
 ## Development
 
 ```powershell
+py -3.10 -m pip install --editable . --no-deps
 $env:PYTHONPATH = "src"
-python -m unittest discover -s tests -v
-python -m compileall -q src tests
-python -m pip install build
-python -m build
+py -3.10 -m pytest -q
+py -3.10 scripts/visual_smoke_test.py
+py -3.10 -m compileall -q src tests packaging
+py -3.10 -m pip install build
+py -3.10 -m build
 ```
 
-CI tests Python 3.10 and 3.13 on Windows and Linux. Maintainers publish from **Actions → Release → Run workflow**. The canonical PEP 440 version entered there is the single release-version source: Actions injects it into the wheel, source archive, standalone Windows GUI executable, filenames, and release tag. The workflow verifies the embedded versions and bundled decompiler before publishing; no source file needs a version edit.
+The Windows standalone executable is built by `scripts/build_windows_exe.py` on Windows after installing the package with the release version supplied through `SETUPTOOLS_SCM_PRETEND_VERSION` and `RENWEAVE_BUILD_VERSION`. The GitHub Actions release workflow accepts a canonical PEP 440 version, builds the wheel, source archive, and Windows executable, verifies them, generates `SHA256SUMS`, and publishes the GitHub Release.
 
 ## Project information
 
@@ -185,4 +226,4 @@ CI tests Python 3.10 and 3.13 on Windows and Linux. Maintainers publish from **A
 - [GPL-3.0 license](LICENSE)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-Issues and pull requests are welcome. Please never include API keys, copyrighted game files, or private model responses.
+Issues and pull requests are welcome. Please keep credentials, private responses, and copyrighted game assets out of public reports.
