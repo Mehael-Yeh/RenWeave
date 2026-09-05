@@ -1513,6 +1513,7 @@ class RenWeaveDesktopApp:
         self._content_layout_id = None
         self._content_layout_size: tuple[int, int] | None = None
         self._content_scroll_visible = False
+        self._wheel_delta_remainder = 0.0
         self._progress_animation_id = None
         self.project_validation_state = "idle"
         self.project_validation_error = ""
@@ -1621,7 +1622,7 @@ class RenWeaveDesktopApp:
         self._render()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
-        self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
+        self.root.bind("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
         if self.update_checks_enabled.get():
             self.root.after(800, self._check_updates)
@@ -2241,24 +2242,24 @@ class RenWeaveDesktopApp:
             return
         if not event.delta:
             return
-        notches = max(1, abs(int(event.delta)) // 120)
-        units = -notches if event.delta > 0 else notches
+        self._wheel_delta_remainder += -float(event.delta) / 120.0
+        if self._wheel_delta_remainder > 0:
+            units = math.floor(self._wheel_delta_remainder)
+        else:
+            units = math.ceil(self._wheel_delta_remainder)
+        if not units:
+            return
+        self._wheel_delta_remainder -= units
         self.content_canvas.yview_scroll(units, "units")
 
     def _schedule_content_layout(self, _event=None) -> None:
-        if _event is None:
-            if self._content_layout_id is not None:
-                try:
-                    self.root.after_cancel(self._content_layout_id)
-                except self.tk.TclError:
-                    pass
-            self._content_layout_id = self.root.after_idle(self._sync_content_layout)
-            return
         if self._content_layout_id is not None:
             return
-        # Coalesce event bursts while retaining a display-rate visual commit;
-        # pointer input itself is never debounced or down-sampled.
-        self._content_layout_id = self.root.after(Metrics.RESIZE_LAYOUT_FRAME_MS, self._sync_content_layout)
+        # Coalesce configure bursts into one display-rate layout commit. The
+        # render path also uses this scheduler, so there is only one pending
+        # geometry callback at a time.
+        delay = Metrics.RESIZE_LAYOUT_FRAME_MS if _event is not None else 0
+        self._content_layout_id = self.root.after(delay, self._sync_content_layout)
 
     def _sync_content_layout(self) -> None:
         self._content_layout_id = None
@@ -2273,7 +2274,10 @@ class RenWeaveDesktopApp:
         content_height = max(viewport_height, requested_height)
         layout_size = (viewport_width, content_height)
         if self._content_layout_size != layout_size:
-            self.content_canvas.itemconfigure(self.content_window, width=viewport_width, height=content_height)
+            # Keep the embedded frame at its requested height. Forcing it to
+            # the viewport height causes a configure feedback loop whenever
+            # the scrollbar or a wrapped label changes the viewport geometry.
+            self.content_canvas.itemconfigure(self.content_window, width=viewport_width)
             self.content_canvas.configure(scrollregion=(0, 0, viewport_width, content_height))
             self._content_layout_size = layout_size
         should_scroll = requested_height > viewport_height + 1
