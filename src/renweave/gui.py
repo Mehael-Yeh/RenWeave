@@ -3286,7 +3286,12 @@ class RenWeaveDesktopApp:
             self.review_modules["pending_header"] = pending_header
             self.review_pending_title = self.ttk.Label(pending_header, text=self.t("review.pending_title", count=inventory.model_units), style="Status.TLabel")
             self.review_pending_title.grid(row=0, column=0, sticky="w")
-            pending_button = self._button(pending_header, self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"), lambda: (self.show_pending_details.set(not self.show_pending_details.get()), self._render()), kind="field")
+            pending_button = self._button(
+                pending_header,
+                self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"),
+                self._toggle_pending_details,
+                kind="field",
+            )
             pending_button.grid(row=0, column=1, sticky="e")
             self.review_modules["pending_button"] = pending_button
             if self.show_pending_details.get():
@@ -3326,7 +3331,7 @@ class RenWeaveDesktopApp:
         pending_button = self._button(
             pending_header,
             self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"),
-            lambda: (self.show_pending_details.set(not self.show_pending_details.get()), self._render()),
+            self._toggle_pending_details,
             kind="field",
         )
         pending_button.grid(row=0, column=1, sticky="e")
@@ -3368,6 +3373,74 @@ class RenWeaveDesktopApp:
         self.review_detail_text.insert("1.0", "\n\n".join(rows))
         self.review_detail_text.configure(state="disabled")
         self.review_modules["pending_details"] = self.review_details
+
+    def _build_review_pending_details(self, inventory: ExistingTranslationInventory) -> None:
+        if self.review_detail_text is not None and self.review_detail_text.winfo_exists():
+            return
+        card = self.page_card
+        if card is None or not card.winfo_exists():
+            return
+        header_row = 8 if self.blank_translation_ready else 7
+        rows = [
+            self.t(
+                "review.pending_row",
+                file=item.get("file", ""),
+                line=item.get("line", 0),
+                source=item.get("source", ""),
+                detail=item.get("detail", ""),
+            )
+            for item in inventory.pending_units[:50]
+        ]
+        self.review_details = self.ttk.Frame(card, style="TintCard.TFrame", padding=10)
+        self.review_details.grid(row=header_row + 1, column=0, sticky="nsew", pady=(7, 0))
+        self.review_details.columnconfigure(0, weight=1)
+        self.review_detail_host = self.review_details
+        self.review_detail_text = self.tk.Text(
+            self.review_details,
+            height=7,
+            wrap="word",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=Colors.OUTLINE_VARIANT,
+            background=Colors.CARD,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, Typography.SMALL),
+            padx=10,
+            pady=8,
+        )
+        self.review_detail_text.grid(row=0, column=0, sticky="nsew")
+        scrollbar = self._scrollbar(self.review_details, command=self.review_detail_text.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.review_detail_text.configure(yscrollcommand=scrollbar.set)
+        self.review_detail_text.insert("1.0", "\n\n".join(rows))
+        self.review_detail_text.configure(state="disabled")
+        self.review_modules["pending_details"] = self.review_details
+
+    def _toggle_pending_details(self) -> None:
+        self.show_pending_details.set(not self.show_pending_details.get())
+        inventory = (
+            self.scope_preview_inventory
+            if self.scope_preview_signature == self._scope_signature()
+            else None
+        )
+        button = self.review_modules.get("pending_button")
+        details = self.review_modules.get("pending_details")
+        if self.show_pending_details.get() and inventory is not None and inventory.pending_units:
+            if "pending_header" not in self.review_modules:
+                self._build_review_pending_module(inventory)
+                details = self.review_modules.get("pending_details")
+            elif details is None:
+                self._build_review_pending_details(inventory)
+                details = self.review_modules.get("pending_details")
+            if details is not None and details.winfo_exists():
+                details.grid()
+        elif details is not None and details.winfo_exists():
+            details.grid_remove()
+        if button is not None and button.winfo_exists():
+            button.configure(
+                text=self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show")
+            )
+        self._schedule_content_layout()
 
     def _refresh_review_preview(self) -> None:
         if self.step != 3 or not self.review_modules:
