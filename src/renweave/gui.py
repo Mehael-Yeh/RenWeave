@@ -901,6 +901,10 @@ COPY["en"].update({
     "game.manual_path": "Edit path manually",
     "game.hide_manual_path": "Hide manual path",
     "game.not_selected": "Not selected",
+    "game.choose_executable": "Choose EXE",
+    "game.detecting": "Checking game…",
+    "game.detected": "Ren'Py game detected",
+    "game.unrecognized": "Ren'Py game not detected",
     "top.settings": "⚙  Settings",
     "game.safety_title": "Original game files will not be changed",
     "game.safety_body": "Analysis, caches, translations, and language packages stay in the separate workspace.",
@@ -1002,6 +1006,10 @@ COPY["zh"].update({
     "game.manual_path": "手动输入路径",
     "game.hide_manual_path": "收起路径输入",
     "game.not_selected": "尚未选择",
+    "game.choose_executable": "选择程序",
+    "game.detecting": "正在识别游戏…",
+    "game.detected": "已识别 Ren'Py 游戏",
+    "game.unrecognized": "未识别到 Ren'Py 游戏",
     "top.settings": "⚙  设置",
     "game.safety_title": "原游戏文件不会被修改",
     "game.safety_body": "分析、缓存、翻译结果和语言包都会保存在独立工作区。",
@@ -1506,8 +1514,9 @@ class RenWeaveDesktopApp:
         self._content_layout_size: tuple[int, int] | None = None
         self._content_scroll_visible = False
         self._progress_animation_id = None
-        self._restore_redraw_id = None
-        self._restore_hidden = False
+        self.project_validation_state = "idle"
+        self.project_validation_error = ""
+        self.discovered_project = None
         self._displayed_progress_percent = 0.0
         self.progress_activity = None
         self._progress_activity_running = False
@@ -1611,9 +1620,6 @@ class RenWeaveDesktopApp:
         self._render()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
-        self.root.bind("<Map>", self._on_window_restored, add="+")
-        self.root.bind("<Visibility>", self._on_window_restored, add="+")
-        self.root.bind("<Unmap>", self._on_window_unmapped, add="+")
         self.root.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
         if self.update_checks_enabled.get():
@@ -2173,68 +2179,6 @@ class RenWeaveDesktopApp:
         # Breakpoint work is lightweight. Apply it on the next event-loop turn so
         # the shell follows the resize gesture instead of trailing it by 100 ms.
         self._responsive_render_id = self.root.after(0, self._render_responsive)
-
-    def _on_window_unmapped(self, event) -> None:
-        """Hide the compositor layer while an iconified window has stale pixels."""
-        if event.widget is not self.root:
-            return
-        self._restore_hidden = True
-        try:
-            self.root.attributes("-alpha", 0.0)
-        except self.tk.TclError:
-            self._restore_hidden = False
-
-    def _on_window_restored(self, event) -> None:
-        """Coalesce restore/visibility notifications into one immediate repaint."""
-        if event.widget is not self.root:
-            return
-        try:
-            if self.root.state() not in {"normal", "zoomed"}:
-                return
-        except self.tk.TclError:
-            return
-        if self._restore_redraw_id is not None:
-            try:
-                self.root.after_cancel(self._restore_redraw_id)
-            except self.tk.TclError:
-                pass
-        self._restore_redraw_id = self.root.after_idle(self._redraw_after_restore)
-
-    def _redraw_after_restore(self) -> None:
-        self._restore_redraw_id = None
-        try:
-            if not self.root.winfo_exists() or self.root.state() not in {"normal", "zoomed"}:
-                return
-            self.root.update_idletasks()
-            self._sync_content_layout()
-        except self.tk.TclError:
-            return
-        try:
-            if os.name == "nt":
-                import ctypes
-
-                widget_hwnd = self.root.winfo_id()
-                wrapper_hwnd = ctypes.windll.user32.GetParent(widget_hwnd) or widget_hwnd
-                # Invalidate all child surfaces without erasing cached pixels first.
-                redraw_flags = 0x0001 | 0x0080 | 0x0100
-                ctypes.windll.user32.RedrawWindow(wrapper_hwnd, None, None, redraw_flags)
-                ctypes.windll.user32.UpdateWindow(wrapper_hwnd)
-                self.root.update_idletasks()
-                ctypes.windll.dwmapi.DwmFlush()
-        except (AttributeError, OSError, self.tk.TclError):
-            pass
-        finally:
-            if self._restore_hidden:
-                try:
-                    self.root.attributes("-alpha", 1.0)
-                    self.root.update_idletasks()
-                    if os.name == "nt":
-                        import ctypes
-
-                        ctypes.windll.dwmapi.DwmFlush()
-                except (AttributeError, OSError, self.tk.TclError):
-                    pass
-                self._restore_hidden = False
 
     def _render_responsive(self) -> None:
         self._responsive_render_id = None
@@ -2831,7 +2775,21 @@ class RenWeaveDesktopApp:
         browse = self._button(actions, self.t("game.open_folder"), command, kind="field", width=12)
         browse.pack(side="left")
         self._guide(browse, tooltip_key)
-        self.ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
+        if variable is self.project:
+            executable = self._button(
+                actions, self.t("game.choose_executable"), self._browse_project_executable,
+                kind="field", width=11,
+            )
+            executable.pack(side="left", padx=(8, 0))
+            state_text = {
+                "pending": self.t("game.detecting"),
+                "valid": self.t("game.detected"),
+                "invalid": self.t("game.unrecognized"),
+            }.get(self.project_validation_state, hint)
+            state_style = "ErrorBody.TLabel" if self.project_validation_state == "invalid" else "Hint.TLabel"
+            self.ttk.Label(parent, text=state_text, style=state_style, wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
+        else:
+            self.ttk.Label(parent, text=hint, style="Hint.TLabel", wraplength=680, justify="left").grid(row=row + 2, column=0, sticky="w", pady=(4, 0))
 
     def _setup_folder_drop_target(self) -> None:
         """Accept a dropped game folder when the optional TkDnD root is active."""
@@ -2852,11 +2810,9 @@ class RenWeaveDesktopApp:
             dropped = (str(getattr(event, "data", "")),)
         for raw_path in dropped:
             candidate = Path(str(raw_path)).expanduser()
-            if not candidate.is_dir():
+            if not candidate.exists() or (candidate.is_file() and candidate.suffix.casefold() != ".exe"):
                 continue
             self.project.set(str(candidate))
-            if not self.workspace.get().strip():
-                self._suggest_workspace(str(candidate))
             self._inspect_project_selection()
             if self.step in {0, 1}:
                 self._render()
@@ -4014,6 +3970,8 @@ class RenWeaveDesktopApp:
                 self.next_button,
                 "tip.blank_extract" if blank_model_action or blank_action else "tip.start" if self.step == 3 else "tip.continue",
             )
+            if self.step == 0 and self.project_validation_state != "valid":
+                self.next_button.configure(state="disabled")
             if self.step == 3:
                 self.start_button = self.next_button
                 if self.scope_preview_status == "scanning" or (blank_action and self.worker and self.worker.is_alive()):
@@ -4143,8 +4101,19 @@ class RenWeaveDesktopApp:
         selected = filedialog.askdirectory(title=self.t("game.project_picker"))
         if selected:
             self.project.set(selected)
-            if not self.workspace.get().strip():
-                self._suggest_workspace(selected)
+            self._inspect_project_selection()
+            if self.step in {0, 1}:
+                self._render()
+
+    def _browse_project_executable(self) -> None:
+        from tkinter import filedialog
+
+        selected = filedialog.askopenfilename(
+            title=self.t("game.project_picker"),
+            filetypes=(("Windows programs", "*.exe"), ("All files", "*.*")),
+        )
+        if selected:
+            self.project.set(selected)
             self._inspect_project_selection()
             if self.step in {0, 1}:
                 self._render()
@@ -4155,21 +4124,47 @@ class RenWeaveDesktopApp:
                 self.root.after_cancel(self._project_inspection_id)
             except self.tk.TclError:
                 pass
-        self._project_inspection_id = self.root.after(350, self._inspect_project_selection)
+        selected = self.project.get().strip()
+        self.discovered_project = None
+        self.existing_languages = []
+        self.project_validation_error = ""
+        self.project_validation_state = "pending" if selected else "idle"
+        if selected:
+            self._suggest_workspace(selected)
+        if self.step == 0 and self.next_button is not None:
+            self.next_button.configure(state="disabled")
+        self._project_inspection_id = self.root.after(150, self._inspect_project_selection)
 
     def _inspect_project_selection(self) -> None:
+        pending_id = self._project_inspection_id
         self._project_inspection_id = None
+        if pending_id is not None:
+            try:
+                self.root.after_cancel(pending_id)
+            except self.tk.TclError:
+                pass
         selected = self.project.get().strip()
         if not selected:
             self.existing_languages = []
+            self.discovered_project = None
+            self.project_validation_state = "idle"
+            self.project_validation_error = ""
             return
         try:
             project = ProjectDiscovery().discover(selected)
             summaries = discover_existing_languages(selected)
             sdk = RenpySdkLocator().resolve(project_root=project.project_root)
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError) as exc:
             self.existing_languages = []
+            self.discovered_project = None
+            self.project_validation_state = "invalid"
+            self.project_validation_error = str(exc)
+            if self.step == 0:
+                self._render()
             return
+        self.discovered_project = project
+        self.project_validation_state = "valid"
+        self.project_validation_error = ""
         self.existing_languages = summaries
         current_sdk = self.renpy_sdk.get().strip()
         if sdk is not None and (not current_sdk or current_sdk == self._auto_sdk_path):
@@ -4180,10 +4175,15 @@ class RenWeaveDesktopApp:
             self._auto_sdk_path = ""
             self.renpy_sdk.set("")
             self.require_engine.set(False)
+        if self.step == 0:
+            self._render()
 
     def _suggest_workspace(self, project: str) -> None:
         source = Path(project).expanduser()
-        name = source.parent.name if source.name.casefold() == "game" else source.name
+        if source.is_file() or source.suffix.casefold() == ".exe":
+            name = source.stem
+        else:
+            name = source.parent.name if source.name.casefold() == "game" else source.name
         base = _user_home_fallback() / "Documents" / "RenWeaveWork"
         self.workspace.set(str(base / (name or "project")))
 
@@ -4269,7 +4269,7 @@ class RenWeaveDesktopApp:
     def _continue(self) -> None:
         if self.step == 0:
             self._inspect_project_selection()
-            if not Path(self.project.get().strip()).expanduser().exists() or not self.workspace.get().strip():
+            if self.project_validation_state != "valid" or self.discovered_project is None or not self.workspace.get().strip():
                 self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
                 return
             if self.renpy_sdk.get().strip() and not Path(self.renpy_sdk.get().strip()).expanduser().exists():
@@ -4499,7 +4499,6 @@ class RenWeaveDesktopApp:
             self._content_layout_id,
             self._progress_animation_id,
             self._responsive_render_id,
-            self._restore_redraw_id,
             self._project_inspection_id,
         ):
             if after_id is None:

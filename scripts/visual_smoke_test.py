@@ -79,6 +79,10 @@ def verify_layout(output_dir: Path | None = None) -> None:
         sample_game = Path(directory) / "SampleGame"
         sample_language = sample_game / "game" / "tl" / "zh_hans"
         sample_language.mkdir(parents=True)
+        (sample_game / "game" / "script.rpy").write_text(
+            'label start:\n    "Hello"\n    return\n',
+            encoding="utf-8",
+        )
         (sample_language / "script.rpy").write_text(
             'translate zh_hans strings:\n\n    old "Settings"\n    new "设置"\n',
             encoding="utf-8",

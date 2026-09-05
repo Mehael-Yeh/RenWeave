@@ -403,6 +403,47 @@ class CorePipelineTests(unittest.TestCase):
                 fallback / "AppData" / "Roaming" / "RenWeave" / "settings.json",
             )
 
+    def test_game_change_updates_workspace_and_gates_continue_on_discovery(self) -> None:
+        try:
+            import tkinter as tk
+        except ImportError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk display unavailable: {exc}")
+        try:
+            root.withdraw()
+            app = RenWeaveDesktopApp(
+                root,
+                settings_path=Path(self.temp.name) / "game-gating-settings.json",
+            )
+            self.assertEqual(app.project_validation_state, "idle")
+            self.assertTrue(app.next_button.instate(["disabled"]))
+
+            invalid = Path(self.temp.name) / "NotAGame"
+            invalid.mkdir()
+            app.project.set(str(invalid))
+            self.assertEqual(app.project_validation_state, "pending")
+            self.assertEqual(Path(app.workspace.get()).name, "NotAGame")
+            self.assertTrue(app.next_button.instate(["disabled"]))
+            app._inspect_project_selection()
+            self.assertEqual(app.project_validation_state, "invalid")
+            self.assertTrue(app.next_button.instate(["disabled"]))
+
+            second = Path(self.temp.name) / "SecondGame"
+            second_game = second / "game"
+            second_game.mkdir(parents=True)
+            (second_game / "script.rpy").write_text("label start:\n    return\n", encoding="utf-8")
+            app.project.set(str(second))
+            self.assertEqual(Path(app.workspace.get()).name, "SecondGame")
+            app._inspect_project_selection()
+            self.assertEqual(app.project_validation_state, "valid")
+            self.assertIsNotNone(app.discovered_project)
+            self.assertFalse(app.next_button.instate(["disabled"]))
+        finally:
+            root.destroy()
+
     def test_desktop_window_starts_with_game_setup_and_optional_model(self) -> None:
         try:
             import tkinter as tk

@@ -16,6 +16,10 @@ class ProjectDiscovery:
         source_scripts = self._files_many(game_dir, ("*.rpy", "*.rpym"), exclude_tl=True)
         compiled_scripts = self._files_many(game_dir, ("*.rpyc", "*.rpymc"), exclude_tl=True)
         archives = self._files(game_dir, "*.rpa", exclude_tl=False)
+        if not source_scripts and not compiled_scripts and not archives:
+            raise ProjectDiscoveryError(
+                f"未找到可处理的 Ren'Py 脚本或归档：{game_dir}"
+            )
         tl_dir = game_dir / "tl"
         languages = sorted(
             child.name for child in tl_dir.iterdir() if child.is_dir()
