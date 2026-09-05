@@ -2406,6 +2406,11 @@ class RenWeaveDesktopApp:
                 child.destroy()
         self.page_mount = self.ttk.Frame(self.content, style="App.TFrame")
         self.page_mount.grid(row=0, column=0, sticky="nsew")
+        # Keep the new page out of the paint path while its widget tree is
+        # being assembled.  The previous mount remains visible until the
+        # replacement is complete, so a large review page cannot appear one
+        # card at a time during a render callback.
+        self.page_mount.grid_remove()
         self.page_mount.columnconfigure(0, weight=1)
         self.page_mount.rowconfigure(1, weight=1)
         self._render_nav()
@@ -2414,6 +2419,7 @@ class RenWeaveDesktopApp:
         self._render_footer()
         if previous_page_mount is not None and previous_page_mount.winfo_exists():
             previous_page_mount.destroy()
+        self.page_mount.grid()
         self.root.update_idletasks()
         self._sync_content_layout()
         self._schedule_content_layout()
