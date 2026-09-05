@@ -140,6 +140,10 @@ UI_COPY = {
         "model.verify": "Verify model",
         "model.not_connected": "Not connected",
         "review.model_translation": "Model translation",
+        "review.fact_model": "Model",
+        "review.fact_game": "Game",
+        "review.fact_languages": "Languages",
+        "review.fact_options": "Options",
         "review.waiting_scope": "Waiting for scope preview",
         "review.estimate_unavailable": "Token usage estimate unavailable",
         "review.rpa": "Generate RPA package",
@@ -152,6 +156,10 @@ UI_COPY = {
         "progress.ready": "Ready",
         "progress.idle": "Idle",
         "progress.open": "Open output folder",
+        "progress.current": "Current operation",
+        "progress.files": "File progress",
+        "progress.eta": "Estimated remaining",
+        "progress.usage": "Model usage",
         "progress.show_log": "Show log",
         "progress.hide_log": "Hide log",
         "progress.complete": "Translation package is ready",
@@ -222,6 +230,10 @@ UI_COPY = {
         "model.verify": "验证模型",
         "model.not_connected": "尚未连接",
         "review.model_translation": "模型翻译",
+        "review.fact_model": "模型",
+        "review.fact_game": "游戏",
+        "review.fact_languages": "语言",
+        "review.fact_options": "选项",
         "review.waiting_scope": "等待翻译范围预览",
         "review.estimate_unavailable": "暂时无法预估 Token 用量",
         "review.rpa": "生成 RPA 语言包",
@@ -234,6 +246,10 @@ UI_COPY = {
         "progress.ready": "准备就绪",
         "progress.idle": "空闲",
         "progress.open": "打开输出目录",
+        "progress.current": "当前操作",
+        "progress.files": "文件进度",
+        "progress.eta": "预计剩余",
+        "progress.usage": "模型用量",
         "progress.show_log": "显示日志",
         "progress.hide_log": "隐藏日志",
         "progress.complete": "翻译包已准备完成",
@@ -312,27 +328,28 @@ class QtRenWeaveWindow(QMainWindow):
     def _configure_palette(self) -> None:
         self.setStyleSheet(
             """
-            QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget { background: #f7f8fc; color: #20213a; }
-            QFrame#Sidebar { background: #20213a; }
-            QFrame#Card { background: #ffffff; border: 1px solid #e3e5f0; border-radius: 12px; }
+            QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f6fb; color: #101828; font-family: "Microsoft YaHei UI"; }
+            QFrame#Sidebar { background: #0b1020; }
+            QFrame#Card { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 12px; }
             QFrame#Card QLabel, QFrame#TintCard QLabel, QFrame#SuccessCard QLabel { background: transparent; }
-            QFrame#TintCard { background: #f4f5ff; border: 1px solid #e2e3fb; border-radius: 10px; }
-            QFrame#SuccessCard { background: #eefbf3; border: 1px solid #ccebd7; border-radius: 10px; }
-            QLabel#Brand { color: #ffffff; font-size: 20px; font-weight: 700; }
-            QLabel#PageTitle { color: #20213a; font-size: 26px; font-weight: 700; }
-            QLabel#PageBody { color: #676a82; font-size: 13px; }
-            QLabel#SectionTitle { color: #20213a; font-size: 16px; font-weight: 700; }
-            QLabel#Hint { color: #74778d; }
-            QLabel#Status { color: #454963; font-weight: 600; }
+            QFrame#TintCard { background: #eef0ff; border: 1px solid #dfe2ff; border-radius: 10px; }
+            QFrame#SuccessCard { background: #ecfdf3; border: 1px solid #c9ecd9; border-radius: 10px; }
+            QLabel#Brand { color: #f9fafb; font-size: 20px; font-weight: 700; }
+            QLabel#PageTitle { color: #101828; font-size: 26px; font-weight: 700; }
+            QLabel#PageBody { color: #667085; font-size: 13px; }
+            QLabel#SectionTitle { color: #101828; font-size: 16px; font-weight: 700; }
+            QLabel#Hint { color: #667085; }
+            QLabel#Status { color: #303176; font-weight: 600; }
             QPushButton { min-height: 32px; padding: 0 14px; border-radius: 7px; }
             QPushButton#Primary { background: #5b5ce2; color: white; font-weight: 700; }
-            QPushButton#Primary:hover { background: #4f50cb; }
-            QPushButton#Secondary { background: #ffffff; color: #42455f; border: 1px solid #d5d8e6; }
-            QPushButton#Nav { color: #c9cbe0; text-align: left; border: 0; padding: 8px 14px; }
-            QPushButton#Nav:hover { background: #303252; }
+            QPushButton#Primary:hover { background: #494ac8; }
+            QPushButton#Secondary { background: #ffffff; color: #344054; border: 1px solid #e0e6ef; }
+            QPushButton#Secondary:hover { background: #e7e9ff; }
+            QPushButton#Nav { color: #98a2b3; text-align: left; border: 0; padding: 8px 14px; }
+            QPushButton#Nav:hover { background: #1b2440; }
             QPushButton#Nav[current="true"] { background: #5b5ce2; color: #ffffff; font-weight: 700; }
-            QLineEdit, QComboBox, QTextEdit { background: #ffffff; border: 1px solid #d5d8e6; border-radius: 6px; padding: 7px; }
-            QProgressBar { border: 0; background: #e5e7f3; border-radius: 5px; height: 10px; }
+            QLineEdit, QComboBox, QTextEdit { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; }
+            QProgressBar { border: 0; background: #e9edf5; border-radius: 5px; height: 10px; }
             QProgressBar::chunk { background: #5b5ce2; border-radius: 5px; }
             """
         )
@@ -345,7 +362,7 @@ class QtRenWeaveWindow(QMainWindow):
         root_layout.setSpacing(0)
 
         self.sidebar = QFrame(objectName="Sidebar")
-        self.sidebar.setFixedWidth(224)
+        self.sidebar.setFixedWidth(232)
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(18, 24, 18, 18)
         brand = QLabel("RenWeave", objectName="Brand")
@@ -362,7 +379,7 @@ class QtRenWeaveWindow(QMainWindow):
 
         main = QWidget()
         main_layout = QVBoxLayout(main)
-        main_layout.setContentsMargins(28, 20, 28, 18)
+        main_layout.setContentsMargins(36, 20, 36, 18)
         main_layout.setSpacing(14)
         top = QHBoxLayout()
         self.breadcrumb = QLabel()
@@ -548,14 +565,26 @@ class QtRenWeaveWindow(QMainWindow):
         self.provider_ids = [preset.id for preset in PROVIDER_PRESETS]
         self.provider_combo.addItems([preset.name for preset in PROVIDER_PRESETS])
         self.provider_combo.currentIndexChanged.connect(self._provider_changed)
-        fields.addWidget(self.provider_combo, 1, 0)
+        self.provider_combo.setVisible(False)
+        provider_panel = QWidget()
+        provider_grid = QGridLayout(provider_panel)
+        provider_grid.setContentsMargins(0, 0, 0, 0)
+        provider_grid.setSpacing(6)
+        self.provider_buttons = []
+        for index, preset in enumerate(PROVIDER_PRESETS):
+            button = QPushButton(preset.name, objectName="Secondary")
+            button.setCheckable(True)
+            button.clicked.connect(lambda _checked=False, selected=index: self._select_provider(selected))
+            provider_grid.addWidget(button, index // 4, index % 4)
+            self.provider_buttons.append(button)
+        fields.addWidget(provider_panel, 1, 0, 1, 4)
         self.api_key_edit = QLineEdit()
         self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.model_edit = QLineEdit()
         self.endpoint_edit = QLineEdit()
-        fields.addWidget(self.api_key_edit, 1, 1)
-        fields.addWidget(self.model_edit, 1, 2)
-        fields.addWidget(self.endpoint_edit, 1, 3)
+        fields.addWidget(self.api_key_edit, 2, 1)
+        fields.addWidget(self.model_edit, 2, 2)
+        fields.addWidget(self.endpoint_edit, 2, 3)
         card_layout.addLayout(fields)
         self.use_model_check = QCheckBox()
         self.use_model_check.setChecked(True)
@@ -575,6 +604,13 @@ class QtRenWeaveWindow(QMainWindow):
         layout.addStretch()
         return self.pages[-1], layout
 
+    def _select_provider(self, index: int) -> None:
+        if not 0 <= index < len(self.provider_ids):
+            return
+        self.provider_combo.setCurrentIndex(index)
+        for button_index, button in enumerate(self.provider_buttons):
+            button.setChecked(button_index == index)
+
     def _build_review_page(self):
         scroll, content, layout = self._new_page("review", "page.review.title", "page.review.body")
         task_card, task_layout = self._card("TintCard")
@@ -589,6 +625,29 @@ class QtRenWeaveWindow(QMainWindow):
         task_layout.addWidget(self.review_remaining_label)
         task_layout.addWidget(self.review_preserved_label)
         layout.addWidget(task_card)
+
+        facts_card, facts_layout = self._card()
+        facts_grid = QGridLayout()
+        facts_grid.setHorizontalSpacing(10)
+        facts_grid.setVerticalSpacing(8)
+        facts_grid.setColumnStretch(0, 1)
+        facts_grid.setColumnStretch(1, 1)
+        self.review_fact_titles = []
+        self.review_fact_values = []
+        for index, key in enumerate(("review.fact_model", "review.fact_game", "review.fact_languages", "review.fact_options")):
+            tile = QFrame(objectName="TintCard")
+            tile_layout = QVBoxLayout(tile)
+            tile_layout.setContentsMargins(12, 10, 12, 10)
+            title = QLabel(objectName="Hint")
+            value = QLabel(objectName="Status")
+            value.setWordWrap(True)
+            tile_layout.addWidget(title)
+            tile_layout.addWidget(value)
+            facts_grid.addWidget(tile, index // 2, index % 2)
+            self.review_fact_titles.append((key, title))
+            self.review_fact_values.append(value)
+        facts_layout.addLayout(facts_grid)
+        layout.addWidget(facts_card)
         budget_card, budget_layout = self._card("TintCard")
         self.budget_title = QLabel(objectName="Hint")
         self.budget_label = QLabel(objectName="SectionTitle")
@@ -655,8 +714,26 @@ class QtRenWeaveWindow(QMainWindow):
             phase_row.addWidget(label, 1)
             self.progress_phase_labels.append(label)
         card_layout.addLayout(phase_row)
+        stats_grid = QGridLayout()
+        stats_grid.setSpacing(8)
+        self.progress_stat_titles = []
+        self.progress_stat_values = []
+        for index, key in enumerate(("progress.current", "progress.files", "progress.eta", "progress.usage")):
+            tile = QFrame(objectName="TintCard")
+            tile_layout = QVBoxLayout(tile)
+            tile_layout.setContentsMargins(12, 10, 12, 10)
+            title = QLabel(objectName="Hint")
+            value = QLabel("—", objectName="Status")
+            value.setWordWrap(True)
+            tile_layout.addWidget(title)
+            tile_layout.addWidget(value)
+            stats_grid.addWidget(tile, 0, index)
+            self.progress_stat_titles.append((key, title))
+            self.progress_stat_values.append(value)
+        card_layout.addLayout(stats_grid)
         self.progress_stats = QLabel("", objectName="Status")
         self.progress_stats.setWordWrap(True)
+        self.progress_stats.setVisible(False)
         card_layout.addWidget(self.progress_stats)
         self.progress_output = QLabel("", objectName="Hint")
         self.progress_output.setWordWrap(True)
@@ -790,6 +867,8 @@ class QtRenWeaveWindow(QMainWindow):
         if self._scope_preview_inventory is None:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
         self.review_mode_label.setText(self._t("review.model_translation"))
+        for key, label in self.review_fact_titles:
+            label.setText(self._t(key))
         if self._scope_preview_inventory is None:
             self.review_remaining_label.setText(self._t("review.waiting_scope"))
         self.pending_title.setText(self._t("review.no_pending"))
@@ -801,6 +880,8 @@ class QtRenWeaveWindow(QMainWindow):
         )
         self.progress_open_button.setText(self._t("progress.open"))
         self.log_toggle.setText(self._t("progress.hide_log" if self.log_edit.isVisible() else "progress.show_log"))
+        for key, label in self.progress_stat_titles:
+            label.setText(self._t(key))
         if self._project_validation_state == "idle":
             self.project_status.setText(self._t("game.waiting"))
         elif self._project_validation_state == "pending":
@@ -817,6 +898,8 @@ class QtRenWeaveWindow(QMainWindow):
             self.progress_heading.setText(self._t("progress.ready"))
         if self.progress_runtime.text() in {"Idle", "空闲"}:
             self.progress_runtime.setText(self._t("progress.idle"))
+        if self._scope_preview_inventory is not None:
+            self._refresh_review_preview()
 
     def _toggle_pending_details(self) -> None:
         visible = not self.pending_details.isVisible()
@@ -984,6 +1067,8 @@ class QtRenWeaveWindow(QMainWindow):
             return
         preset = PROVIDER_PRESETS_BY_ID[self.provider_ids[index]]
         self.endpoint_edit.setText(preset.base_url)
+        for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
+            button.setChecked(button_index == index)
         self._save_settings()
 
     def _connect_models(self) -> None:
@@ -1044,6 +1129,16 @@ class QtRenWeaveWindow(QMainWindow):
         self.review_game_label.setText(Path(self.project_edit.text().strip()).name or self.project_edit.text().strip())
         self.review_languages_label.setText(
             f"{self.source_combo.currentText().strip() or 'auto'}  →  {self.target_combo.currentText().strip()}"
+        )
+        self.review_fact_values[0].setText(
+            f"{self.provider_combo.currentText()} · {self.model_edit.text().strip() or '—'}"
+        )
+        self.review_fact_values[1].setText(
+            Path(self.project_edit.text().strip()).name or self.project_edit.text().strip() or "—"
+        )
+        self.review_fact_values[2].setText(self.review_languages_label.text())
+        self.review_fact_values[3].setText(
+            ("生成 RPA · 校验后安装" if self.locale == "zh" else "Generate RPA · Install after validation")
         )
         self.review_remaining_label.setText(
             (f"待翻译模型单元：{inventory.model_units}" if self.locale == "zh" else f"Remaining model units: {inventory.model_units}")
@@ -1194,6 +1289,16 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_stats.setText(f"Scenes: {completed}/{total}")
         self.progress_runtime.setText(str(self._progress_payload.get("stage", "running")))
         operation = str(self._progress_payload.get("current_operation", "") or "")
+        eta_seconds = self._progress_payload.get("eta_seconds", -1)
+        eta = "—" if not isinstance(eta_seconds, (int, float)) or eta_seconds < 0 else f"{int(eta_seconds)}s"
+        calls = int(self._progress_payload.get("total_model_calls", 0) or 0)
+        tokens = int(self._progress_payload.get("total_prompt_tokens", 0) or 0) + int(
+            self._progress_payload.get("total_completion_tokens", 0) or 0
+        )
+        self.progress_stat_values[0].setText(operation or "—")
+        self.progress_stat_values[1].setText(f"{completed}/{total}")
+        self.progress_stat_values[2].setText(eta)
+        self.progress_stat_values[3].setText(f"{calls} calls · {tokens:,} tokens")
         if operation and operation != self._last_logged_operation:
             self._last_logged_operation = operation
             self.log_edit.append(operation)
