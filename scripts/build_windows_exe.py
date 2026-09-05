@@ -101,6 +101,18 @@ def write_app_icon(path: Path) -> None:
     image.save(path, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 
+def build_with_isolated_native_path(arguments: list[str]) -> None:
+    """Prevent unrelated Poppler ICU DLLs from shadowing Qt's dependencies."""
+    original_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = os.pathsep.join(
+        entry for entry in original_path.split(os.pathsep) if "poppler" not in entry.casefold()
+    )
+    try:
+        run_pyinstaller(arguments)
+    finally:
+        os.environ["PATH"] = original_path
+
+
 def main() -> int:
     if sys.platform != "win32":
         raise RuntimeError("The standalone executable must be built on Windows")
@@ -122,7 +134,7 @@ def main() -> int:
     interface_mode = (
         "--console" if os.environ.get("RENWEAVE_BUILD_CONSOLE") == "1" else "--windowed"
     )
-    run_pyinstaller([
+    build_with_isolated_native_path([
         "--noconfirm",
         "--clean",
         "--onefile",
