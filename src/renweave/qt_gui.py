@@ -8,6 +8,8 @@ do not rebuild a canvas tree when a worker publishes new state.
 from __future__ import annotations
 
 import sys
+import os
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMessageBox,
+    QFileDialog,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -113,6 +116,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_stage = ""
         self._translation_started = False
         self._blank_translation_mode = False
+        self._last_logged_operation = ""
         self._settings_path = default_desktop_settings_path()
         self._settings = self._load_settings()
 
@@ -332,6 +336,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.install_check = QCheckBox("Install after validation")
         options_layout.addWidget(self.generate_rpa_check)
         options_layout.addWidget(self.install_check)
+        self.review_details_toggle = QPushButton("Show technical details", objectName="Secondary")
+        self.review_details_toggle.clicked.connect(self._toggle_review_details)
+        options_layout.addWidget(self.review_details_toggle)
+        self.review_details_label = QLabel()
+        self.review_details_label.setObjectName("Hint")
+        self.review_details_label.setWordWrap(True)
+        self.review_details_label.setVisible(False)
+        options_layout.addWidget(self.review_details_label)
         layout.addWidget(options)
         pending, pending_layout = self._card()
         pending_header = QHBoxLayout()
@@ -366,6 +378,13 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_stats = QLabel("", objectName="Status")
         self.progress_stats.setWordWrap(True)
         card_layout.addWidget(self.progress_stats)
+        self.progress_output = QLabel("", objectName="Hint")
+        self.progress_output.setWordWrap(True)
+        card_layout.addWidget(self.progress_output)
+        self.progress_open_button = QPushButton("Open output folder", objectName="Secondary")
+        self.progress_open_button.clicked.connect(self._open_output_folder)
+        self.progress_open_button.setVisible(False)
+        card_layout.addWidget(self.progress_open_button)
         self.log_toggle = QPushButton("Show log", objectName="Secondary")
         self.log_toggle.clicked.connect(self._toggle_log)
         card_layout.addWidget(self.log_toggle)
@@ -391,6 +410,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.footer_effect.setText(self._footer_effect())
         if self.step == 4 and self._translation_started:
             self.action_button.setText("Pause")
+            self.action_button.setEnabled(True)
+        elif self.step == 3 and self._blank_translation_mode:
+            self.action_button.setText("Extract blank translation")
             self.action_button.setEnabled(True)
         else:
             self.action_button.setText("Start" if self.step == 3 else "Continue")
@@ -421,6 +443,8 @@ class QtRenWeaveWindow(QMainWindow):
                 QMessageBox.warning(self, "Project", self._project_validation_error or "Select a valid Ren'Py project first.")
                 return
         if self.step < 3:
+            if self.step == 2:
+                self._blank_translation_mode = not self.use_model_check.isChecked()
             self.step += 1
             self._refresh_shell()
             if self.step == 3:
@@ -592,7 +616,21 @@ class QtRenWeaveWindow(QMainWindow):
             rows.append(f"{item.get('file', '')}:{item.get('line', 0)}  {item.get('source', '')}")
         self.pending_details.setPlainText("\n\n".join(rows))
 
+    def _toggle_review_details(self) -> None:
+        visible = not self.review_details_label.isVisible()
+        self.review_details_label.setVisible(visible)
+        self.review_details_toggle.setText("Hide technical details" if visible else "Show technical details")
+        if visible:
+            self.review_details_label.setText(
+                f"Project: {self.project_edit.text()}\n"
+                f"Workspace: {self.workspace_edit.text()}\n"
+                f"SDK: {self.renpy_sdk_edit.text() or 'not selected'}"
+            )
+
     def _start_translation(self) -> None:
+        if self._blank_translation_mode:
+            self._start_blank_translation()
+            return
         try:
             profile = self._profile(require_model=not self._blank_translation_mode)
             workspace = Path(self.workspace_edit.text().strip()).expanduser()
@@ -632,12 +670,47 @@ class QtRenWeaveWindow(QMainWindow):
             progress=True,
         )
 
+    def _start_blank_translation(self) -> None:
+        project = self.project_edit.text().strip()
+        workspace = self.workspace_edit.text().strip()
+        source = self.source_combo.currentText().strip() or "auto"
+        target = self.target_combo.currentText().strip()
+        if not project or not workspace or not target:
+            QMessageBox.warning(self, "Cannot start", "Project, workspace and target language are required.")
+            return
+        self._translation_started = True
+        self._cancel_token = CancellationToken()
+        self.step = 4
+        self._refresh_shell()
+        self._run_worker(
+            lambda emit: __import__("renweave.gui", fromlist=["execute_blank_translation"]).execute_blank_translation(
+                project,
+                workspace,
+                source,
+                target,
+                cancel_token=self._cancel_token,
+                progress_callback=emit,
+            ),
+            self._translation_finished,
+            self._translation_failed,
+            progress=True,
+        )
+
     def _translation_finished(self, state) -> None:
         self._last_stage = "complete"
         self._progress_payload = state.to_dict()
         self._translation_started = False
         self.progress_heading.setText("Translation package is ready")
         self.progress_runtime.setText("Completed")
+        output_dir = str(self._progress_payload.get("output_dir", "") or "")
+        package_path = str(self._progress_payload.get("package_path", "") or "")
+        self.progress_output.setText(
+            "\n".join(item for item in (
+                f"RPY output: {output_dir}" if output_dir else "",
+                f"RPA output: {package_path}" if package_path else "",
+            ) if item)
+        )
+        self.progress_open_button.setVisible(bool(output_dir))
         self._refresh_shell()
 
     def _translation_failed(self, error: BaseException) -> None:
@@ -645,6 +718,21 @@ class QtRenWeaveWindow(QMainWindow):
         self._translation_started = False
         self.progress_runtime.setText(f"Translation failed: {error}")
         self._refresh_shell()
+
+    def _open_output_folder(self) -> None:
+        output_dir = str(self._progress_payload.get("output_dir", "") or "")
+        if not output_dir:
+            return
+        try:
+            target = str(Path(output_dir).expanduser().resolve(strict=True))
+            if os.name == "nt":
+                os.startfile(target)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", target])
+            else:
+                subprocess.Popen(["xdg-open", target])
+        except OSError as exc:
+            QMessageBox.warning(self, "Open output", str(exc))
 
     def _progress_received(self, payload) -> None:
         self._progress_payload = payload.to_dict() if hasattr(payload, "to_dict") else dict(payload)
@@ -656,6 +744,10 @@ class QtRenWeaveWindow(QMainWindow):
         total = self._progress_payload.get("total_scenes", 0)
         self.progress_stats.setText(f"Scenes: {completed}/{total}")
         self.progress_runtime.setText(str(self._progress_payload.get("stage", "running")))
+        operation = str(self._progress_payload.get("current_operation", "") or "")
+        if operation and operation != self._last_logged_operation:
+            self._last_logged_operation = operation
+            self.log_edit.append(operation)
 
     def _load_settings(self) -> dict[str, object]:
         try:
