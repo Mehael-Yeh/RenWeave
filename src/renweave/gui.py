@@ -3150,18 +3150,25 @@ class RenWeaveDesktopApp:
 
         details_button = self._button(
             card, self.t("review.hide_details" if self.show_review_details.get() else "review.details"),
-            lambda: (self.show_review_details.set(not self.show_review_details.get()), self._render()), kind="field",
+            self._toggle_review_details,
+            kind="field",
         )
         details_button.grid(row=2, column=0, sticky="w", pady=(10, 0))
-        if self.show_review_details.get():
-            detail_text = "\n".join((
-                f"API: {self.base_url.get()}",
-                f"{self.t('game.project')}: {self.project.get()}",
-                f"{self.t('game.workspace')}: {self.workspace.get()}",
-                f"{self.t('game.sdk')}: {self.renpy_sdk.get() or self.t('optional')}",
-                self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no"),
-            ))
-            self.ttk.Label(card, text=detail_text, style="Hint.TLabel", wraplength=790, justify="left").grid(row=3, column=0, sticky="w", pady=(7, 0))
+        detail_text = "\n".join((
+            f"API: {self.base_url.get()}",
+            f"{self.t('game.project')}: {self.project.get()}",
+            f"{self.t('game.workspace')}: {self.workspace.get()}",
+            f"{self.t('game.sdk')}: {self.renpy_sdk.get() or self.t('optional')}",
+            self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no"),
+        ))
+        detail_label = self.ttk.Label(card, text=detail_text, style="Hint.TLabel", wraplength=790, justify="left")
+        detail_label.grid(row=3, column=0, sticky="w", pady=(7, 0))
+        self.review_modules.update(
+            details_button=details_button,
+            details_label=detail_label,
+        )
+        if not self.show_review_details.get():
+            detail_label.grid_remove()
 
         budget = self._get_token_budget()
         budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
@@ -3215,33 +3222,47 @@ class RenWeaveDesktopApp:
             self.package_technical_toggle = self._button(
                 options,
                 self.t("review.technical_hide" if self.show_package_technical.get() else "review.technical_show"),
-                lambda: (self.show_package_technical.set(not self.show_package_technical.get()), self._render()),
+                self._toggle_package_technical,
                 kind="ghost",
             )
             self.package_technical_toggle.grid(row=2, column=0, sticky="w", pady=(3, 0))
-            if self.show_package_technical.get():
-                self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=3, column=0, sticky="w", pady=(2, 0))
+            technical_label = self.ttk.Label(
+                options,
+                text=self.t("review.rpa_technical") if self.show_package_technical.get() else "",
+                style="TintHint.TLabel",
+                wraplength=760,
+                justify="left",
+            )
+            technical_label.grid(row=3, column=0, sticky="w", pady=(2, 0))
+            if not self.show_package_technical.get():
+                technical_label.grid_remove()
+            self.review_modules.update(
+                package_technical_toggle=self.package_technical_toggle,
+                package_technical_label=technical_label,
+            )
             self.ttk.Checkbutton(
                 options,
                 text=self.t("review.install"),
                 variable=self.install,
-                command=self._render,
+                command=self._refresh_review_controls,
                 style="Tint.TCheckbutton",
             ).grid(row=4, column=0, sticky="w", pady=(8, 0))
             self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(2, 0))
-            if self.install.get():
-                warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
-                warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
-                self.ttk.Label(
-                    warning,
-                    text=self.t("review.install_warning"),
-                    background=Colors.WARNING_CONTAINER,
-                    foreground=Colors.WARNING,
-                    font=(Typography.UI, Typography.SMALL, "bold"),
-                    wraplength=730,
-                    justify="left",
-                    anchor="w",
-                ).pack(fill="x")
+            warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
+            warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
+            self.ttk.Label(
+                warning,
+                text=self.t("review.install_warning"),
+                background=Colors.WARNING_CONTAINER,
+                foreground=Colors.WARNING,
+                font=(Typography.UI, Typography.SMALL, "bold"),
+                wraplength=730,
+                justify="left",
+                anchor="w",
+            ).pack(fill="x")
+            self.review_modules["install_warning"] = warning
+            if not self.install.get():
+                warning.grid_remove()
 
         if self.blank_translation_ready:
             output = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=11)
@@ -3433,6 +3454,63 @@ class RenWeaveDesktopApp:
             self.review_modules["pending_header"].grid_remove()
             if "pending_details" in self.review_modules:
                 self.review_modules["pending_details"].grid_remove()
+        self._schedule_content_layout()
+
+    def _toggle_review_details(self) -> None:
+        self.show_review_details.set(not self.show_review_details.get())
+        self._refresh_review_controls()
+
+    def _toggle_package_technical(self) -> None:
+        self.show_package_technical.set(not self.show_package_technical.get())
+        self._refresh_review_controls()
+
+    def _refresh_review_controls(self) -> None:
+        if self.step != 3 or not self.review_modules:
+            return
+        details_button = self.review_modules.get("details_button")
+        details_label = self.review_modules.get("details_label")
+        if details_button is not None and details_button.winfo_exists():
+            details_button.configure(
+                text=self.t("review.hide_details" if self.show_review_details.get() else "review.details")
+            )
+        if details_label is not None and details_label.winfo_exists():
+            detail_text = "\n".join((
+                f"API: {self.base_url.get()}",
+                f"{self.t('game.project')}: {self.project.get()}",
+                f"{self.t('game.workspace')}: {self.workspace.get()}",
+                f"{self.t('game.sdk')}: {self.renpy_sdk.get() or self.t('optional')}",
+                self.t("review.engine_yes") if self.require_engine.get() else self.t("review.engine_no"),
+            ))
+            details_label.configure(text=detail_text)
+            if self.show_review_details.get():
+                details_label.grid()
+            else:
+                details_label.grid_remove()
+
+        technical_button = self.review_modules.get("package_technical_toggle")
+        technical_label = self.review_modules.get("package_technical_label")
+        if technical_button is not None and technical_button.winfo_exists():
+            technical_button.configure(
+                text=self.t(
+                    "review.technical_hide"
+                    if self.show_package_technical.get()
+                    else "review.technical_show"
+                )
+            )
+        if technical_label is not None and technical_label.winfo_exists():
+            if self.show_package_technical.get():
+                technical_label.configure(text=self.t("review.rpa_technical"))
+                technical_label.grid()
+            else:
+                technical_label.configure(text="")
+                technical_label.grid_remove()
+
+        warning = self.review_modules.get("install_warning")
+        if warning is not None and warning.winfo_exists():
+            if self.install.get():
+                warning.grid()
+            else:
+                warning.grid_remove()
         self._schedule_content_layout()
 
     def _render_review_legacy(self) -> None:
