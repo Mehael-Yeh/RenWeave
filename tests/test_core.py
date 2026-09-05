@@ -614,7 +614,9 @@ class CorePipelineTests(unittest.TestCase):
             app._continue_with_model()
             self.assertEqual(app.step, 3)
             self.assertEqual(app.start_button.cget("text"), "继续")
-            self.assertIsNotNone(app.token_budget)
+            self.assertIn(app.scope_preview_status, {"scanning", "ready"})
+            if app.scope_preview_status == "ready":
+                self.assertIsNotNone(app.token_budget)
 
             def visible_texts(widget):
                 texts = []

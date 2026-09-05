@@ -28,7 +28,7 @@ from .pipeline import PipelineStage, PipelineState, RenWeavePipeline
 from .provider import ModelCatalog, ModelProfile, ModelVerification, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID, get_provider_preset
 from .runtime import CancellationToken
-from .usage import TokenBudget, estimate_project_tokens
+from .usage import TokenBudget
 from .update_check import UpdateResult, check_for_updates
 
 
@@ -1915,12 +1915,10 @@ class RenWeaveDesktopApp:
             return None
         if self.token_budget is not None and self.token_budget_target == resolved:
             return self.token_budget
-        try:
-            self.token_budget = estimate_project_tokens(resolved)
-            self.token_budget_target = resolved
-        except (OSError, ValueError, RuntimeError):
-            self.token_budget = None
-            self.token_budget_target = ""
+        # Token estimation is produced by the background scope preview. Do
+        # not scan the project synchronously while the Review page is being
+        # constructed; the page can show an unavailable/pending state until
+        # the preview result arrives.
         return self.token_budget
 
     def _configure_styles(self) -> None:
@@ -2399,6 +2397,7 @@ class RenWeaveDesktopApp:
         self.review_pending_title = None
         self.review_detail_host = None
         self.review_detail_text = None
+        self.review_modules: dict[str, object] = {}
         # The shell remains mounted, but navigation and footer controls are
         # still rebuilt by their dedicated renderers. Clear only those small
         # dynamic regions so repeated refreshes cannot accumulate widgets.
@@ -3074,6 +3073,7 @@ class RenWeaveDesktopApp:
         self._render()
 
     def _render_review(self) -> None:
+        self.review_modules = {}
         card = self._card()
         card.columnconfigure(0, weight=1)
         self.resume_candidate = self._resume_state()
@@ -3096,12 +3096,44 @@ class RenWeaveDesktopApp:
             background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
             font=(Typography.UI, Typography.BODY, "bold"), anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(5, 0))
-        if self.blank_translation_mode or incremental:
-            mode_key = "review.blank_mode" if self.blank_translation_mode else "review.task_mode"
-            self.ttk.Label(task_card, text=self.t(mode_key), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
-            if inventory is not None:
-                self.ttk.Label(task_card, text=self.t("review.remaining", count=pending), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=3, column=0, sticky="w", pady=(4, 0))
-                self.ttk.Label(task_card, text=self.t("review.preserved", count=reused), background=Colors.SURFACE_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL), anchor="w").grid(row=4, column=0, sticky="w", pady=(3, 0))
+        mode_key = "review.blank_mode" if self.blank_translation_mode else "review.task_mode"
+        mode_label = self.ttk.Label(
+            task_card,
+            text=self.t(mode_key),
+            background=Colors.SURFACE_CONTAINER,
+            foreground=Colors.PRIMARY,
+            font=(Typography.UI, Typography.SMALL, "bold"),
+            anchor="w",
+        )
+        mode_label.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        remaining_label = self.ttk.Label(
+            task_card,
+            background=Colors.SURFACE_CONTAINER,
+            foreground=Colors.ON_SURFACE,
+            font=(Typography.UI, Typography.BODY, "bold"),
+            anchor="w",
+        )
+        remaining_label.grid(row=3, column=0, sticky="w", pady=(4, 0))
+        preserved_label = self.ttk.Label(
+            task_card,
+            background=Colors.SURFACE_CONTAINER,
+            foreground=Colors.SUCCESS,
+            font=(Typography.UI, Typography.SMALL),
+            anchor="w",
+        )
+        preserved_label.grid(row=4, column=0, sticky="w", pady=(3, 0))
+        self.review_modules.update(
+            mode_label=mode_label,
+            remaining_label=remaining_label,
+            preserved_label=preserved_label,
+        )
+        if not (self.blank_translation_mode or incremental):
+            mode_label.grid_remove()
+            remaining_label.grid_remove()
+            preserved_label.grid_remove()
+        elif inventory is None:
+            remaining_label.grid_remove()
+            preserved_label.grid_remove()
 
         facts = self.ttk.Frame(card, style="TintCard.TFrame", padding=14)
         facts.grid(row=1, column=0, sticky="ew", pady=(12, 0))
@@ -3143,9 +3175,33 @@ class RenWeaveDesktopApp:
         else:
             budget_text, budget_note = self.t("budget.unavailable"), ""
         self.ttk.Label(budget_card, text=self.t("budget.title"), background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").pack(fill="x")
-        self.ttk.Label(budget_card, text=budget_text, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_PRIMARY_CONTAINER, font=(Typography.UI, Typography.TITLE, "bold"), anchor="w").pack(fill="x", pady=(4, 0))
-        if budget_note:
-            self.ttk.Label(budget_card, text=budget_note, background=Colors.PRIMARY_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").pack(fill="x", pady=(5, 0))
+        budget_value = self.ttk.Label(
+            budget_card,
+            text=budget_text,
+            background=Colors.PRIMARY_CONTAINER,
+            foreground=Colors.ON_PRIMARY_CONTAINER,
+            font=(Typography.UI, Typography.TITLE, "bold"),
+            anchor="w",
+        )
+        budget_value.pack(fill="x", pady=(4, 0))
+        budget_note_label = self.ttk.Label(
+            budget_card,
+            text=budget_note,
+            background=Colors.PRIMARY_CONTAINER,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, Typography.SMALL),
+            wraplength=760,
+            justify="left",
+            anchor="w",
+        )
+        budget_note_label.pack(fill="x", pady=(5, 0))
+        if not budget_note:
+            budget_note_label.pack_forget()
+        self.review_modules.update(
+            budget_value=budget_value,
+            budget_note=budget_note_label,
+            budget_card=budget_card,
+        )
 
         options = self.ttk.Frame(card, style="TintCard.TFrame", padding=(14, 10))
         options.grid(row=5, column=0, sticky="ew", pady=(12, 0))
@@ -3206,10 +3262,12 @@ class RenWeaveDesktopApp:
             pending_header = self.ttk.Frame(card, style="CardBody.TFrame")
             pending_header.grid(row=8 if self.blank_translation_ready else 7, column=0, sticky="ew", pady=(12, 0))
             pending_header.columnconfigure(0, weight=1)
+            self.review_modules["pending_header"] = pending_header
             self.review_pending_title = self.ttk.Label(pending_header, text=self.t("review.pending_title", count=inventory.model_units), style="Status.TLabel")
             self.review_pending_title.grid(row=0, column=0, sticky="w")
             pending_button = self._button(pending_header, self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"), lambda: (self.show_pending_details.set(not self.show_pending_details.get()), self._render()), kind="field")
             pending_button.grid(row=0, column=1, sticky="e")
+            self.review_modules["pending_button"] = pending_button
             if self.show_pending_details.get():
                 rows = [self.t("review.pending_row", file=item.get("file", ""), line=item.get("line", 0), source=item.get("source", ""), detail=item.get("detail", "")) for item in inventory.pending_units[:50]]
                 self.review_details = self.ttk.Frame(card, style="TintCard.TFrame", padding=10)
@@ -3223,6 +3281,159 @@ class RenWeaveDesktopApp:
                 self.review_detail_text.configure(yscrollcommand=scrollbar.set)
                 self.review_detail_text.insert("1.0", "\n\n".join(rows))
                 self.review_detail_text.configure(state="disabled")
+                self.review_modules["pending_details"] = self.review_details
+
+        self._refresh_review_preview()
+
+    def _build_review_pending_module(self, inventory: ExistingTranslationInventory) -> None:
+        if "pending_header" in self.review_modules or not inventory.pending_units:
+            return
+        card = self.page_card
+        if card is None or not card.winfo_exists():
+            return
+        header_row = 8 if self.blank_translation_ready else 7
+        pending_header = self.ttk.Frame(card, style="CardBody.TFrame")
+        pending_header.grid(row=header_row, column=0, sticky="ew", pady=(12, 0))
+        pending_header.columnconfigure(0, weight=1)
+        self.review_modules["pending_header"] = pending_header
+        self.review_pending_title = self.ttk.Label(
+            pending_header,
+            text=self.t("review.pending_title", count=inventory.model_units),
+            style="Status.TLabel",
+        )
+        self.review_pending_title.grid(row=0, column=0, sticky="w")
+        pending_button = self._button(
+            pending_header,
+            self.t("review.pending_hide" if self.show_pending_details.get() else "review.pending_show"),
+            lambda: (self.show_pending_details.set(not self.show_pending_details.get()), self._render()),
+            kind="field",
+        )
+        pending_button.grid(row=0, column=1, sticky="e")
+        self.review_modules["pending_button"] = pending_button
+        if not self.show_pending_details.get():
+            return
+        detail_row = header_row + 1
+        rows = [
+            self.t(
+                "review.pending_row",
+                file=item.get("file", ""),
+                line=item.get("line", 0),
+                source=item.get("source", ""),
+                detail=item.get("detail", ""),
+            )
+            for item in inventory.pending_units[:50]
+        ]
+        self.review_details = self.ttk.Frame(card, style="TintCard.TFrame", padding=10)
+        self.review_details.grid(row=detail_row, column=0, sticky="nsew", pady=(7, 0))
+        self.review_details.columnconfigure(0, weight=1)
+        self.review_detail_host = self.review_details
+        self.review_detail_text = self.tk.Text(
+            self.review_details,
+            height=7,
+            wrap="word",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=Colors.OUTLINE_VARIANT,
+            background=Colors.CARD,
+            foreground=Colors.ON_SURFACE_VARIANT,
+            font=(Typography.UI, Typography.SMALL),
+            padx=10,
+            pady=8,
+        )
+        self.review_detail_text.grid(row=0, column=0, sticky="nsew")
+        scrollbar = self._scrollbar(self.review_details, command=self.review_detail_text.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.review_detail_text.configure(yscrollcommand=scrollbar.set)
+        self.review_detail_text.insert("1.0", "\n\n".join(rows))
+        self.review_detail_text.configure(state="disabled")
+        self.review_modules["pending_details"] = self.review_details
+
+    def _refresh_review_preview(self) -> None:
+        if self.step != 3 or not self.review_modules:
+            return
+        inventory = (
+            self.scope_preview_inventory
+            if self.scope_preview_signature == self._scope_signature()
+            else None
+        )
+        incremental = any(
+            self.target_language.get().strip().casefold() == item.language.casefold()
+            for item in self.existing_languages
+        )
+        mode_label = self.review_modules.get("mode_label")
+        remaining_label = self.review_modules.get("remaining_label")
+        preserved_label = self.review_modules.get("preserved_label")
+        if not all(widget is not None and widget.winfo_exists() for widget in (mode_label, remaining_label, preserved_label)):
+            return
+        if not (self.blank_translation_mode or incremental):
+            mode_label.grid_remove()
+            remaining_label.grid_remove()
+            preserved_label.grid_remove()
+        else:
+            mode_label.configure(text=self.t("review.blank_mode" if self.blank_translation_mode else "review.task_mode"))
+            mode_label.grid()
+            if inventory is None:
+                remaining_label.grid_remove()
+                preserved_label.grid_remove()
+            else:
+                remaining_label.configure(text=self.t("review.remaining", count=inventory.model_units))
+                preserved_label.configure(text=self.t("review.preserved", count=inventory.reusable_units))
+                remaining_label.grid()
+                preserved_label.grid()
+
+        budget = self._get_token_budget()
+        budget_value = self.review_modules.get("budget_value")
+        budget_note = self.review_modules.get("budget_note")
+        if budget_value is not None and budget_value.winfo_exists():
+            if self.blank_translation_mode:
+                budget_text = self.t("budget.zero")
+                note_text = self.t("budget.zero_note")
+            elif budget and budget.estimated_total_high > 0:
+                budget_text = self.t(
+                    "budget.range",
+                    low=self._format_token_count(budget.estimated_total_low),
+                    high=self._format_token_count(budget.estimated_total_high),
+                )
+                note_text = self.t(
+                    "budget.note",
+                    scripts=budget.script_count,
+                    confidence=self.t(f"budget.confidence.{budget.confidence}"),
+                )
+            else:
+                budget_text, note_text = self.t("budget.unavailable"), ""
+            budget_value.configure(text=budget_text)
+            if budget_note is not None and budget_note.winfo_exists():
+                budget_note.configure(text=note_text)
+                if note_text:
+                    budget_note.pack(fill="x", pady=(5, 0))
+                else:
+                    budget_note.pack_forget()
+
+        if inventory is not None and incremental and inventory.pending_units:
+            self._build_review_pending_module(inventory)
+            pending_title = self.review_pending_title
+            if pending_title is not None and pending_title.winfo_exists():
+                pending_title.configure(text=self.t("review.pending_title", count=inventory.model_units))
+            if self.review_detail_text is not None and self.review_detail_text.winfo_exists():
+                rows = [
+                    self.t(
+                        "review.pending_row",
+                        file=item.get("file", ""),
+                        line=item.get("line", 0),
+                        source=item.get("source", ""),
+                        detail=item.get("detail", ""),
+                    )
+                    for item in inventory.pending_units[:50]
+                ]
+                self.review_detail_text.configure(state="normal")
+                self.review_detail_text.delete("1.0", "end")
+                self.review_detail_text.insert("1.0", "\n\n".join(rows))
+                self.review_detail_text.configure(state="disabled")
+        elif "pending_header" in self.review_modules:
+            self.review_modules["pending_header"].grid_remove()
+            if "pending_details" in self.review_modules:
+                self.review_modules["pending_details"].grid_remove()
+        self._schedule_content_layout()
 
     def _render_review_legacy(self) -> None:
         card = self._card()
@@ -4686,8 +4897,10 @@ class RenWeaveDesktopApp:
                     self.scope_preview_budget = budget
                     self.scope_preview_status = "ready"
                     self.scope_preview_worker = None
-                    if self.step in {1, 3}:
+                    if self.step == 1:
                         self._render()
+                    elif self.step == 3:
+                        self._refresh_review_preview()
             elif kind == "scope_preview_error":
                 signature, message = value
                 if signature == self._scope_signature():
@@ -4697,8 +4910,10 @@ class RenWeaveDesktopApp:
                     self.scope_preview_status = "error"
                     self.scope_preview_error = message
                     self.scope_preview_worker = None
-                    if self.step in {1, 3}:
+                    if self.step == 1:
                         self._render()
+                    elif self.step == 3:
+                        self._refresh_review_preview()
             elif kind == "progress":
                 assert isinstance(value, dict)
                 self._apply_progress_payload(value)
