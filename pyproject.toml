@@ -13,8 +13,6 @@ authors = [{ name = "RenWeave contributors" }]
 dependencies = [
   "keyring>=25.0,<27",
   "PySide6-Essentials>=6.8,<6.12",
-  "sv-ttk>=2.6,<3",
-  "tkinterdnd2>=0.6,<1",
 ]
 keywords = ["renpy", "localization", "translation", "visual-novel", "ai"]
 classifiers = [

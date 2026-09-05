@@ -5403,40 +5403,13 @@ def _show_startup_error(root, exception: Exception, details: str) -> None:
 
 
 def launch_gui(*, initial_project: str = "", initial_workspace: str = "") -> int:
-    if os.name == "nt":
-        try:
-            import ctypes
+    """Compatibility entry point; the desktop frontend is now Qt Widgets."""
+    from .qt_gui import launch_qt_gui
 
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        except (AttributeError, OSError):
-            pass
-    try:
-        import tkinter as tk
-    except ImportError as exc:
-        raise RuntimeError("Tk is not installed for this Python environment") from exc
-    try:
-        try:
-            from tkinterdnd2 import TkinterDnD
-
-            root = TkinterDnD.Tk()
-        except ImportError:
-            root = tk.Tk()
-    except Exception as exc:
-        raise RuntimeError(f"Unable to start the desktop interface: {exc}") from exc
-    root.withdraw()
-    try:
-        RenWeaveDesktopApp(root, initial_project=initial_project, initial_workspace=initial_workspace)
-    except Exception as exc:
-        details = traceback.format_exc()
-        _show_startup_error(root, exc, details)
-        root.update_idletasks()
-        root.deiconify()
-        root.mainloop()
-        return 1
-    root.update_idletasks()
-    root.deiconify()
-    root.mainloop()
-    return 0
+    return launch_qt_gui(
+        initial_project=initial_project,
+        initial_workspace=initial_workspace,
+    )
 
 
 def main() -> int:

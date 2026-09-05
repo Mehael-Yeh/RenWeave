@@ -108,9 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     pipeline: RenWeavePipeline | None = None
     try:
         if args.command == "gui":
-            from .gui import launch_gui
+            from .qt_gui import launch_qt_gui
 
-            return launch_gui(
+            return launch_qt_gui(
                 initial_project=args.project,
                 initial_workspace=args.workspace,
             )

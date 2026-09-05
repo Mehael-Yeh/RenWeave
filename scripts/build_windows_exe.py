@@ -147,9 +147,6 @@ def main() -> int:
             f"{os.pathsep}renweave/_vendor/unrpyc"
         ),
         "--copy-metadata", "renweave",
-        "--copy-metadata", "sv-ttk",
-        "--collect-data", "sv_ttk",
-        "--collect-data", "tkinterdnd2",
         "--hidden-import", "pickletools",
         "--hidden-import", "keyring.backends.Windows",
         "--version-file", str(version_resource),
