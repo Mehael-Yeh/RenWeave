@@ -1514,6 +1514,7 @@ class RenWeaveDesktopApp:
         self._content_layout_size: tuple[int, int] | None = None
         self._content_scroll_visible = False
         self._wheel_delta_remainder = 0.0
+        self._restore_redraw_id = None
         self._progress_animation_id = None
         self.project_validation_state = "idle"
         self.project_validation_error = ""
@@ -1622,6 +1623,9 @@ class RenWeaveDesktopApp:
         self._render()
         self.root.protocol("WM_DELETE_WINDOW", self._close_window)
         self.root.bind("<Configure>", self._on_root_configure, add="+")
+        self.root.bind("<Map>", self._on_root_map, add="+")
+        self.root.bind("<Expose>", self._on_root_expose, add="+")
+        self.root.bind("<Unmap>", self._on_root_unmap, add="+")
         self.root.bind("<MouseWheel>", self._on_content_mousewheel, add="+")
         self.root.after(150, self._poll_events)
         if self.update_checks_enabled.get():
@@ -2180,6 +2184,40 @@ class RenWeaveDesktopApp:
         # Breakpoint work is lightweight. Apply it on the next event-loop turn so
         # the shell follows the resize gesture instead of trailing it by 100 ms.
         self._responsive_render_id = self.root.after(0, self._render_responsive)
+
+    def _on_root_map(self, event) -> None:
+        if event.widget is self.root:
+            self._schedule_restore_redraw()
+
+    def _on_root_expose(self, event) -> None:
+        if event.widget is self.root:
+            self._schedule_restore_redraw()
+
+    def _on_root_unmap(self, event) -> None:
+        if event.widget is not self.root:
+            return
+        for tooltip in self._tooltips:
+            tooltip._hide()
+
+    def _schedule_restore_redraw(self) -> None:
+        if self._restore_redraw_id is not None:
+            return
+        try:
+            self._restore_redraw_id = self.root.after_idle(self._refresh_after_restore)
+        except self.tk.TclError:
+            self._restore_redraw_id = None
+
+    def _refresh_after_restore(self) -> None:
+        self._restore_redraw_id = None
+        try:
+            if not self.root.winfo_exists() or not self.root.winfo_viewable():
+                return
+            self.root.update_idletasks()
+            self._style_native_window(self.root, dark=True)
+            self._content_layout_size = None
+            self._sync_content_layout()
+        except self.tk.TclError:
+            return
 
     def _render_responsive(self) -> None:
         self._responsive_render_id = None
@@ -4502,6 +4540,7 @@ class RenWeaveDesktopApp:
             self._progress_animation_id,
             self._responsive_render_id,
             self._project_inspection_id,
+            self._restore_redraw_id,
         ):
             if after_id is None:
                 continue
