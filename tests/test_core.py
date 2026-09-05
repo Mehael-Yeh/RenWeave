@@ -599,10 +599,12 @@ class CorePipelineTests(unittest.TestCase):
             app._render()
             nav_children = len(app.nav.winfo_children())
             footer_children = len(app.footer.winfo_children())
+            nav_button = app.nav_buttons[0]
             app._render()
             app._render()
             self.assertEqual(len(app.nav.winfo_children()), nav_children)
             self.assertEqual(len(app.footer.winfo_children()), footer_children)
+            self.assertIs(app.nav_buttons[0], nav_button)
 
             app.model.set("translation-model")
             app._render()

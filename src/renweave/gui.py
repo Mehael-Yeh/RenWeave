@@ -2398,10 +2398,10 @@ class RenWeaveDesktopApp:
         self.review_detail_host = None
         self.review_detail_text = None
         self.review_modules: dict[str, object] = {}
-        # The shell remains mounted, but navigation and footer controls are
-        # still rebuilt by their dedicated renderers. Clear only those small
-        # dynamic regions so repeated refreshes cannot accumulate widgets.
-        for parent in (self.nav, self.footer):
+        # The shell remains mounted. The navigation is a stable module and
+        # updates its existing controls; only the footer action area is
+        # rebuilt because its command and button count depend on the page.
+        for parent in (self.footer,):
             for child in parent.winfo_children():
                 child.destroy()
         self.page_mount = self.ttk.Frame(self.content, style="App.TFrame")
@@ -2425,6 +2425,41 @@ class RenWeaveDesktopApp:
         self._schedule_content_layout()
 
     def _render_nav(self) -> None:
+        existing_buttons = getattr(self, "nav_buttons", [])
+        existing_indicators = getattr(self, "nav_indicators", [])
+        if (
+            len(existing_buttons) == len(self.STEPS)
+            and len(existing_indicators) == len(self.STEPS)
+            and all(button.winfo_exists() for button in existing_buttons)
+            and all(indicator.winfo_exists() for indicator in existing_indicators)
+        ):
+            for index, step in enumerate(self.STEPS):
+                prefix = "✓" if index < self.step else f"{index + 1:02d}"
+                is_current = index == self.step
+                is_available = (self.step < 4 and index <= self.step) or (
+                    self.step == 4 and self._can_leave_translation() and index < 4
+                )
+                if self.narrow_layout:
+                    text = prefix
+                    style = "NavNarrowActive.TButton" if is_current else "NavNarrow.TButton"
+                else:
+                    text = f"{prefix}    {self.t(f'steps.{step}')}"
+                    style = "NavActive.TButton" if is_current else "Nav.TButton"
+                existing_buttons[index].configure(
+                    text=text,
+                    style=style,
+                    cursor="hand2" if is_available else "arrow",
+                    state="normal" if is_available else "disabled",
+                    takefocus=is_available,
+                )
+                existing_indicators[index].configure(
+                    background=Colors.PRIMARY if is_current else Colors.NAV,
+                )
+            self.nav.columnconfigure(0, weight=1)
+            return
+
+        for child in self.nav.winfo_children():
+            child.destroy()
         self.nav_buttons = []
         self.nav_indicators = []
         for index, step in enumerate(self.STEPS):
