@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from renweave.credentials import SecureCredentialStore
-from renweave.gui import ModelPickerDialog, RenWeaveDesktopApp, TaskState
+from renweave.gui import RenWeaveDesktopApp, TaskState
 
 
 class MemoryCredentialBackend:
@@ -75,8 +75,6 @@ def verify_layout(output_dir: Path | None = None) -> None:
             settings_path=Path(directory) / "settings.json",
             credential_store=SecureCredentialStore(backend=MemoryCredentialBackend()),
         )
-        app.connection_state = "verified"
-        app.connection_detail = {"model": "visual-smoke-model", "latency": 20}
         app.model.set("visual-smoke-model")
         sample_game = Path(directory) / "SampleGame"
         sample_language = sample_game / "game" / "tl" / "zh_hans"
@@ -226,47 +224,31 @@ def verify_layout(output_dir: Path | None = None) -> None:
 
             app._set_locale("en")
             app.status.set("Translating chapter_two")
-            app.step = 0
+            app.step = 2
             app.worker = None
-            app.connection_state = "connecting"
-            app.connection_detail = {}
+            app.use_model_for_translation.set(False)
             app._render()
             hide_provider_picker(app)
             root.update()
-            capture_window(root, output_dir / "en-model-connecting.png")
+            capture_window(root, output_dir / "en-model-blank.png")
 
-            app.show_model_advanced.set(True)
+            app.use_model_for_translation.set(True)
             app._render()
             hide_provider_picker(app)
             root.update()
-            capture_window(root, output_dir / "en-model-advanced.png")
-            app.show_model_advanced.set(False)
-
-            app.connection_state = "failed"
-            app.connection_detail = {"message": "Authentication failed. Check the key and try again."}
-            app._render()
-            hide_provider_picker(app)
-            root.update()
-            capture_window(root, output_dir / "en-model-retry.png")
+            capture_window(root, output_dir / "en-model-using-model.png")
 
             app.step = 4
             app.last_stage = "paused"
             app._render()
             capture_window(root, output_dir / "en-progress-paused.png")
 
-            app.step = 0
-            app.connection_state = "verified"
-            app.connection_detail = {"model": "visual-smoke-model", "latency": 20}
+            app.step = 2
             app._render()
             root.update()
             settings = app._open_settings()
             capture_window(settings.window, output_dir / "en-settings.png")
             settings._close()
-
-            app.model_choices = ("provider/model-small", "provider/model-large")
-            picker = ModelPickerDialog(app)
-            capture_window(picker.window, output_dir / "en-model-picker.png")
-            picker.window.destroy()
 
             error = app._dialog(
                 "Connection failed",

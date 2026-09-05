@@ -340,6 +340,177 @@ class RenWeavePipeline:
         pending_ids = {unit.id for unit in index.text_units if unit.id not in reused_ids}
         return inventory, estimate_index_tokens(index, pending_ids)
 
+    @exclusive_workspace_run
+    def extract_blank_translation(
+        self,
+        target: str | Path,
+        source_language: str = "auto",
+        target_language: str = "und",
+        *,
+        unrpyc_path: str | Path | None = None,
+        allow_tool_download: bool = False,
+        cancel_token: CancellationToken | None = None,
+        progress_callback: Callable[[PipelineState], None] | None = None,
+    ) -> PipelineState:
+        """Extract a validated, model-free blank translation package.
+
+        Existing target-language RPY files are copied into the immutable output
+        build and only source units that are not already reusable receive blank
+        translation entries.  This deliberately stops before model work and
+        packaging: the output is for manual completion, so no RPA is created.
+        """
+        if not target_language.strip() or target_language.casefold() == "und":
+            raise ValueError("空白翻译文件必须指定明确的目标语言")
+        self._progress_callback = progress_callback
+        try:
+            index, _knowledge = self.analyze(
+                target,
+                source_language=source_language,
+                target_language=target_language,
+                unrpyc_path=unrpyc_path,
+                allow_tool_download=allow_tool_download,
+                cancel_token=cancel_token,
+                progress_callback=progress_callback,
+            )
+            state = self._load_state()
+            self._raise_if_cancelled(
+                state,
+                cancel_token,
+                "Cancellation requested before blank translation extraction",
+            )
+
+            installed_inventory = ExistingTranslationScanner().scan(index, target_language)
+            installed_ids = {
+                text_id
+                for scene_translations in installed_inventory.translations_by_scene.values()
+                for text_id in scene_translations
+            }
+            self._include_workspace_checkpoints_in_preview(index, installed_inventory)
+            atomic_write_json(self.existing_translations_path, installed_inventory.to_dict())
+
+            translations = {
+                unit.id: installed_inventory.translations_by_scene.get(unit.scene_id, {}).get(
+                    unit.id,
+                    "",
+                )
+                for unit in index.text_units
+            }
+            state.existing_language = (
+                installed_inventory.language if installed_inventory.has_existing_language else ""
+            )
+            state.existing_translation_files = installed_inventory.files_scanned
+            state.existing_reused_units = installed_inventory.reusable_units
+            state.existing_missing_units = installed_inventory.missing_units
+            state.existing_invalid_units = installed_inventory.invalid_units
+            state.existing_source_fallback_units = installed_inventory.source_fallback_units
+            state.workflow_mode = "blank"
+            state.knowledge_strategy = "not-used"
+            state.knowledge_consent = "declined"
+            state.generate_rpa = False
+            state.installed_dir = ""
+            state.package_path = ""
+            state.package_sha256 = ""
+            state.total_model_calls = 0
+            state.total_prompt_tokens = 0
+            state.total_completion_tokens = 0
+            state.model_requests_attempted = 0
+            state.knowledge_model_calls = 0
+            state.knowledge_prompt_tokens = 0
+            state.knowledge_completion_tokens = 0
+            state.refinement_model_calls = 0
+            state.refinement_prompt_tokens = 0
+            state.refinement_completion_tokens = 0
+            state.estimated_input_tokens_low = 0
+            state.estimated_input_tokens_high = 0
+            state.estimated_output_tokens_low = 0
+            state.estimated_output_tokens_high = 0
+            state.estimated_total_tokens_low = 0
+            state.estimated_total_tokens_high = 0
+            state.source_token_equivalent = 0
+            state.token_estimate_confidence = "none"
+            state.usage_reporting_status = "pending"
+            state.total_scenes = sum(bool(scene.text_units) for scene in index.scenes)
+            state.total_text_units = len(index.text_units)
+            state.completed_text_units = 0
+            state.total_files = len({unit.location.relative_path for unit in index.text_units})
+            state.completed_files = state.total_files
+            state.remaining_files = 0
+            state.incremental_scenes_to_translate = 0
+            state.incremental_files_to_translate = 0
+            state.incremental_units_to_translate = 0
+            state.stage = PipelineStage.BUILDING
+            state.run_status = "running"
+            state.current_operation = "Generating blank Ren'Py translation scripts"
+            state.error = ""
+            self._save_state(state)
+            self._raise_if_cancelled(
+                state,
+                cancel_token,
+                "Cancellation requested before blank translation build",
+            )
+
+            existing_language_dir = (
+                installed_inventory.language_dir
+                if installed_inventory.has_existing_language
+                else None
+            )
+            manifest = RenpyTranslationEmitter().emit(
+                index,
+                translations,
+                target_language,
+                self._artifact_output_root(
+                    index,
+                    translations,
+                    target_language,
+                    existing_language_dir=existing_language_dir,
+                    reused_unit_ids=installed_ids,
+                ),
+                existing_language_dir=existing_language_dir,
+                reused_unit_ids=installed_ids,
+            )
+            state.stage = PipelineStage.VALIDATING_BUILD
+            state.current_operation = "Validating blank Ren'Py translation scripts"
+            self._save_state(state)
+            validation = self._validate_build(
+                manifest,
+                index,
+                sdk_path=None,
+                require_engine=False,
+            )
+            state.build_validation_status = "passed" if validation.static_passed else "failed"
+            state.engine_validation_status = validation.engine.status
+            if not validation.passed:
+                raise ValueError("空白翻译文件未通过 RPY 校验，详见 build-validation.json")
+            state.renpy_language = manifest.renpy_language
+            state.output_dir = manifest.output_dir
+            # Keep package metadata truthful without touching any previously
+            # generated archive in ``packages``.
+            self._apply_package_choice(manifest, state, generate_rpa=False)
+            state.stage = PipelineStage.COMPLETE
+            state.run_status = "complete"
+            state.current_operation = "Blank translation scripts are ready"
+            state.current_scene_id = ""
+            state.current_scene_label = ""
+            state.current_file = ""
+            state.eta_seconds = 0
+            state.error = ""
+            self._save_state(state)
+            return state
+        except CancellationRequested:
+            return self._load_state()
+        except Exception as exc:
+            try:
+                state = self._load_state()
+            except (OSError, ValueError, TypeError, KeyError):
+                raise
+            state.stage = PipelineStage.FAILED
+            state.run_status = "failed"
+            state.current_operation = "Blank translation extraction failed"
+            state.error = str(exc)
+            self.logger.exception("blank_translation_failed", exc, stage=str(state.stage))
+            self._save_state(state)
+            raise
+
     def _include_workspace_checkpoints_in_preview(
         self,
         index: ProjectIndex,

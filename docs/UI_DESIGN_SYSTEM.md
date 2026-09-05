@@ -68,12 +68,12 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 - Review-page output choices use vertically aligned checkboxes followed by consequence text; RPA creation appears before installation because it changes workspace artifacts, while installation changes the selected game.
 - The RPA choice is on by default, and its inline copy always states that validated RPY files remain available when it is off.
 - API-contacting actions state whether they normally consume Tokens.
-- Step 04 has one primary decision: start the task. Paths, endpoints, checkpoints, pending-text previews, and archive terminology are progressively disclosed.
+- Step 04 has one primary decision per route: extract blank RPY files without a model, or enter step 05 for model-backed translation. The blank route remains on step 04 after completion.
 - Step 05 derives its title, color, percentage, stage markers, current operation, and actions from one UI `TaskState`: `idle`, `preparing`, `analyzing`, `translating`, `validating`, `building`, `completed`, `pausing`, `paused`, `failed`, or `cancelled`.
 - `100%` is reserved for `completed`. Percentages render only when the total is positive and finite; unknown totals use a completed-unit count without a denominator or progress bar.
 - Token estimates describe the main translation text only. They must explicitly exclude context, validation, retry, and other model calls unless a full-task estimator exists.
 - Raw logs are collapsed by default. The normal surface shows at most three recent user-readable events, with persistent paths and technical records available under **View log**.
-- The model page keeps API key, model choice, and verification in the default reading path. Base URL and reasoning controls live under **Advanced settings** while remaining editable.
+- The model page is step 03 and keeps provider, API key, model ID, and the model-use checkbox in the default reading path. The checkbox is on by default. Base URL and reasoning controls are always visible; there is no separate model discovery, verification, or advanced-settings button. The primary footer action switches between blank extraction and **Continue** from the checkbox state.
 - Game and workspace locations render as a friendly folder or executable name plus an abbreviated path. Change, copy, and open actions remain visible; raw path entry is an explicit manual-edit disclosure.
 - An automatically detected Ren'Py runtime is a status card, not a third peer path field. The game-safety promise is a distinct success notice with a plain-language consequence.
 - Top-bar utilities use the quiet `TopAux.TButton` role and must remain visually subordinate to workflow actions.
@@ -97,7 +97,7 @@ All interactive widgets come from `RenWeaveDesktopApp` component factories or on
 
 ## Visual QA checklist
 
-Before merging UI changes, render all five workflow pages plus the model picker and error dialog at default, compact, and minimum window sizes. Verify:
+Before merging UI changes, render all five workflow pages plus both model-route states and the error dialog at default, compact, and minimum window sizes. Verify:
 
 1. Left edges, right edges, field heights, button heights, and footer slots do not move between pages; card and primary-action right edges differ by no more than `1 px`.
 2. English and Simplified Chinese copy does not clip.
@@ -107,4 +107,4 @@ Before merging UI changes, render all five workflow pages plus the model picker 
 6. Provider and API action clicks do not replace the current page widget tree or change the current scroll position.
 7. Resize transitions preserve the current page widget identity, keyboard focus, and scroll position at every breakpoint.
 8. Windows builds render one GUI window with an integrated dark title bar and no console window.
-9. CI uploads 38 pixel screenshots covering the bilingual workflow, three responsive sizes, incremental review details, connecting/retry/paused states, Settings, model selection, and the error dialog; inspect the artifact for clipping and font fallback.
+9. CI uploads pixel screenshots covering the bilingual workflow, three responsive sizes, incremental review details, blank/model route selection, paused states, Settings, and the error dialog; inspect the artifact for clipping and font fallback.

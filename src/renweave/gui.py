@@ -139,6 +139,38 @@ def execute_translation(
     return state
 
 
+def execute_blank_translation(
+    project: str,
+    workspace: str,
+    source_language: str,
+    target_language: str,
+    *,
+    pipeline_factory: Callable[[str], RenWeavePipeline] = RenWeavePipeline,
+    cancel_token: CancellationToken | None = None,
+    progress_callback: Callable[[PipelineState], None] | None = None,
+) -> PipelineState:
+    """Extract and validate blank RPY files without loading a provider profile."""
+    if not Path(project).expanduser().exists():
+        raise ValueError("Select an existing Ren'Py game directory or executable")
+    if not workspace.strip():
+        raise ValueError("Select a workspace directory")
+    if not target_language.strip():
+        raise ValueError("Enter a target language name or code")
+    pipeline = pipeline_factory(workspace)
+    state = pipeline.extract_blank_translation(
+        project,
+        source_language.strip() or "auto",
+        target_language.strip(),
+        cancel_token=cancel_token,
+        progress_callback=progress_callback,
+    )
+    if state.stage == PipelineStage.PAUSED:
+        return state
+    if state.stage != PipelineStage.COMPLETE:
+        raise RuntimeError(state.error or "Blank translation extraction did not complete")
+    return state
+
+
 STAGE_LABELS = {
     "created": "Preparing task",
     "discovered": "Finding the Ren'Py project",
@@ -364,7 +396,7 @@ COPY["en"].update({
     "tip.settings": "Choose encrypted or memory-only key storage and control optional update checks.",
     "tip.reasoning": "Choose how much reasoning the model may use. Unsupported levels safely fall back to the provider's documented on/off control.",
     "tip.model_picker": "Choose the highlighted model ID and return it to the connection form.",
-    "footer.effect.model": "Next: choose the game. Translation has not started.",
+        "footer.effect.model": "Next: review the scope and Token budget. Translation starts explicitly on step 05.",
     "footer.effect.game": "Next: choose languages. Game files stay unchanged.",
     "footer.effect.languages": "Next: review scope and the Token budget.",
     "footer.effect.review": "Starts billable model work; checkpoints go to the workspace.",
@@ -489,7 +521,7 @@ COPY["zh"].update({
     "tip.settings": "选择系统加密或仅内存密钥存储，并管理可选的版本检查。",
     "tip.reasoning": "选择模型可使用的推理强度；不支持细分等级的接口会安全退化为官方开关参数。",
     "tip.model_picker": "采用当前高亮的模型 ID，并返回连接页面。",
-    "footer.effect.model": "下一步选择游戏；翻译尚未开始。",
+        "footer.effect.model": "下一步确认范围与 Token 预算；模型翻译必须在第 05 页明确开始。",
     "footer.effect.game": "下一步选择语言；游戏文件保持不变。",
     "footer.effect.languages": "下一步确认范围与 Token 预算。",
     "footer.effect.review": "开始可能计费的模型调用；检查点写入工作区。",
@@ -551,7 +583,7 @@ _BASE_COPY = {
         "model.model_hint": "Choose a discovered model or enter an exact model ID.",
         "model.verify": "Verify selected model",
         "model.idle": "Not connected",
-        "model.idle_body": "Enter an API key, then load available models.",
+        "model.idle_body": "Enter an API key and model ID only when you want to use model translation.",
         "model.connecting": "Connecting",
         "model.connecting_body": "Checking the models endpoint…",
         "model.connected": "API connected",
@@ -562,8 +594,8 @@ _BASE_COPY = {
         "model.verified_body": "{model} responded successfully in {latency} ms.",
         "model.failed": "Connection failed",
         "model.changed": "Settings changed",
-        "model.changed_body": "Reconnect and verify the model before continuing.",
-        "model.required": "Connect to the API and verify a model before continuing.",
+        "model.changed_body": "Settings changed. The selected model will be used when translation starts.",
+        "model.required": "Enter a valid API endpoint and model ID before continuing.",
         "game.title": "Choose the Ren'Py game",
         "game.body": "RenWeave works from an isolated workspace and does not modify the source game during analysis.",
         "game.project": "Game directory or executable",
@@ -676,7 +708,7 @@ _BASE_COPY = {
         "model.model_hint": "选择获取到的模型，或输入准确的模型 ID。",
         "model.verify": "验证所选模型",
         "model.idle": "尚未连接",
-        "model.idle_body": "填写接口地址和 API 密钥，然后获取可用模型。",
+        "model.idle_body": "只有使用模型翻译时，才需要填写 API 密钥和模型 ID。",
         "model.connecting": "正在连接",
         "model.connecting_body": "正在检查模型接口…",
         "model.connected": "API 已连接",
@@ -687,8 +719,8 @@ _BASE_COPY = {
         "model.verified_body": "{model} 已在 {latency} 毫秒内成功响应。",
         "model.failed": "连接失败",
         "model.changed": "设置已更改",
-        "model.changed_body": "继续前请重新连接并验证模型。",
-        "model.required": "请先连接 API 并验证模型。",
+        "model.changed_body": "设置已更改；开始翻译时会使用当前选择的模型。",
+        "model.required": "请填写有效的 API 地址和模型 ID。",
         "game.title": "选择 Ren'Py 游戏",
         "game.body": "织译在独立工作区运行，分析过程中不会修改游戏源文件。",
         "game.project": "游戏目录或程序",
@@ -774,6 +806,36 @@ for _locale, _strings in _BASE_COPY.items():
     COPY[_locale].update(_strings)
 
 COPY["en"].update({
+    "model.body": "Model setup is optional. The model route is selected by default; enter an API key and exact model ID to use model translation, or turn it off to extract blank RPY files for manual translation.",
+    "model.sequence": "1  Provider     2  Model ID     3  Choose translation mode",
+    "model.selection": "Model selection",
+    "model.optional_hint": "These settings are only used when the translation checkbox is selected.",
+    "model.model_hint": "Enter the exact model ID used by your provider.",
+    "model.use_for_translation": "Use model for translation",
+    "model.use_for_translation_hint": "Selected by default. When enabled, the next step reviews the scope and Token estimate; translation starts explicitly on step 05.",
+    "footer.effect.model": "Next: review the scope and Token budget. Translation starts explicitly on step 05.",
+    "review.blank_title": "Extract blank translation files",
+    "review.blank_body": "RenWeave has scanned and validated the project scope. No model will be called; the output will contain the existing translations plus blank entries for missing text.",
+    "review.blank_mode": "Model-free blank translation",
+    "review.not_used": "Not used",
+    "review.blank_output": "Validated RPY files only; no RPA will be created",
+    "review.blank_options": "RPA and game installation are disabled for this model-free extraction.",
+    "budget.zero": "0 Tokens",
+    "budget.zero_note": "No model is used in this workflow. Only project analysis and local RPY validation run.",
+    "blank.extract": "Extract blank translation",
+    "blank.preparing": "Preparing blank translation files…",
+    "blank.started": "Blank translation extraction started; no model calls will be made.",
+    "blank.complete": "Blank translation files are ready",
+    "blank.complete_body": "Validated blank RPY files are ready:\n{path}\n\nNo RPA was created and no model was used.",
+    "blank.ready": "Blank RPY files are ready",
+    "blank.ready_body": "Fill the blank entries in the generated folder:\n{path}",
+    "blank.paused": "Blank extraction paused",
+    "blank.failed": "Blank extraction stopped",
+    "blank.failed_body": "The workspace and any completed output were kept. You can retry the blank extraction.",
+    "footer.effect.blank_model": "Next: scan and extract blank RPY files. No model is required.",
+    "footer.effect.blank_review": "Extracts validated RPY files only; this action never enters AI translation or creates RPA.",
+    "tip.blank_extract": "Scan the project and create blank RPY files in the workspace. No API request or RPA archive is created.",
+    "tip.model_use": "Choose whether step 05 should use the selected model or only extract blank RPY files.",
     "languages.scan_summary": "Translation summary",
     "languages.scan_counts": "Existing translations  {reused}\nStill to translate  {pending}\nOriginal language files  {files}",
     "languages.incremental_choice": "Continue incremental translation",
@@ -832,8 +894,7 @@ COPY["en"].update({
     "error.timeout": "The request timed out. Check the network or service address and try again.",
     "error.connection": "Could not reach the AI service. Check the network and service address.",
     "error.generic": "The task could not continue. Your workspace and saved progress were kept.",
-    "model.advanced_show": "Advanced settings",
-    "model.advanced_hide": "Hide advanced settings",
+    "model.advanced": "Advanced settings",
     "game.change": "Change",
     "game.copy_path": "Copy path",
     "game.open_folder": "Open folder",
@@ -846,6 +907,36 @@ COPY["en"].update({
 })
 
 COPY["zh"].update({
+    "model.body": "模型设置是可选的。默认勾选使用模型翻译；填写 API 密钥和准确的模型 ID即可使用模型翻译，取消勾选即可提取空白 RPY 文件进行手工翻译。",
+    "model.sequence": "1  提供商     2  模型 ID     3  选择翻译方式",
+    "model.selection": "模型选择",
+    "model.optional_hint": "只有勾选使用模型翻译时，下面这些设置才会生效。",
+    "model.model_hint": "填写提供商实际使用的准确模型 ID。",
+    "model.use_for_translation": "使用模型进行翻译",
+    "model.use_for_translation_hint": "默认已勾选。启用后，下一步会确认范围和 Token 预估；模型翻译必须在第 05 页明确开始。",
+    "footer.effect.model": "下一步确认范围与 Token 预算；模型翻译必须在第 05 页明确开始。",
+    "review.blank_title": "提取空白翻译文件",
+    "review.blank_body": "项目范围已经完成扫描和校验。本流程不会调用模型；输出会保留已有翻译，并为缺失文本加入空白译文，供你手动填写。",
+    "review.blank_mode": "无模型空白翻译",
+    "review.not_used": "未使用",
+    "review.blank_output": "仅生成已校验的 RPY 文件，不会生成 RPA",
+    "review.blank_options": "无模型提取不会生成 RPA，也不会安装到游戏目录。",
+    "budget.zero": "0 Token",
+    "budget.zero_note": "本流程不使用模型，只执行项目分析和本地 RPY 校验。",
+    "blank.extract": "提取空白翻译",
+    "blank.preparing": "正在准备空白翻译文件……",
+    "blank.started": "空白翻译提取已开始，不会调用模型。",
+    "blank.complete": "空白翻译文件已生成",
+    "blank.complete_body": "已校验的空白 RPY 文件已准备好：\n{path}\n\n本次未生成 RPA，也未使用模型。",
+    "blank.ready": "空白 RPY 文件已准备好",
+    "blank.ready_body": "请在生成目录中填写空白译文：\n{path}",
+    "blank.paused": "空白提取已暂停",
+    "blank.failed": "空白提取已停止",
+    "blank.failed_body": "工作区与已经生成的输出均已保留，可以重试空白提取。",
+    "footer.effect.blank_model": "下一步扫描并提取空白 RPY 文件；无需模型。",
+    "footer.effect.blank_review": "只生成已校验的 RPY 文件，不会进入 AI 翻译，也不会生成 RPA。",
+    "tip.blank_extract": "扫描项目并在工作区生成空白 RPY 文件，不会发起 API 请求，也不会创建 RPA。",
+    "tip.model_use": "选择第 05 页使用模型翻译，还是只提取空白 RPY 文件。",
     "languages.scan_summary": "已有翻译摘要",
     "languages.scan_counts": "已有翻译  {reused} 条\n仍需翻译  {pending} 条\n原有语言文件  {files} 个",
     "languages.incremental_choice": "继续增量翻译",
@@ -904,8 +995,7 @@ COPY["zh"].update({
     "error.timeout": "请求超时，请检查网络或服务地址后重试。",
     "error.connection": "无法连接 AI 服务，请检查网络和服务地址。",
     "error.generic": "任务无法继续；工作区与已保存进度均已保留。",
-    "model.advanced_show": "高级设置",
-    "model.advanced_hide": "收起高级设置",
+    "model.advanced": "高级设置",
     "game.change": "更改",
     "game.copy_path": "复制路径",
     "game.open_folder": "打开文件夹",
@@ -1366,7 +1456,7 @@ class ModelPickerDialog:
 
 
 class RenWeaveDesktopApp:
-    STEPS = ("model", "game", "languages", "review", "progress")
+    STEPS = ("game", "languages", "model", "review", "progress")
     LANGUAGE_CHOICES = ("English", "简体中文", "繁體中文", "日本語", "한국어", "Deutsch", "Français", "Español", "Português", "Русский")
 
     def __init__(
@@ -1421,6 +1511,8 @@ class RenWeaveDesktopApp:
         # flag distinguishes that preparation state from a real run so users can
         # freely inspect earlier pages before starting model work.
         self.translation_started = False
+        self.blank_translation_mode = False
+        self.blank_translation_ready = False
         self._settings_save_id = None
         self._project_inspection_id = None
         self._auto_sdk_path = ""
@@ -1452,6 +1544,7 @@ class RenWeaveDesktopApp:
         self.api_key_env = tk.StringVar(value=str(saved_settings.get("api_key_env", initial_preset.api_key_env)))
         self.supports_json = tk.BooleanVar(value=bool(saved_settings.get("supports_json", initial_preset.supports_json_parameter)))
         self.model = tk.StringVar(value=str(saved_settings.get("model", "")))
+        self.use_model_for_translation = tk.BooleanVar(value=True)
         self.model_choices: tuple[str, ...] = ()
         self.api_key = tk.StringVar()
         self.key_storage = tk.StringVar(value=str(saved_settings.get("key_storage", "secure")))
@@ -1480,7 +1573,6 @@ class RenWeaveDesktopApp:
         self.show_pending_details = tk.BooleanVar(value=False)
         self.show_package_technical = tk.BooleanVar(value=False)
         self.show_log_details = tk.BooleanVar(value=False)
-        self.show_model_advanced = tk.BooleanVar(value=False)
         self.show_manual_paths = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value=self.t("model.idle_body"))
 
@@ -1776,6 +1868,21 @@ class RenWeaveDesktopApp:
         return f"{value:,}"
 
     def _get_token_budget(self) -> TokenBudget | None:
+        if self.blank_translation_mode:
+            return TokenBudget(
+                source_characters=0,
+                source_token_equivalent=0,
+                estimated_input_low=0,
+                estimated_input_high=0,
+                estimated_output_low=0,
+                estimated_output_high=0,
+                estimated_total_low=0,
+                estimated_total_high=0,
+                scene_count=0,
+                script_count=0,
+                confidence="none",
+                basis="no_model_workflow",
+            )
         if (
             self.scope_preview_status == "ready"
             and self.scope_preview_signature == self._scope_signature()
@@ -2328,12 +2435,18 @@ class RenWeaveDesktopApp:
         body.columnconfigure(0, weight=1)
         body.rowconfigure(2, weight=1)
         self.page = body
-        title_key = f"progress.task.{self._task_presentation().state.value}" if step_name == "progress" else f"{step_name}.title"
+        if step_name == "progress":
+            title_key = f"progress.task.{self._task_presentation().state.value}"
+        elif step_name == "review" and self.blank_translation_mode:
+            title_key = "review.blank_title"
+        else:
+            title_key = f"{step_name}.title"
+        body_key = "review.blank_body" if step_name == "review" and self.blank_translation_mode else f"{step_name}.body"
         self.page_title_label = self.ttk.Label(body, text=self.t(title_key), style="Headline.TLabel")
         self.page_title_label.grid(row=0, column=0, sticky="w")
         self.ttk.Label(
             body,
-            text=self.t(f"{step_name}.body"),
+            text=self.t(body_key),
             style="SurfaceBody.TLabel",
             wraplength=620 if self.compact_layout else 720,
             justify="left",
@@ -2449,16 +2562,7 @@ class RenWeaveDesktopApp:
         self.api_key_entry.grid(row=2, column=0, sticky="ew", pady=(4, 0))
         self._guide(self.api_key_entry, "tip.api_key")
         self.ttk.Label(left, text=self.t("model.key_hint"), style="Hint.TLabel", wraplength=390, justify="left").grid(row=3, column=0, sticky="w", pady=(3, 0))
-        self.connect_button = self._button(
-            left,
-            self.t("model.load"),
-            self._connect_models,
-            kind="secondary",
-            width=22,
-        )
-        self.connect_button.grid(row=4, column=0, sticky="w", pady=(9, 0))
-        self._guide(self.connect_button, "tip.load_models")
-        self.ttk.Label(left, text=self.t("model.load_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, sticky="w", pady=(4, 0))
+        self.ttk.Label(left, text=self.t("model.optional_hint"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=4, column=0, sticky="w", pady=(9, 0))
 
         right = self.ttk.Frame(config, style="CardBody.TFrame")
         right.grid(
@@ -2469,71 +2573,27 @@ class RenWeaveDesktopApp:
             pady=(16, 0) if self.compact_layout else (0, 0),
         )
         right.columnconfigure(0, weight=1)
-        self.ttk.Label(right, text=self.t("model.validation"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 7))
+        self.ttk.Label(right, text=self.t("model.selection"), style="Section.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 7))
         self.ttk.Label(right, text=self.t("model.model"), style="Field.TLabel").grid(row=1, column=0, columnspan=2, sticky="w")
         self.model_box = self._entry(right, self.model)
-        self.model_box.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        self.model_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self._guide(self.model_box, "tip.model_id")
-        self.browse_models_button = self._button(right, self.t("model.browse", count=len(self.model_choices)), self._browse_models, kind="field")
-        self.browse_models_button.grid(row=2, column=1, sticky="e", padx=(7, 0), pady=(4, 0))
-        self._guide(self.browse_models_button, "tip.browse_models")
         self.ttk.Label(right, text=self.t("model.model_hint"), style="Hint.TLabel", wraplength=350, justify="left").grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
-        self.verify_button = self._button(right, self.t("model.verify"), self._verify_model)
-        self.verify_button.grid(row=4, column=0, columnspan=2, sticky="w", pady=(9, 0))
-        self._guide(self.verify_button, "tip.verify_model")
-        self.ttk.Label(right, text=self.t("model.verify_effect"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
-        status_card = self.ttk.Frame(right, style="TintCard.TFrame", padding=10)
-        status_card.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(7, 0))
-        self.model_status_card = status_card
-        status_card.columnconfigure(1, weight=1)
-        state_key = self.connection_state if self.connection_state in {"idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"} else "idle"
-        details = dict(self.connection_detail)
-        if state_key in {"failed", "discovery_failed"}:
-            details["message"] = self._friendly_error(details.get("message", ""))
-        detail_key = f"model.{state_key}_body"
-        title = self.t(f"model.{state_key}")
-        body = self.t(detail_key, **details) if detail_key in COPY[self.locale.get()] else str(details.get("message", ""))
-        if state_key == "failed":
-            body = str(details.get("message", ""))
-        self.model_status_indicator = self.tk.Frame(
-            status_card,
-            background=self._connection_state_color(state_key),
-            width=4,
+        self.use_model_checkbutton = self.ttk.Checkbutton(
+            right,
+            text=self.t("model.use_for_translation"),
+            variable=self.use_model_for_translation,
+            command=self._refresh_model_route,
+            style="Tint.TCheckbutton",
         )
-        self.model_status_indicator.grid(row=0, column=0, rowspan=3, sticky="ns", padx=(0, 10))
-        self.model_status_indicator.grid_propagate(False)
-        self.model_status_title = self.ttk.Label(status_card, text=title, style="Status.TLabel")
-        self.model_status_title.grid(row=0, column=1, sticky="w")
-        self.model_retry_button = self._button(
-            status_card,
-            self.t("retry"),
-            self._verify_model,
-            kind="field",
-            width=10,
-        )
-        self.model_retry_button.grid(row=0, column=2, sticky="e", padx=(8, 0))
-        self.model_retry_button.grid_remove()
-        self.model_status_body = self.ttk.Label(status_card, text=body, style="StatusBody.TLabel", wraplength=360, justify="left")
-        self.model_status_body.grid(row=1, column=1, columnspan=2, sticky="w", pady=(4, 0))
-        self.model_busy_progress = self.ttk.Progressbar(
-            status_card,
-            mode="indeterminate",
-            style="Horizontal.TProgressbar",
-        )
-        self.model_busy_progress.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(8, 0))
-        self.model_busy_progress.grid_remove()
+        self.use_model_checkbutton.grid(row=4, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self._guide(self.use_model_checkbutton, "tip.model_use")
+        self.ttk.Label(right, text=self.t("model.use_for_translation_hint"), style="Hint.TLabel", wraplength=370, justify="left").grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
 
-        advanced_toggle = self._button(
-            selection,
-            self.t("model.advanced_hide" if self.show_model_advanced.get() else "model.advanced_show"),
-            lambda: (self.show_model_advanced.set(not self.show_model_advanced.get()), self._render()),
-            kind="field",
-        )
-        self.model_advanced_toggle = advanced_toggle
-        advanced_toggle.pack(side="right", padx=(10, 0))
+        self.ttk.Label(config, text=self.t("model.advanced"), style="Section.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", pady=(14, 7))
         advanced = self.ttk.Frame(config, style="TintCard.TFrame", padding=12)
-        advanced.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        advanced.grid(row=3, column=0, columnspan=2, sticky="ew")
         advanced.columnconfigure(0, weight=1)
         advanced.columnconfigure(1, weight=1)
         self.model_advanced_panel = advanced
@@ -2560,8 +2620,6 @@ class RenWeaveDesktopApp:
             style="TintHint.TLabel", wraplength=350, justify="left",
         )
         self.reasoning_hint_label.grid(row=2, column=0, sticky="w", pady=(4, 0))
-        if not self.show_model_advanced.get():
-            advanced.grid_remove()
 
         self._refresh_model_panel()
 
@@ -2607,8 +2665,8 @@ class RenWeaveDesktopApp:
         return self.t("error.generic")
 
     def _refresh_model_panel(self) -> None:
-        """Refresh model setup in place so button clicks never rebuild or jump the page."""
-        if self.step != 0 or not hasattr(self, "model_status_title"):
+        """Refresh provider-dependent fields without rebuilding the model page."""
+        if self.step != 2 or not hasattr(self, "provider_category"):
             return
         selected_id = self.selected_provider_id.get()
         preset = PROVIDER_PRESETS_BY_ID.get(selected_id, get_provider_preset("custom"))
@@ -2627,47 +2685,27 @@ class RenWeaveDesktopApp:
         self.reasoning_hint_label.configure(
             text=self.t("model.reasoning_unavailable" if preset.reasoning_control == "none" else "model.reasoning_hint")
         )
-        self.browse_models_button.configure(
-            text=self.t("model.browse", count=len(self.model_choices)),
-            state="normal" if self.model_choices else "disabled",
-        )
-        state_key = self.connection_state if self.connection_state in {
-            "idle", "connecting", "connected", "verifying", "verified", "failed", "changed", "discovery_failed"
-        } else "idle"
-        details = dict(self.connection_detail)
-        detail_key = f"model.{state_key}_body"
-        title = self.t(f"model.{state_key}")
-        body = self.t(detail_key, **details) if detail_key in COPY[self.locale.get()] else str(details.get("message", ""))
-        if state_key == "failed":
-            body = str(details.get("message", ""))
-        self.model_status_title.configure(text=title)
-        self.model_status_body.configure(text=body)
-        self.model_status_indicator.configure(background=self._connection_state_color(state_key))
-        busy = state_key in {"connecting", "verifying"}
-        if busy:
-            self.model_retry_button.grid_remove()
-            self.model_busy_progress.grid()
-            self.model_busy_progress.start(12)
-        else:
-            self.model_busy_progress.stop()
-            self.model_busy_progress.grid_remove()
-            if state_key in {"failed", "discovery_failed"}:
-                retry_command = self._connect_models if state_key == "discovery_failed" else self._verify_model
-                self.model_retry_button.configure(command=retry_command, text=self.t("retry"))
-                self.model_retry_button.grid()
-            else:
-                self.model_retry_button.grid_remove()
-        self.connect_button.configure(
-            text=self.t("model.connecting") if state_key == "connecting" else self.t("model.load")
-        )
-        self.verify_button.configure(
-            text=self.t("model.verifying") if state_key == "verifying" else self.t("model.verify")
-        )
-        self.connect_button.configure(state="disabled" if busy else "normal")
-        self.verify_button.configure(state="disabled" if busy or not self.model.get().strip() else "normal")
         if self.next_button is not None:
-            self.next_button.configure(state="normal" if state_key == "verified" else "disabled")
+            self.next_button.configure(
+                text=self.t("continue" if self.use_model_for_translation.get() else "blank.extract"),
+                state="normal",
+            )
         self._schedule_content_layout()
+
+    def _refresh_model_route(self) -> None:
+        """Update the primary footer action after the user chooses a route."""
+        if self.step != 2:
+            return
+        use_model = self.use_model_for_translation.get()
+        if self.next_button is not None:
+            self.next_button.configure(
+                text=self.t("continue" if use_model else "blank.extract"),
+                command=self._continue_with_model if use_model else self._enter_blank_review,
+            )
+        if hasattr(self, "footer_effect"):
+            self.footer_effect.configure(
+                text=self.t("footer.effect.model" if use_model else "footer.effect.blank_model")
+            )
 
     def _apply_provider_preset(self, preset_id: str) -> None:
         if preset_id == self.selected_provider_id.get() or (self.worker and self.worker.is_alive()):
@@ -2821,7 +2859,7 @@ class RenWeaveDesktopApp:
             if not self.workspace.get().strip():
                 self._suggest_workspace(str(candidate))
             self._inspect_project_selection()
-            if self.step in {1, 2}:
+            if self.step in {0, 1}:
                 self._render()
             return
 
@@ -3030,7 +3068,7 @@ class RenWeaveDesktopApp:
 
     def _select_existing_language(self, language: str) -> None:
         self.target_language.set(language)
-        if self.step == 2:
+        if self.step == 1:
             self._start_scope_preview()
         self._render()
 
@@ -3057,8 +3095,9 @@ class RenWeaveDesktopApp:
             background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT,
             font=(Typography.UI, Typography.BODY, "bold"), anchor="w",
         ).grid(row=1, column=0, sticky="w", pady=(5, 0))
-        if incremental:
-            self.tk.Label(task_card, text=self.t("review.task_mode"), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        if self.blank_translation_mode or incremental:
+            mode_key = "review.blank_mode" if self.blank_translation_mode else "review.task_mode"
+            self.tk.Label(task_card, text=self.t(mode_key), background=Colors.SURFACE_CONTAINER, foreground=Colors.PRIMARY, font=(Typography.UI, Typography.SMALL, "bold"), anchor="w").grid(row=2, column=0, sticky="w", pady=(8, 0))
             if inventory is not None:
                 self.tk.Label(task_card, text=self.t("review.remaining", count=pending), background=Colors.SURFACE_CONTAINER, foreground=Colors.ON_SURFACE, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=3, column=0, sticky="w", pady=(4, 0))
                 self.tk.Label(task_card, text=self.t("review.preserved", count=reused), background=Colors.SURFACE_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.SMALL), anchor="w").grid(row=4, column=0, sticky="w", pady=(3, 0))
@@ -3067,10 +3106,10 @@ class RenWeaveDesktopApp:
         facts.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         facts.columnconfigure(1, weight=1)
         fact_rows = (
-            (self.t("review.model"), f"{self.provider_name.get()} · {self.model.get()}"),
-            (self.t("review.languages"), self.t("review.task_mode") if incremental else f"{self.source_language.get() or 'auto'} → {self.target_language.get()}"),
+            (self.t("review.model"), self.t("review.not_used") if self.blank_translation_mode else f"{self.provider_name.get()} · {self.model.get()}"),
+            (self.t("review.languages"), self.t("review.blank_mode") if self.blank_translation_mode else self.t("review.task_mode") if incremental else f"{self.source_language.get() or 'auto'} → {self.target_language.get()}"),
             (self.t("review.game"), self.t("review.game_unchanged")),
-            (self.t("review.options"), self.t("review.output_plain")),
+            (self.t("review.options"), self.t("review.blank_output") if self.blank_translation_mode else self.t("review.output_plain")),
         )
         for row, (label, value) in enumerate(fact_rows):
             self.ttk.Label(facts, text=label, style="StatusBody.TLabel").grid(row=row, column=0, sticky="nw", padx=(0, 20), pady=(0 if row == 0 else 6, 0))
@@ -3094,7 +3133,9 @@ class RenWeaveDesktopApp:
         budget = self._get_token_budget()
         budget_card = self.tk.Frame(card, background=Colors.PRIMARY_CONTAINER, padx=16, pady=13)
         budget_card.grid(row=4, column=0, sticky="ew", pady=(12, 0))
-        if budget and budget.estimated_total_high > 0:
+        if self.blank_translation_mode:
+            budget_text, budget_note = self.t("budget.zero"), self.t("budget.zero_note")
+        elif budget and budget.estimated_total_high > 0:
             low, high = self._format_token_count(budget.estimated_total_low), self._format_token_count(budget.estimated_total_high)
             budget_text = self.t("budget.range", low=low, high=high)
             budget_note = self.t("budget.note", scripts=budget.script_count, confidence=self.t(f"budget.confidence.{budget.confidence}"))
@@ -3109,48 +3150,60 @@ class RenWeaveDesktopApp:
         options.grid(row=5, column=0, sticky="ew", pady=(12, 0))
         options.columnconfigure(0, weight=1)
         self.review_options = options
-        self.ttk.Checkbutton(options, text=self.t("review.rpa"), variable=self.generate_rpa, style="Tint.TCheckbutton").grid(row=0, column=0, sticky="w")
-        self.ttk.Label(options, text=self.t("review.rpa_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 0))
-        self.package_technical_toggle = self._button(
-            options,
-            self.t("review.technical_hide" if self.show_package_technical.get() else "review.technical_show"),
-            lambda: (self.show_package_technical.set(not self.show_package_technical.get()), self._render()),
-            kind="ghost",
-        )
-        self.package_technical_toggle.grid(row=2, column=0, sticky="w", pady=(3, 0))
-        if self.show_package_technical.get():
-            self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=3, column=0, sticky="w", pady=(2, 0))
-        self.ttk.Checkbutton(
-            options,
-            text=self.t("review.install"),
-            variable=self.install,
-            command=self._render,
-            style="Tint.TCheckbutton",
-        ).grid(row=4, column=0, sticky="w", pady=(8, 0))
-        self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(2, 0))
-        if self.install.get():
-            warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
-            warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
-            self.tk.Label(
-                warning,
-                text=self.t("review.install_warning"),
-                background=Colors.WARNING_CONTAINER,
-                foreground=Colors.WARNING,
-                font=(Typography.UI, Typography.SMALL, "bold"),
-                wraplength=730,
-                justify="left",
-                anchor="w",
-            ).pack(fill="x")
+        if self.blank_translation_mode:
+            self.ttk.Label(options, text=self.t("review.blank_options"), style="StatusBody.TLabel", wraplength=760, justify="left").grid(row=0, column=0, sticky="w")
+        else:
+            self.ttk.Checkbutton(options, text=self.t("review.rpa"), variable=self.generate_rpa, style="Tint.TCheckbutton").grid(row=0, column=0, sticky="w")
+            self.ttk.Label(options, text=self.t("review.rpa_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=1, column=0, sticky="w", pady=(2, 0))
+            self.package_technical_toggle = self._button(
+                options,
+                self.t("review.technical_hide" if self.show_package_technical.get() else "review.technical_show"),
+                lambda: (self.show_package_technical.set(not self.show_package_technical.get()), self._render()),
+                kind="ghost",
+            )
+            self.package_technical_toggle.grid(row=2, column=0, sticky="w", pady=(3, 0))
+            if self.show_package_technical.get():
+                self.ttk.Label(options, text=self.t("review.rpa_technical"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=3, column=0, sticky="w", pady=(2, 0))
+            self.ttk.Checkbutton(
+                options,
+                text=self.t("review.install"),
+                variable=self.install,
+                command=self._render,
+                style="Tint.TCheckbutton",
+            ).grid(row=4, column=0, sticky="w", pady=(8, 0))
+            self.ttk.Label(options, text=self.t("review.install_hint"), style="TintHint.TLabel", wraplength=760, justify="left").grid(row=5, column=0, sticky="w", pady=(2, 0))
+            if self.install.get():
+                warning = self.tk.Frame(options, background=Colors.WARNING_CONTAINER, padx=10, pady=7)
+                warning.grid(row=6, column=0, sticky="ew", pady=(7, 0))
+                self.tk.Label(
+                    warning,
+                    text=self.t("review.install_warning"),
+                    background=Colors.WARNING_CONTAINER,
+                    foreground=Colors.WARNING,
+                    font=(Typography.UI, Typography.SMALL, "bold"),
+                    wraplength=730,
+                    justify="left",
+                    anchor="w",
+                ).pack(fill="x")
+
+        if self.blank_translation_ready:
+            output = self.tk.Frame(card, background=Colors.SUCCESS_CONTAINER, padx=13, pady=11)
+            output.grid(row=6, column=0, sticky="ew", pady=(12, 0))
+            output.columnconfigure(0, weight=1)
+            self.tk.Label(output, text=self.t("blank.ready"), background=Colors.SUCCESS_CONTAINER, foreground=Colors.SUCCESS, font=(Typography.UI, Typography.BODY, "bold"), anchor="w").grid(row=0, column=0, sticky="w")
+            self.tk.Label(output, text=self.t("blank.ready_body", path=self._display_path(str(self.progress_payload.get("output_dir", "")), max_chars=80)), background=Colors.SUCCESS_CONTAINER, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), wraplength=760, justify="left", anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+            open_blank = self._button(output, self.t("progress.open_rpy"), lambda: self._open_folder(str(self.progress_payload.get("output_dir", ""))), kind="secondary")
+            open_blank.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
 
         if self.resume_candidate:
             completed = len(self.resume_candidate.get("completed_scene_ids", []))
             total = self._safe_count(self.resume_candidate.get("total_scenes", 0))
             resume_text = self.t("review.resume_body", completed=completed, total=total) if total > 0 else self.t("review.resume_body_unknown", completed=completed)
-            self.ttk.Label(card, text=f"{self.t('review.resume_found')}\n{resume_text}", style="StatusBody.TLabel", wraplength=790, justify="left").grid(row=6, column=0, sticky="w", pady=(12, 0))
+            self.ttk.Label(card, text=f"{self.t('review.resume_found')}\n{resume_text}", style="StatusBody.TLabel", wraplength=790, justify="left").grid(row=7 if self.blank_translation_ready else 6, column=0, sticky="w", pady=(12, 0))
 
         if incremental and inventory is not None and inventory.pending_units:
             pending_header = self.ttk.Frame(card, style="CardBody.TFrame")
-            pending_header.grid(row=7, column=0, sticky="ew", pady=(12, 0))
+            pending_header.grid(row=8 if self.blank_translation_ready else 7, column=0, sticky="ew", pady=(12, 0))
             pending_header.columnconfigure(0, weight=1)
             self.review_pending_title = self.ttk.Label(pending_header, text=self.t("review.pending_title", count=inventory.model_units), style="Status.TLabel")
             self.review_pending_title.grid(row=0, column=0, sticky="w")
@@ -3159,7 +3212,7 @@ class RenWeaveDesktopApp:
             if self.show_pending_details.get():
                 rows = [self.t("review.pending_row", file=item.get("file", ""), line=item.get("line", 0), source=item.get("source", ""), detail=item.get("detail", "")) for item in inventory.pending_units[:50]]
                 self.review_details = self.ttk.Frame(card, style="TintCard.TFrame", padding=10)
-                self.review_details.grid(row=8, column=0, sticky="nsew", pady=(7, 0))
+                self.review_details.grid(row=9 if self.blank_translation_ready else 8, column=0, sticky="nsew", pady=(7, 0))
                 self.review_details.columnconfigure(0, weight=1)
                 self.review_detail_host = self.review_details
                 self.review_detail_text = self.tk.Text(self.review_details, height=7, wrap="word", borderwidth=0, highlightthickness=1, highlightbackground=Colors.OUTLINE_VARIANT, background=Colors.CARD, foreground=Colors.ON_SURFACE_VARIANT, font=(Typography.UI, Typography.SMALL), padx=10, pady=8)
@@ -3904,15 +3957,25 @@ class RenWeaveDesktopApp:
         action_bar.columnconfigure(1, weight=1)
         action_bar.columnconfigure(2, minsize=slot_width, uniform="footer_actions")
         self.footer_action_bar = action_bar
-        model_blocked = self.step == 0 and self.connection_state != "verified"
+        blank_action = self.blank_translation_mode and self.step == 3
+        model_setup_action = self.step == 2
+        blank_model_action = model_setup_action and not self.use_model_for_translation.get()
+        model_translation_action = model_setup_action and self.use_model_for_translation.get()
+        model_blocked = False
         effect = self.ttk.Label(
             action_bar,
-            text=self.t("model.required") if model_blocked else self.t(f"footer.effect.{self.STEPS[self.step]}"),
+            text=(
+                self.t("footer.effect.blank_review") if blank_action
+                else self.t("footer.effect.model") if model_translation_action
+                else self.t("footer.effect.blank_model") if blank_model_action
+                else self.t(f"footer.effect.{self.STEPS[self.step]}")
+            ),
             style="ActionWarning.TLabel" if model_blocked else "ActionHint.TLabel",
             wraplength=260 if self.compact_layout else 560,
             anchor="center",
             justify="center",
         )
+        self.footer_effect = effect
         effect_padding = Metrics.SPACE_3 if self.compact_layout else Metrics.SPACE_4
         effect.grid(row=0, column=1, sticky="ew", padx=effect_padding)
         if (self.step > 0 and self.step < 4) or self._can_leave_translation():
@@ -3925,18 +3988,28 @@ class RenWeaveDesktopApp:
             )
             self.back_button.grid(row=0, column=0, sticky="ew")
             self._guide(self.back_button, "tip.back")
-        action_text = self.t("continue")
+        action_text = self.t("blank.extract") if blank_model_action or blank_action else self.t("continue")
         if self.step < 4:
             # Recoverable tasks enter step 05 stopped; resuming is an explicit user action.
-            command = self._enter_translation if self.step == 3 else self._continue
+            if model_translation_action:
+                command = self._continue_with_model
+            elif blank_model_action:
+                command = self._enter_blank_review
+            elif blank_action:
+                command = self._extract_blank_translation
+            else:
+                command = self._enter_translation if self.step == 3 else self._continue
             self.next_button = self._button(action_bar, action_text, command, width=Metrics.FOOTER_ACTION_WIDTH)
             self.next_button.grid(row=0, column=2, sticky="ew")
-            self._guide(self.next_button, "tip.start" if self.step == 3 else "tip.continue")
+            self._guide(
+                self.next_button,
+                "tip.blank_extract" if blank_model_action or blank_action else "tip.start" if self.step == 3 else "tip.continue",
+            )
             if self.step == 3:
                 self.start_button = self.next_button
-                if self.scope_preview_status == "scanning":
+                if self.scope_preview_status == "scanning" or (blank_action and self.worker and self.worker.is_alive()):
                     self.next_button.configure(state="disabled")
-            if self.step == 0 and self.connection_state != "verified":
+            elif blank_model_action and self.worker and self.worker.is_alive():
                 self.next_button.configure(state="disabled")
         elif self.step == 4:
             running = bool(self.worker and self.worker.is_alive())
@@ -3992,11 +4065,9 @@ class RenWeaveDesktopApp:
         if self.connection_state != "idle":
             self.connection_state = "changed"
             self.connection_detail = {}
-        if self.step == 0:
+        if self.step == 2:
             # Update state in place so typing never destroys the focused field.
-            if self.next_button is not None:
-                self.next_button.configure(state="disabled")
-            if hasattr(self, "verify_button"):
+            if hasattr(self, "provider_category"):
                 self._refresh_model_panel()
 
     def _profile(self, *, require_model: bool = False) -> ModelProfile:
@@ -4066,7 +4137,7 @@ class RenWeaveDesktopApp:
             if not self.workspace.get().strip():
                 self._suggest_workspace(selected)
             self._inspect_project_selection()
-            if self.step in {1, 2}:
+            if self.step in {0, 1}:
                 self._render()
 
     def _schedule_project_inspection(self, *_args) -> None:
@@ -4188,10 +4259,6 @@ class RenWeaveDesktopApp:
 
     def _continue(self) -> None:
         if self.step == 0:
-            if self.connection_state != "verified":
-                self._dialog(self.t("dialog.cannot_continue"), self.t("model.required"), error=True)
-                return
-        elif self.step == 1:
             self._inspect_project_selection()
             if not Path(self.project.get().strip()).expanduser().exists() or not self.workspace.get().strip():
                 self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
@@ -4199,7 +4266,7 @@ class RenWeaveDesktopApp:
             if self.renpy_sdk.get().strip() and not Path(self.renpy_sdk.get().strip()).expanduser().exists():
                 self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
                 return
-        elif self.step == 2:
+        elif self.step == 1:
             self._commit_language_display("source")
             self._commit_language_display("target")
             if not self.target_language.get().strip():
@@ -4211,9 +4278,84 @@ class RenWeaveDesktopApp:
             self._start_scope_preview()
         self._render()
 
+    def _continue_with_model(self) -> None:
+        """Enter review for the model-backed route without a network verification gate."""
+        if self.step != 2:
+            return
+        try:
+            self._profile(require_model=True)
+        except (TypeError, ValueError) as exc:
+            self._dialog(self.t("dialog.cannot_continue"), str(exc), error=True)
+            return
+        self.use_model_for_translation.set(True)
+        self.blank_translation_mode = False
+        self.blank_translation_ready = False
+        self._continue()
+
+    def _enter_blank_review(self) -> None:
+        """Open review in model-free mode; extraction itself remains explicit."""
+        if self.step != 2:
+            return
+        if self.worker and self.worker.is_alive():
+            return
+        if not self.project.get().strip() or not self.workspace.get().strip() or not self.target_language.get().strip():
+            self._dialog(self.t("dialog.cannot_continue"), self.t("game.invalid"), error=True)
+            return
+        self.use_model_for_translation.set(False)
+        self.blank_translation_mode = True
+        self.blank_translation_ready = False
+        self.translation_started = False
+        self.generate_rpa.set(False)
+        self.install.set(False)
+        self.step = 3
+        self.content_canvas.yview_moveto(0.0)
+        self.status.set(self.t("blank.preparing"))
+        self._start_scope_preview()
+        self._render()
+
+    def _extract_blank_translation(self) -> None:
+        """Generate blank, statically validated RPY files and stay on review."""
+        if self.step != 3 or not self.blank_translation_mode:
+            return
+        if self.scope_preview_signature != self._scope_signature() or self.scope_preview_status != "ready":
+            self._start_scope_preview()
+            self._render()
+            return
+        if self.worker and self.worker.is_alive():
+            return
+        self.blank_translation_ready = False
+        self.generate_rpa.set(False)
+        self.install.set(False)
+        self.translation_started = False
+        self.last_stage = ""
+        self.last_active_stage = ""
+        self.last_state_updated_at = ""
+        self.progress_payload = {}
+        self.logs = []
+        self.status.set(self.t("blank.preparing"))
+        self._append_log(self.t("blank.started"))
+        self.cancel_token = CancellationToken()
+        self.worker = threading.Thread(target=self._run_blank_worker, daemon=True)
+        self.worker.start()
+        self._render()
+
+    def _run_blank_worker(self) -> None:
+        try:
+            state = execute_blank_translation(
+                self.project.get().strip(),
+                self.workspace.get().strip(),
+                self.source_language.get().strip() or "auto",
+                self.target_language.get().strip(),
+                cancel_token=self.cancel_token,
+                progress_callback=lambda current: self.events.put(("progress", current.to_dict())),
+            )
+            self.events.put(("blank_complete" if state.stage == PipelineStage.COMPLETE else "blank_paused", state))
+        except BaseException as exc:
+            self.events.put(("blank_translation_error", (exc, traceback.format_exc())))
+
     def _enter_translation(self) -> None:
         """Open step 05 without starting any translation work."""
-        if self.step != 3:
+        if self.step != 3 or self.blank_translation_mode:
             return
         self.step = 4
         self.translation_started = False
@@ -4385,8 +4527,6 @@ class RenWeaveDesktopApp:
             )
             return
         try:
-            if self.connection_state != "verified":
-                raise ValueError(self.t("model.required"))
             request = self._request()
             request.validate()
         except (OSError, ValueError, TypeError) as exc:
@@ -4424,7 +4564,7 @@ class RenWeaveDesktopApp:
             self.events.put(("translation_error", (exc, traceback.format_exc())))
 
     def _poll_events(self) -> None:
-        if self.step == 4 and self.worker and self.worker.is_alive():
+        if (self.step == 4 or (self.step == 3 and self.blank_translation_mode)) and self.worker and self.worker.is_alive():
             self._read_pipeline_state()
         while True:
             try:
@@ -4491,7 +4631,7 @@ class RenWeaveDesktopApp:
                     self.scope_preview_budget = budget
                     self.scope_preview_status = "ready"
                     self.scope_preview_worker = None
-                    if self.step in {2, 3}:
+                    if self.step in {1, 3}:
                         self._render()
             elif kind == "scope_preview_error":
                 signature, message = value
@@ -4502,11 +4642,56 @@ class RenWeaveDesktopApp:
                     self.scope_preview_status = "error"
                     self.scope_preview_error = message
                     self.scope_preview_worker = None
-                    if self.step in {2, 3}:
+                    if self.step in {1, 3}:
                         self._render()
             elif kind == "progress":
                 assert isinstance(value, dict)
                 self._apply_progress_payload(value)
+            elif kind == "blank_complete":
+                state = value
+                self.worker = None
+                self.blank_translation_ready = True
+                self.progress_payload = state.to_dict()
+                self.last_stage = "complete"
+                self.last_active_stage = ""
+                self.translation_started = False
+                self.generate_rpa.set(False)
+                self.install.set(False)
+                self.status.set(self.t("blank.complete"))
+                self._append_log(f"{self.t('progress.rpy_output')}: {state.output_dir}")
+                self._render()
+                self._dialog(
+                    self.t("dialog.complete"),
+                    self.t("blank.complete_body", path=state.output_dir),
+                    extra_actions=(
+                        (
+                            self.t("progress.open_rpy"),
+                            lambda path=state.output_dir: self._open_folder(path),
+                        ),
+                    ),
+                )
+            elif kind == "blank_paused":
+                state = value
+                self.worker = None
+                self.progress_payload = state.to_dict()
+                self.last_stage = "paused"
+                self.status.set(self.t("blank.paused"))
+                self._append_log(self.t("progress.safe_to_close"))
+                self._render()
+            elif kind == "blank_translation_error":
+                error, details = value
+                self.worker = None
+                self._read_pipeline_state()
+                self.last_stage = "failed"
+                self.status.set(self.t("blank.failed"))
+                self._append_log(f"Error: {error}")
+                self._render()
+                self._dialog(
+                    self.t("dialog.failed"),
+                    f"{self.t('blank.failed_body')}\n\n{self._friendly_error(error)}",
+                    error=True,
+                    details=details,
+                )
             elif kind == "complete":
                 state = value
                 self.worker = None

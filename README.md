@@ -39,17 +39,17 @@ renweave-gui
 
 The desktop app guides you through five steps:
 
-1. Choose a provider, enter its API key, load its model list, and verify the selected model.
-2. Choose the Ren'Py game and an isolated workspace. A bundled compatible Ren'Py runtime is filled in automatically; the interface explains the built-in static fallback when none exists.
-3. Choose an existing language for incremental translation, or choose any new source and target languages.
-4. Review the automatically selected pipeline, output options, and estimated Token budget.
-5. Start once and follow unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
+1. Choose the Ren'Py game and an isolated workspace. A bundled compatible Ren'Py runtime is filled in automatically; the interface explains the built-in static fallback when none exists.
+2. Choose an existing language for incremental translation, or choose any new source and target languages.
+3. Choose whether to use a model for translation. The checkbox is on by default; turn it off to extract blank translation files, or leave it on and continue to review the model-backed task.
+4. Review the exact scope. The blank-translation route shows `0` Tokens, writes only validated RPY files, and never enters step 05 or creates an RPA.
+5. The model-backed route starts once and follows unpacking, analysis, translation, refinement, validation, optional RPA packaging, ETA, and Token usage.
 
 English is the default interface language. Use the single **中文** / **English** button beside **Settings** to switch directly to the other interface language. Provider, endpoint, model, and thinking-level choices are restored per user. API keys default to the operating system's encrypted credential store; **Settings** can switch them to memory-only storage. Keys never enter RenWeave settings or project files. Optional version checks are off by default.
 
-## Providers and model validation
+## Providers and model settings
 
-The app includes editable presets for common official APIs and aggregators. It validates the endpoint, fetches the account's current `/models` catalog without merging stale built-in model names, keeps exact model IDs editable, maps one thinking-level control to provider-supported request parameters, tests the selected model with one minimal request, and saves a reusable profile without its secret. If an endpoint does not expose `/models`, enter the exact model ID and verify it directly.
+The app includes editable presets for common official APIs and aggregators. Enter the exact model ID when model translation is selected; base URL and thinking-level controls are shown directly on the model page. RenWeave no longer requires a separate model-list request or manual verification step before continuing. The selected model is validated by the translation request itself, and the reusable profile is saved without its secret.
 
 Desktop settings are stored at `%APPDATA%\RenWeave\settings.json` on Windows or `${XDG_CONFIG_HOME:-~/.config}/RenWeave/settings.json` on Linux. The file contains no API key. Secure keys use the dedicated `RenWeave API Credentials` namespace in the OS credential service through `keyring` (Windows Credential Manager on Windows); memory-only mode never persists them.
 
@@ -134,7 +134,7 @@ RenWeave uses an **Aurora Workbench** design: Windows 11–informed rounded cont
 - **Secondary** for back, cancellation, pause, and other non-destructive alternatives.
 - **Field action** for browse, choose, copy, and controls attached to a specific field.
 
-The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Component rendering uses the bundled [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme); semantic states and accessibility follow Material 3 principles. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and workflow. Model setup remains the first step: every official, aggregator, and custom endpoint is always visible in one stable grid, and every endpoint stays editable. Built-in presets replace profile importing, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
+The design is influenced by modern developer tools and editorial workspaces rather than a decorative game launcher. Component rendering uses the bundled [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme); semantic states and accessibility follow Material 3 principles. Provider-selection research included [CC Switch](https://github.com/farion1231/cc-switch); RenWeave keeps its own task-specific visual system and workflow. Model setup is step 03 and remains optional: every official, aggregator, and custom endpoint is always visible in one stable grid, and every endpoint stays editable. Built-in presets replace profile importing, and non-secret API settings save automatically. All five screens and dialogs share the same interaction vocabulary. Inline consequence text and delayed guidance tooltips explain what each important field expects, whether a button contacts an API, whether it may consume Tokens, and what the next step changes.
 
 Keyboard focus uses a solid color border and state contrast—never a dotted focus rectangle. The normative component, alignment, state, and visual-QA rules are documented in the [desktop design system](docs/UI_DESIGN_SYSTEM.md).
 

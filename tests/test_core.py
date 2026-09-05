@@ -403,7 +403,7 @@ class CorePipelineTests(unittest.TestCase):
                 fallback / "AppData" / "Roaming" / "RenWeave" / "settings.json",
             )
 
-    def test_desktop_window_starts_with_model_setup_and_switches_language(self) -> None:
+    def test_desktop_window_starts_with_game_setup_and_optional_model(self) -> None:
         try:
             import tkinter as tk
         except ImportError as exc:
@@ -443,9 +443,10 @@ class CorePipelineTests(unittest.TestCase):
             root.update_idletasks()
             app._inspect_project_selection()
             self.assertEqual(app.step, 0)
+            self.assertEqual(app.STEPS, ("game", "languages", "model", "review", "progress"))
             self.assertEqual(app.locale.get(), "en")
             self.assertEqual(app.brand_title.cget("text"), "RenWeave")
-            self.assertEqual(app.connect_button.cget("text"), "Load available models")
+            self.assertFalse(hasattr(app, "connect_button"))
             self.assertEqual(app.selected_provider_id.get(), "openai")
             self.assertEqual(app.key_storage.get(), "secure")
             self.assertFalse(app.update_checks_enabled.get())
@@ -454,6 +455,16 @@ class CorePipelineTests(unittest.TestCase):
             self.assertTrue(Path(app.renpy_sdk.get()).samefile(self.root))
             self.assertTrue(app.require_engine.get())
             self.assertEqual([item.language for item in app.existing_languages], ["zh_hans"])
+            app._continue()
+            self.assertEqual(app.step, 1)
+            app.target_language.set("Français")
+            app._continue()
+            self.assertEqual(app.step, 2)
+            self.assertFalse(hasattr(app, "connect_button"))
+            self.assertFalse(hasattr(app, "browse_models_button"))
+            self.assertFalse(hasattr(app, "verify_button"))
+            self.assertFalse(hasattr(app, "model_translation_button"))
+            self.assertTrue(app.use_model_for_translation.get())
             self.assertEqual(
                 tuple(app.reasoning_box.cget("values")),
                 ("Automatic (provider default)", "Low", "High", "Maximum"),
@@ -480,25 +491,27 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.api_key.get(), "")
             self.assertFalse(app.supports_json.get())
             self.assertEqual(app.next_button.cget("text"), "Continue")
+            app.use_model_checkbutton.invoke()
+            root.update_idletasks()
+            self.assertFalse(app.use_model_for_translation.get())
+            self.assertEqual(app.next_button.cget("text"), "Extract blank translation")
             self.assertEqual(int(app.next_button.cget("width")), Metrics.FOOTER_ACTION_WIDTH)
             self.assertTrue(all(button.winfo_class() == "TButton" for button in app.nav_buttons))
             self.assertEqual(sum(bool(button.grid_info()) for button in app.provider_buttons.values()), 12)
             self.assertTrue(all(button.cget("image") for button in app.provider_buttons.values()))
             self.assertFalse(hasattr(app, "provider_more_button"))
             self.assertIn("custom2", app.provider_buttons)
-            self.assertTrue(app.next_button.instate(["disabled"]))
+            self.assertFalse(app.next_button.instate(["disabled"]))
             self.assertEqual(root.minsize()[0], 900)
             self.assertEqual(app.source_language.get(), "auto")
-            self.assertEqual(app.status.get(), "Enter an API key, then load available models.")
+            self.assertEqual(app.status.get(), "Enter an API key and model ID only when you want to use model translation.")
             self.assertFalse(hasattr(app, "_browse_provider"))
             self.assertEqual(app.language_button.cget("text"), "中文")
             self.assertEqual(app.language_button.cget("style"), "TopAux.TButton")
             self.assertEqual(app.settings_button.cget("style"), "TopAux.TButton")
-            self.assertFalse(app.model_advanced_panel.grid_info())
-            app.model_advanced_toggle.invoke()
-            root.update_idletasks()
-            self.assertTrue(app.show_model_advanced.get())
             self.assertTrue(app.model_advanced_panel.grid_info())
+            self.assertFalse(hasattr(app, "model_advanced_toggle"))
+            self.assertTrue(app.use_model_checkbutton.grid_info())
             self.assertEqual(
                 app.settings_button.winfo_reqheight(),
                 app.language_button.winfo_reqheight(),
@@ -528,30 +541,36 @@ class CorePipelineTests(unittest.TestCase):
             self.assertEqual(app.brand_title.cget("text"), "织译")
             self.assertEqual(int(app.brand_title.cget("wraplength")), 188)
             self.assertLessEqual(app.brand_title.winfo_reqwidth(), 192)
-            self.assertEqual(app.connect_button.cget("text"), "获取可用模型")
+            self.assertFalse(hasattr(app, "connect_button"))
+            self.assertFalse(hasattr(app, "verify_button"))
             self.assertEqual(app.language_button.cget("text"), "English")
             self.assertIn("系统加密", app.t(settings_tooltip.translation_key))
             self.assertEqual(app.t("steps.progress"), "翻译")
+            self.assertEqual(app.next_button.cget("text"), "提取空白翻译")
+            with mock.patch.object(app, "_start_scope_preview"):
+                app.next_button.invoke()
+            self.assertEqual(app.step, 3)
+            self.assertTrue(app.blank_translation_mode)
+            self.assertEqual(app.start_button.cget("text"), "提取空白翻译")
+            self.assertEqual(app._get_token_budget().estimated_total_high, 0)
+            app.blank_translation_mode = False
+            app.step = 2
+            app._render()
 
             app.model.set("translation-model")
-            app.connection_state = "verified"
-            app.connection_detail = {"model": "translation-model", "latency": 25}
             app._render()
+            self.assertEqual(app.next_button.cget("text"), "提取空白翻译")
+            app.use_model_checkbutton.invoke()
+            root.update_idletasks()
+            self.assertTrue(app.use_model_for_translation.get())
+            self.assertEqual(app.next_button.cget("text"), "继续")
             self.assertFalse(app.next_button.instate(["disabled"]))
             key_entry = app.api_key_entry
             app.api_key.set("edited-in-place")
             self.assertIs(app.api_key_entry, key_entry)
-            self.assertEqual(app.connection_state, "changed")
-            self.assertTrue(app.next_button.instate(["disabled"]))
-            app.connection_state = "verified"
-            app._continue()
-            self.assertEqual(app.step, 1)
-            self.assertNotIn("TEntry", widget_classes(app.content))
-            app._continue()
-            self.assertEqual(app.step, 2)
-            self.assertEqual(app.source_language_display.get(), "自动检测")
-            app.target_language.set("Français")
-            app._continue()
+            self.assertEqual(app.connection_state, "idle")
+            self.assertFalse(app.next_button.instate(["disabled"]))
+            app._continue_with_model()
             self.assertEqual(app.step, 3)
             self.assertEqual(app.start_button.cget("text"), "继续")
             self.assertIsNotNone(app.token_budget)
@@ -567,6 +586,25 @@ class CorePipelineTests(unittest.TestCase):
                         texts.append(str(text))
                     texts.extend(visible_texts(child))
                 return texts
+
+            # The model-free route stays on step 04, shows zero usage, and
+            # keeps the same explicit extraction action instead of entering
+            # the model translation page.
+            app.blank_translation_mode = True
+            app.blank_translation_ready = False
+            app.generate_rpa.set(False)
+            app._render()
+            root.update_idletasks()
+            blank_text = "\n".join(visible_texts(app.content))
+            self.assertEqual(app._get_token_budget().estimated_total_high, 0)
+            self.assertIn("0 Token", blank_text)
+            self.assertIn("提取空白翻译", app.start_button.cget("text"))
+            self.assertNotIn("继续", app.start_button.cget("text"))
+            self.assertNotIn("生成可直接使用的语言包", blank_text)
+            app.blank_translation_mode = False
+            app.generate_rpa.set(True)
+            app._render()
+            root.update_idletasks()
 
             review_text = "\n".join(visible_texts(app.content))
             self.assertIn("AI 用量预估", review_text)
@@ -1212,6 +1250,63 @@ class CorePipelineTests(unittest.TestCase):
             (workspace / "existing-translations.json").read_text(encoding="utf-8")
         )
         self.assertTrue(report["complete"])
+
+    def test_blank_translation_extracts_validated_rpy_without_model_or_rpa(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ZH: {unit.source}" for unit in index.text_units}
+        RenpyTranslationEmitter().emit(index, translations, "zh_hans", self.root)
+        preserved = self.game / "tl" / "zh_hans" / "unrelated.rpy"
+        preserved.write_text("translate zh_hans unrelated:\n    \"保留\"\n", encoding="utf-8")
+        missing_unit = next(
+            unit for unit in index.text_units
+            if unit.channel in {TextChannel.DIALOGUE, TextChannel.NARRATION}
+        )
+        identifier = RenpyTranslationEmitter.dialogue_identifiers(index)[missing_unit.id]
+        generated = self.game / "tl" / "zh_hans" / "script.rpy"
+        text = generated.read_text(encoding="utf-8")
+        block = re.compile(
+            rf"(?ms)^translate zh_hans {re.escape(identifier)}:\n.*?(?=^translate zh_hans |\Z)"
+        )
+        text, removed = block.subn("", text, count=1)
+        self.assertEqual(removed, 1)
+        generated.write_text(text, encoding="utf-8", newline="\n")
+        preserved_bytes = preserved.read_bytes()
+
+        workspace = Path(self.temp.name) / "blank-workspace"
+        old_rpa = workspace / "packages" / "previous.rpa"
+        old_rpa.parent.mkdir(parents=True)
+        old_rpa.write_bytes(b"keep this archive")
+        state = RenWeavePipeline(workspace).extract_blank_translation(
+            self.root,
+            "en",
+            "zh_hans",
+        )
+
+        self.assertEqual(state.stage, PipelineStage.COMPLETE)
+        self.assertEqual(state.workflow_mode, "blank")
+        self.assertFalse(state.generate_rpa)
+        self.assertEqual(state.package_path, "")
+        self.assertEqual(state.package_sha256, "")
+        self.assertEqual(state.total_model_calls, 0)
+        self.assertEqual(state.total_prompt_tokens, 0)
+        self.assertEqual(state.total_completion_tokens, 0)
+        self.assertEqual(state.estimated_total_tokens_low, 0)
+        self.assertEqual(state.estimated_total_tokens_high, 0)
+        self.assertEqual(state.source_token_equivalent, 0)
+        output = Path(state.output_dir)
+        self.assertTrue(output.is_dir())
+        self.assertEqual(list(output.rglob("*.rpa")), [])
+        self.assertEqual(old_rpa.read_bytes(), b"keep this archive")
+        self.assertEqual((output / "unrelated.rpy").read_bytes(), preserved_bytes)
+        blank_script = (output / "script.rpy").read_text(encoding="utf-8")
+        self.assertIn(f"translate zh_hans {identifier}:", blank_script)
+        self.assertIn(f'    # {missing_unit.raw_statement.strip()}', blank_script)
+        self.assertIn('""', blank_script)
+        usage = json.loads((workspace / "usage.json").read_text(encoding="utf-8"))
+        self.assertEqual(usage["actual"]["total_tokens"], 0)
+        self.assertEqual(usage["estimate"]["total_low"], 0)
+        self.assertEqual(usage["estimate"]["total_high"], 0)
+        self.assertFalse(json.loads((workspace / "package.json").read_text(encoding="utf-8"))["generated"])
 
     def test_scope_preview_includes_valid_workspace_checkpoint(self) -> None:
         index = ProjectIndexer().build(self.root)
