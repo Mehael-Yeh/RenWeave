@@ -38,7 +38,7 @@ Issues = "https://github.com/Mehael-Yeh/RenWeave/issues"
 renweave = "renweave.cli:main"
 
 [project.gui-scripts]
-renweave-gui = "renweave.gui:main"
+renweave-gui = "renweave.qt_gui:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/renweave"]
