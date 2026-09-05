@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import builtins
 import hashlib
 import io
+import importlib
 import os
 import runpy
 import shutil
@@ -10,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import traceback
 from dataclasses import asdict, dataclass
 from importlib import resources
 from pathlib import Path, PurePosixPath
@@ -422,6 +425,7 @@ def run_unrpyc_in_process(entrypoint: str | Path, arguments: list[str]) -> tuple
     original_argv = list(sys.argv)
     original_path = list(sys.path)
     original_modules = dict(sys.modules)
+    original_import = builtins.__import__
     stdout = io.StringIO()
     stderr = io.StringIO()
     multiprocessing_stub = types.ModuleType("multiprocessing")
@@ -435,6 +439,11 @@ def run_unrpyc_in_process(entrypoint: str | Path, arguments: list[str]) -> tuple
         sys.modules["multiprocessing"] = multiprocessing_stub
         sys.path.insert(0, str(tool_dir))
         sys.argv = [str(tool), *arguments]
+        # PySide6 replaces builtins.__import__ with its feature-aware loader.
+        # That loader calls inspect.unwrap() for every imported module, which
+        # conflicts with unrpyc's intentionally fake ``renpy`` package.
+        # Use Python's normal importer for the isolated vendor run only.
+        builtins.__import__ = importlib.__import__
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 runpy.run_path(str(tool), run_name="__main__")
@@ -442,8 +451,9 @@ def run_unrpyc_in_process(entrypoint: str | Path, arguments: list[str]) -> tuple
                 exit_code = int(exc.code or 0) if isinstance(exc.code, (int, type(None))) else 1
     except BaseException as exc:
         exit_code = 1
-        stderr.write(f"{type(exc).__name__}: {exc}\n")
+        stderr.write(traceback.format_exc())
     finally:
+        builtins.__import__ = original_import
         sys.argv = original_argv
         sys.path[:] = original_path
         for name in set(sys.modules) - set(original_modules):

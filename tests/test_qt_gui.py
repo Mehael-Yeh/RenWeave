@@ -1,12 +1,14 @@
 import os
 import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from renweave.decompiler import run_unrpyc_in_process
 from renweave.qt_gui import QtRenWeaveWindow
 
 
@@ -33,6 +35,19 @@ class QtFrontendTests(unittest.TestCase):
         self.assertNotIn("PySide6.QtWebEngineCore", sys.modules)
         self.assertNotIn("PySide6.QtMultimedia", sys.modules)
         self.assertNotIn("PySide6.QtQuick", sys.modules)
+
+    def test_unrpyc_isolation_survives_pyside_import_hook(self):
+        entrypoint = (
+            Path(__file__).parents[1]
+            / "src"
+            / "renweave"
+            / "_vendor"
+            / "unrpyc"
+            / "unrpyc.py"
+        )
+        returncode, stdout, stderr = run_unrpyc_in_process(entrypoint, ["--version"])
+        self.assertEqual(returncode, 0, stderr)
+        self.assertEqual(stdout.strip(), "Unrpyc v2.0.3")
 
     def test_review_and_progress_modules_toggle_in_place(self):
         window = QtRenWeaveWindow()

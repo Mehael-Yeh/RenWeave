@@ -90,6 +90,9 @@ jobs:
           python-version: "3.13"
           cache: pip
 
+      - name: 安装 Qt 无头测试系统依赖
+        run: sudo apt-get update && sudo apt-get install --yes libegl1
+
       - name: 安装构建工具与 RenWeave
         run: python -m pip install --upgrade pip build twine .
 
@@ -156,8 +159,16 @@ jobs:
           $result = Join-Path $env:RUNNER_TEMP 'renweave-exe-self-test.json'
           $quotedResult = '"' + $result + '"'
           $process = Start-Process -FilePath $exe -ArgumentList @('--renweave-self-test', $quotedResult) -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Executable self-test failed with exit code $($process.ExitCode)" }
-          $payload = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
+          if (Test-Path -LiteralPath $result) {
+            $payload = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
+            $payload | ConvertTo-Json -Depth 10
+          } else {
+            $payload = $null
+          }
+          if ($process.ExitCode -ne 0) {
+            throw "Executable self-test failed with exit code $($process.ExitCode); payload=$($payload | ConvertTo-Json -Compress -Depth 10)"
+          }
+          if ($null -eq $payload) { throw 'Executable self-test did not write a result payload' }
           if ($payload.renweave_version -ne $env:RELEASE_VERSION) {
             throw "Executable version $($payload.renweave_version) does not match $env:RELEASE_VERSION"
           }

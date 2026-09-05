@@ -15,7 +15,6 @@ from renweave.decompiler import (
     UnrpycToolManager,
     run_unrpyc_in_process,
 )
-from renweave.qt_gui import main as gui_main
 
 
 SELF_TEST_SWITCH = "--renweave-self-test"
@@ -115,6 +114,8 @@ def main() -> int:
         return result
     if len(arguments) == 2 and arguments[0] == SELF_TEST_SWITCH:
         return _run_self_test(arguments[1])
+    from renweave.qt_gui import main as gui_main
+
     return gui_main()
 
 
