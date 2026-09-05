@@ -1603,6 +1603,7 @@ class RenWeaveDesktopApp:
         self.review_detail_text = None
         self.progress = None
         self.log = None
+        self.progress_log_modules: dict[str, object] = {}
         self.content = None
         self.page_mount = None
         self.content_canvas = None
@@ -4100,6 +4101,7 @@ class RenWeaveDesktopApp:
                 )
                 open_rpa.pack(side="left", padx=(8, 0))
 
+        self.progress_log_modules = {}
         log_header = self.ttk.Frame(card, style="CardBody.TFrame")
         log_header.grid(row=7, column=0, sticky="ew")
         log_header.columnconfigure(0, weight=1)
@@ -4107,44 +4109,83 @@ class RenWeaveDesktopApp:
         toggle_log = self._button(
             log_header,
             self.t("progress.log_hide" if self.show_log_details.get() else "progress.log_show"),
-            lambda: (self.show_log_details.set(not self.show_log_details.get()), self._render()),
+            self._toggle_progress_log_details,
             kind="field",
         )
         toggle_log.grid(row=0, column=1, sticky="e")
         recent = "\n".join(self.logs[-3:]) if self.logs else self.t(f"progress.task.{task.state.value}")
-        self.ttk.Label(card, text=recent, style="Hint.TLabel", wraplength=790, justify="left").grid(
+        recent_label = self.ttk.Label(card, text=recent, style="Hint.TLabel", wraplength=790, justify="left")
+        recent_label.grid(
             row=8, column=0, sticky="w", pady=(5, 0)
         )
+        self.progress_log_modules.update(toggle=toggle_log, recent=recent_label)
         log_path = str(payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
         if self.show_log_details.get():
-            copy_log = self._button(log_header, self.t("progress.copy_log"), lambda: self._copy_text(log_path), kind="field")
-            copy_log.grid(row=0, column=2, sticky="e", padx=(8, 0))
-            self._guide(copy_log, "tip.copy_log")
-            usage_path = str(Path(self.workspace.get().strip()) / "usage.json")
-            self.ttk.Label(card, text=f"{self.t('progress.log_path', path=log_path)}   ·   {self.t('budget.ledger', path=usage_path)}", style="Hint.TLabel", wraplength=600 if self.compact_layout else 790).grid(row=9, column=0, sticky="w", pady=(8, 5))
-            log_frame = self.ttk.Frame(card, style="CardBody.TFrame")
-            log_frame.grid(row=10, column=0, sticky="nsew")
-            log_frame.columnconfigure(0, weight=1)
-            log_frame.rowconfigure(0, weight=1)
-            card.rowconfigure(10, weight=1)
-            self.log = self.tk.Text(
-                log_frame, height=5, wrap="word", state="normal", borderwidth=0, relief="flat",
-                highlightthickness=1, highlightbackground=Colors.OUTLINE_VARIANT,
-                highlightcolor=Colors.PRIMARY, background=Colors.CARD, foreground=Colors.ON_SURFACE,
-                selectbackground=Colors.PRIMARY_CONTAINER, selectforeground=Colors.ON_PRIMARY_CONTAINER,
-                insertbackground=Colors.ON_SURFACE, font=(Typography.MONO, Typography.SMALL),
-                padx=12, pady=10, takefocus=True,
-            )
-            self.log.grid(row=0, column=0, sticky="nsew")
-            scrollbar = self._scrollbar(log_frame, command=self.log.yview)
-            scrollbar.grid(row=0, column=1, sticky="ns")
-            self.log.configure(yscrollcommand=scrollbar.set)
-            for line in self.logs:
-                self.log.insert("end", line.rstrip() + "\n")
-            self.log.see("end")
-            self.log.configure(state="disabled")
+            self._build_progress_log_details(card, log_header, log_path)
         self._refresh_progress_runtime()
         self._refresh_progress_phases()
+
+    def _build_progress_log_details(self, card, log_header, log_path: str) -> None:
+        if self.progress_log_modules.get("details") is not None:
+            details = self.progress_log_modules["details"]
+            if details.winfo_exists():
+                details.grid()
+                return
+        copy_log = self._button(log_header, self.t("progress.copy_log"), lambda: self._copy_text(log_path), kind="field")
+        copy_log.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self._guide(copy_log, "tip.copy_log")
+        usage_path = str(Path(self.workspace.get().strip()) / "usage.json")
+        path_label = self.ttk.Label(
+            card,
+            text=f"{self.t('progress.log_path', path=log_path)}   ·   {self.t('budget.ledger', path=usage_path)}",
+            style="Hint.TLabel",
+            wraplength=600 if self.compact_layout else 790,
+        )
+        path_label.grid(row=9, column=0, sticky="w", pady=(8, 5))
+        log_frame = self.ttk.Frame(card, style="CardBody.TFrame")
+        log_frame.grid(row=10, column=0, sticky="nsew")
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        card.rowconfigure(10, weight=1)
+        self.log = self.tk.Text(
+            log_frame, height=5, wrap="word", state="normal", borderwidth=0, relief="flat",
+            highlightthickness=1, highlightbackground=Colors.OUTLINE_VARIANT,
+            highlightcolor=Colors.PRIMARY, background=Colors.CARD, foreground=Colors.ON_SURFACE,
+            selectbackground=Colors.PRIMARY_CONTAINER, selectforeground=Colors.ON_PRIMARY_CONTAINER,
+            insertbackground=Colors.ON_SURFACE, font=(Typography.MONO, Typography.SMALL),
+            padx=12, pady=10, takefocus=True,
+        )
+        self.log.grid(row=0, column=0, sticky="nsew")
+        scrollbar = self._scrollbar(log_frame, command=self.log.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log.configure(yscrollcommand=scrollbar.set)
+        for line in self.logs:
+            self.log.insert("end", line.rstrip() + "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+        self.progress_log_modules.update(details=log_frame, path=path_label, copy=copy_log)
+
+    def _toggle_progress_log_details(self) -> None:
+        if self.step != 4 or not self.progress_log_modules:
+            return
+        self.show_log_details.set(not self.show_log_details.get())
+        toggle = self.progress_log_modules.get("toggle")
+        if toggle is not None and toggle.winfo_exists():
+            toggle.configure(
+                text=self.t("progress.log_hide" if self.show_log_details.get() else "progress.log_show")
+            )
+        if self.show_log_details.get():
+            card = self.page_card
+            header = toggle.master if toggle is not None else None
+            if card is not None and header is not None:
+                log_path = str(self.progress_payload.get("log_path", "") or (Path(self.workspace.get().strip()) / "logs" / "renweave.log"))
+                self._build_progress_log_details(card, header, log_path)
+        else:
+            for key in ("details", "path"):
+                widget = self.progress_log_modules.get(key)
+                if widget is not None and widget.winfo_exists():
+                    widget.grid_remove()
+        self._schedule_content_layout()
 
     def _effective_progress_stage(self) -> str:
         return self._task_presentation().pipeline_stage
@@ -5273,6 +5314,9 @@ class RenWeaveDesktopApp:
             self.log.insert("end", text.rstrip() + "\n")
             self.log.see("end")
             self.log.configure(state="disabled")
+        recent = self.progress_log_modules.get("recent")
+        if recent is not None and recent.winfo_exists():
+            recent.configure(text="\n".join(self.logs[-3:]))
 
     def _dialog(
         self,

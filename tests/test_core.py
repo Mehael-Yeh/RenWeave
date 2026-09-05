@@ -815,10 +815,12 @@ class CorePipelineTests(unittest.TestCase):
 
             collect_scrollbars(app.content)
             self.assertFalse(scrollbars)
-            app.show_log_details.set(True)
-            app._render()
             progress_page = app.page
             progress_widget = app.progress
+            app._toggle_progress_log_details()
+            root.update_idletasks()
+            self.assertIs(app.page, progress_page)
+            self.assertIsNotNone(app.log)
             collect_scrollbars(app.content)
             self.assertTrue(scrollbars)
             self.assertTrue(all(bar.cget("style") == "Workspace.Vertical.TScrollbar" for bar in scrollbars))
