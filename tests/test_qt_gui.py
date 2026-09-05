@@ -120,6 +120,18 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_project_selection_suggests_a_workspace(self):
+        window = QtRenWeaveWindow(initial_project=r"C:\Games\Example")
+        try:
+            self.assertTrue(window.workspace_edit.text().endswith(r"Documents\RenWeaveWork\Example"))
+            self.assertTrue(window._workspace_auto_generated)
+            window.workspace_edit.setText(r"C:\Custom\Workspace")
+            window.workspace_edit.textEdited.emit(window.workspace_edit.text())
+            window.project_edit.setText(r"C:\Games\Other")
+            self.assertEqual(window.workspace_edit.text(), r"C:\Custom\Workspace")
+        finally:
+            window.close()
+
     def test_model_controls_have_selection_state_and_runtime_icon(self):
         window = QtRenWeaveWindow()
         try:
@@ -132,6 +144,33 @@ class QtFrontendTests(unittest.TestCase):
             window.model_edit.addItems(["model-a", "model-b"])
             window.model_edit.setCurrentText("model-b")
             self.assertEqual(window.model_edit.currentText(), "model-b")
+        finally:
+            window.close()
+
+    def test_loaded_models_select_an_actual_catalog_item_and_reasoning_is_saved(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.model_edit.clear()
+            window.model_edit.setEditText("")
+            window._model_by_identity.clear()
+            window._models_loaded(SimpleNamespace(models=("model-a", "model-b"), latency_ms=12))
+            self.assertEqual(window.model_edit.currentIndex(), 0)
+            self.assertEqual(window.model_edit.currentText(), "model-a")
+            window.reasoning_combo.setCurrentIndex(window.reasoning_combo.findData("high"))
+            self.assertEqual(window._profile().reasoning_level, "high")
+        finally:
+            window.close()
+
+    def test_review_continue_only_enters_progress_page(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 3
+            window._scope_preview_status = "ready"
+            window._refresh_shell()
+            window._continue()
+            self.assertEqual(window.step, 4)
+            self.assertFalse(window._translation_started)
+            self.assertEqual(window.action_button.text(), "Start translation")
         finally:
             window.close()
 
