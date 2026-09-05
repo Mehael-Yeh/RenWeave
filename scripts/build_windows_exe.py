@@ -142,6 +142,13 @@ def main() -> int:
         "--name", name,
         "--paths", str(ROOT / "src"),
         "--collect-data", "renweave",
+        # The shipped desktop entrypoint is Qt Widgets.  The legacy Tk
+        # implementation remains source-compatible for migration tests, but
+        # must not pull Tcl/Tk or its optional theme/drag-and-drop packages
+        # into the Qt executable.
+        "--exclude-module", "tkinter",
+        "--exclude-module", "sv_ttk",
+        "--exclude-module", "tkinterdnd2",
         "--add-data", (
             f"{ROOT / 'src' / 'renweave' / '_vendor' / 'unrpyc'}"
             f"{os.pathsep}renweave/_vendor/unrpyc"
