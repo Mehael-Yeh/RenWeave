@@ -2399,6 +2399,12 @@ class RenWeaveDesktopApp:
         self.review_pending_title = None
         self.review_detail_host = None
         self.review_detail_text = None
+        # The shell remains mounted, but navigation and footer controls are
+        # still rebuilt by their dedicated renderers. Clear only those small
+        # dynamic regions so repeated refreshes cannot accumulate widgets.
+        for parent in (self.nav, self.footer):
+            for child in parent.winfo_children():
+                child.destroy()
         self.page_mount = self.ttk.Frame(self.content, style="App.TFrame")
         self.page_mount.grid(row=0, column=0, sticky="nsew")
         self.page_mount.columnconfigure(0, weight=1)
@@ -2407,9 +2413,9 @@ class RenWeaveDesktopApp:
         self._render_header()
         getattr(self, f"_render_{self.STEPS[self.step]}")()
         self._render_footer()
-        self.root.update_idletasks()
         if previous_page_mount is not None and previous_page_mount.winfo_exists():
             previous_page_mount.destroy()
+        self.root.update_idletasks()
         self._sync_content_layout()
         self._schedule_content_layout()
 
