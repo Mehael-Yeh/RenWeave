@@ -85,6 +85,37 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_locale_switch_retranslates_mounted_widgets(self):
+        window = QtRenWeaveWindow()
+        try:
+            page_widgets = [page.scroll for page in window.pages]
+            window._toggle_locale()
+            self.assertEqual(window.locale, "zh")
+            self.assertEqual(window.pages[0].title.text(), "游戏设置")
+            self.assertEqual(window.action_button.text(), "继续")
+            self.assertEqual([page.scroll for page in window.pages], page_widgets)
+            window._toggle_locale()
+            self.assertEqual(window.pages[0].title.text(), "Game setup")
+            self.assertEqual(window.action_button.text(), "Continue")
+        finally:
+            window.close()
+
+    def test_project_revision_invalidates_pending_inspection(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.project_edit.setText("first")
+            first_revision = window._project_revision
+            window._project_validation_state = "pending"
+            window._inspection_revision = first_revision
+            window._inspection_value = "first"
+            window.project_edit.setText("second")
+            self.assertGreater(window._project_revision, first_revision)
+            self.assertEqual(window._project_validation_state, "idle")
+            window._project_inspected((object(), [], None), first_revision, "first")
+            self.assertIsNone(window._discovered_project)
+        finally:
+            window.close()
+
 
 if __name__ == "__main__":
     unittest.main()
