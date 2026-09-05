@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QStackedWidget,
-    QStyle,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -136,11 +135,18 @@ UI_COPY = {
         "model.api_key": "API key",
         "model.model": "Model",
         "model.endpoint": "Endpoint",
+        "model.reasoning": "Thinking level",
+        "model.reasoning_hint": "Automatic uses the provider default.",
+        "reasoning.auto": "Automatic (provider default)",
+        "reasoning.low": "Low",
+        "reasoning.high": "High",
+        "reasoning.maximum": "Maximum",
         "model.use": "Use model translation",
         "model.load": "Load models",
         "model.verify": "Verify model",
         "model.not_connected": "Not connected",
         "review.model_translation": "Model translation",
+        "review.blank_translation": "Blank translation extraction",
         "review.fact_model": "Model",
         "review.fact_game": "Game",
         "review.fact_languages": "Languages",
@@ -168,6 +174,8 @@ UI_COPY = {
         "shell.back": "Back",
         "shell.continue": "Continue",
         "shell.start": "Start",
+        "shell.start_translation": "Start translation",
+        "shell.continue_translation": "Continue translation",
         "shell.pause": "Pause",
         "shell.extract_blank": "Extract blank translation",
         "shell.breadcrumb": "Step {current} / {total}",
@@ -176,6 +184,7 @@ UI_COPY = {
         "footer.languages": "Next: review scope and the Token budget.",
         "footer.model": "Next: review the scope and Token budget. Translation starts explicitly on step 05.",
         "footer.review": "Starts billable model work; checkpoints go to the workspace.",
+        "footer.blank_review": "Creates blank translation files without model calls.",
         "footer.progress": "Pause saves checkpoints; closing keeps completed outputs.",
         "shell.select_project": "Select Ren'Py project",
         "shell.select_workspace": "Select workspace",
@@ -241,11 +250,18 @@ UI_COPY = {
         "model.api_key": "API 密钥",
         "model.model": "模型",
         "model.endpoint": "接口地址",
+        "model.reasoning": "思考设置",
+        "model.reasoning_hint": "自动使用提供商或模型的默认思考设置。",
+        "reasoning.auto": "自动（提供商默认）",
+        "reasoning.low": "低",
+        "reasoning.high": "高",
+        "reasoning.maximum": "最高",
         "model.use": "使用模型翻译",
         "model.load": "获取模型",
         "model.verify": "验证模型",
         "model.not_connected": "尚未连接",
         "review.model_translation": "模型翻译",
+        "review.blank_translation": "生成空白翻译文件",
         "review.fact_model": "模型",
         "review.fact_game": "游戏",
         "review.fact_languages": "语言",
@@ -273,6 +289,8 @@ UI_COPY = {
         "shell.back": "返回",
         "shell.continue": "继续",
         "shell.start": "开始",
+        "shell.start_translation": "开始翻译",
+        "shell.continue_translation": "继续翻译",
         "shell.pause": "暂停",
         "shell.extract_blank": "提取空白翻译",
         "shell.breadcrumb": "第 {current} / {total} 步",
@@ -281,6 +299,7 @@ UI_COPY = {
         "footer.languages": "下一步：确认翻译范围和 Token 预算。",
         "footer.model": "下一步：确认范围和 Token 预算；翻译必须在第 05 页明确开始。",
         "footer.review": "将开始可能计费的模型调用；检查点写入工作区。",
+        "footer.blank_review": "生成空白翻译文件，不调用模型。",
         "footer.progress": "暂停会保存检查点；关闭后仍保留已完成输出。",
         "shell.select_project": "选择 Ren'Py 项目",
         "shell.select_workspace": "选择工作区",
@@ -350,6 +369,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.step = 0
         self.initial_project = initial_project
         self.initial_workspace = initial_workspace
+        self._workspace_auto_generated = not bool(initial_workspace.strip())
         self.thread_pool = QThreadPool.globalInstance()
         self._inspection_timer = QTimer(self)
         self._inspection_timer.setSingleShot(True)
@@ -376,11 +396,15 @@ class QtRenWeaveWindow(QMainWindow):
         self._settings_path = default_desktop_settings_path()
         self._settings = self._load_settings()
         self._credential_store = SecureCredentialStore()
+        self._api_key_cache: dict[tuple[str, str], str] = {}
+        self._model_by_identity: dict[tuple[str, str], str] = {}
 
         self._configure_palette()
         self._build_shell()
         self._build_pages()
         self._restore_state()
+        if self.project_edit.text().strip() and self._workspace_auto_generated:
+            self._suggest_workspace(self.project_edit.text().strip())
         self._retranslate_ui()
         self._refresh_shell()
         if self.project_edit.text().strip():
@@ -415,6 +439,12 @@ class QtRenWeaveWindow(QMainWindow):
             QLineEdit::placeholder { color: #98a2b3; }
             QComboBox QAbstractItemView { background: #ffffff; color: #344054; selection-background-color: #e7e9ff; selection-color: #101828; }
             QCheckBox { min-height: 28px; color: #344054; }
+            QScrollBar:vertical { background: #e9edf5; width: 10px; margin: 2px 0 2px 0; border-radius: 5px; }
+            QScrollBar::handle:vertical { background: #b8c1d1; min-height: 36px; border-radius: 5px; }
+            QScrollBar::handle:vertical:hover { background: #8f9bb0; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+            QScrollBar:horizontal { height: 0; }
             QProgressBar { border: 0; background: #e9edf5; border-radius: 5px; height: 10px; }
             QProgressBar::chunk { background: #5b5ce2; border-radius: 5px; }
             """
@@ -443,14 +473,6 @@ class QtRenWeaveWindow(QMainWindow):
         self.nav_buttons: list[QPushButton] = []
         for index, key in enumerate(self.STEPS):
             button = QPushButton(objectName="Nav")
-            nav_icons = (
-                QStyle.StandardPixmap.SP_DirHomeIcon,
-                QStyle.StandardPixmap.SP_DialogApplyButton,
-                QStyle.StandardPixmap.SP_FileDialogDetailedView,
-                QStyle.StandardPixmap.SP_MessageBoxInformation,
-                QStyle.StandardPixmap.SP_MediaPlay,
-            )
-            button.setIcon(self.style().standardIcon(nav_icons[index]))
             button.clicked.connect(lambda _checked=False, selected=index: self._go_to_step(selected))
             self.nav_buttons.append(button)
             sidebar_layout.addWidget(button)
@@ -499,6 +521,8 @@ class QtRenWeaveWindow(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(2, 2, 10, 18)
@@ -547,14 +571,11 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_browse_button = QPushButton(objectName="Secondary")
         self.workspace_browse_button = QPushButton(objectName="Secondary")
         self.sdk_browse_button = QPushButton(objectName="Secondary")
-        browse_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
-        self.project_browse_button.setIcon(browse_icon)
-        self.workspace_browse_button.setIcon(browse_icon)
-        self.sdk_browse_button.setIcon(browse_icon)
         self.project_browse_button.clicked.connect(self._browse_project)
         self.workspace_browse_button.clicked.connect(self._browse_workspace)
         self.sdk_browse_button.clicked.connect(self._browse_sdk)
         self.project_edit.textChanged.connect(self._project_changed)
+        self.workspace_edit.textEdited.connect(self._workspace_edited)
         rows = (
             (self.game_project_label, self.project_edit, self.project_browse_button),
             (self.game_workspace_label, self.workspace_edit, self.workspace_browse_button),
@@ -641,6 +662,8 @@ class QtRenWeaveWindow(QMainWindow):
         self.provider_combo.addItems([preset.name for preset in PROVIDER_PRESETS])
         self.provider_combo.currentIndexChanged.connect(self._provider_changed)
         self.provider_combo.setVisible(False)
+        self._active_provider_id = self.provider_ids[0]
+        self._active_endpoint = PROVIDER_PRESETS[0].base_url
         provider_panel = QWidget()
         provider_grid = QGridLayout(provider_panel)
         provider_grid.setContentsMargins(0, 0, 0, 0)
@@ -665,24 +688,37 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_edit = QComboBox()
         self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
+        self.reasoning_combo = QComboBox()
+        self.reasoning_combo.setObjectName("ReasoningCombo")
+        self.reasoning_combo.addItem(self._t("reasoning.auto"), "auto")
+        self.reasoning_combo.addItem(self._t("reasoning.low"), "low")
+        self.reasoning_combo.addItem(self._t("reasoning.high"), "high")
+        self.reasoning_combo.addItem(self._t("reasoning.maximum"), "maximum")
         self.api_key_label = QLabel(objectName="SectionTitle")
         self.model_label = QLabel(objectName="SectionTitle")
         self.endpoint_label = QLabel(objectName="SectionTitle")
-        fields.addWidget(self.api_key_label, 0, 0)
-        fields.addWidget(self.model_label, 0, 1)
-        fields.addWidget(self.endpoint_label, 0, 2)
-        fields.addWidget(self.api_key_edit, 1, 0)
-        fields.addWidget(self.model_edit, 1, 1)
-        fields.addWidget(self.endpoint_edit, 1, 2)
+        self.reasoning_label = QLabel(objectName="SectionTitle")
+        fields.addWidget(self.api_key_label, 0, 0, 1, 3)
+        fields.addWidget(self.api_key_edit, 1, 0, 1, 3)
+        fields.addWidget(self.model_label, 2, 0)
+        fields.addWidget(self.endpoint_label, 2, 1)
+        fields.addWidget(self.reasoning_label, 2, 2)
+        fields.addWidget(self.model_edit, 3, 0)
+        fields.addWidget(self.endpoint_edit, 3, 1)
+        fields.addWidget(self.reasoning_combo, 3, 2)
+        self.model_edit.currentTextChanged.connect(self._model_changed)
+        self.endpoint_edit.editingFinished.connect(self._endpoint_edited)
+        self.reasoning_combo.currentIndexChanged.connect(self._reasoning_changed)
         card_layout.addLayout(fields)
+        self.reasoning_hint_label = QLabel(objectName="Hint")
+        self.reasoning_hint_label.setWordWrap(True)
+        card_layout.addWidget(self.reasoning_hint_label)
         self.use_model_check = QCheckBox()
         self.use_model_check.setChecked(True)
         card_layout.addWidget(self.use_model_check)
         buttons = QHBoxLayout()
         self.connect_model_button = QPushButton(objectName="Secondary")
         self.verify_model_button = QPushButton(objectName="Secondary")
-        self.connect_model_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
-        self.verify_model_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
         self.connect_model_button.clicked.connect(self._connect_models)
         self.verify_model_button.clicked.connect(self._verify_model)
         buttons.addWidget(self.connect_model_button)
@@ -690,6 +726,10 @@ class QtRenWeaveWindow(QMainWindow):
         buttons.addStretch()
         card_layout.addLayout(buttons)
         self.model_status = QLabel(objectName="Hint")
+        self.model_status.setWordWrap(True)
+        self.model_status.setMinimumHeight(24)
+        self.model_status.setMaximumHeight(62)
+        self.model_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         card_layout.addWidget(self.model_status)
         layout.addWidget(card)
         layout.addStretch()
@@ -830,12 +870,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_output.setWordWrap(True)
         card_layout.addWidget(self.progress_output)
         self.progress_open_button = QPushButton(objectName="Secondary")
-        self.progress_open_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
         self.progress_open_button.clicked.connect(self._open_output_folder)
         self.progress_open_button.setVisible(False)
         card_layout.addWidget(self.progress_open_button)
         self.log_toggle = QPushButton(objectName="Secondary")
-        self.log_toggle.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.log_toggle.clicked.connect(self._toggle_log)
         card_layout.addWidget(self.log_toggle)
         self.log_edit = QTextEdit()
@@ -849,6 +887,9 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _refresh_shell(self) -> None:
         self.stack.setCurrentIndex(self.step)
+        self.review_mode_label.setText(
+            self._t("review.blank_translation" if self._blank_translation_mode else "review.model_translation")
+        )
         for index, button in enumerate(self.nav_buttons):
             button.setText(f"{'✓' if index < self.step else f'{index + 1:02d}'}    {self._t(f'nav.{self.STEPS[index]}')}")
             button.setProperty("current", "true" if index == self.step else "false")
@@ -861,16 +902,23 @@ class QtRenWeaveWindow(QMainWindow):
         if self.step == 4 and self._translation_started:
             self.action_button.setText(self._t("shell.pause"))
             self.action_button.setEnabled(True)
-        elif self.step == 3 and self._blank_translation_mode:
-            self.action_button.setText(self._t("shell.extract_blank"))
-            self.action_button.setEnabled(True)
+        elif self.step == 4:
+            self.action_button.setText(
+                self._t("shell.extract_blank")
+                if self._blank_translation_mode
+                else self._t("shell.continue_translation" if self._last_stage else "shell.start_translation")
+            )
+            self.action_button.setEnabled(self._scope_preview_status == "ready")
+        elif self.step == 3:
+            self.action_button.setText(self._t("shell.continue"))
+            self.action_button.setEnabled(self._scope_preview_status == "ready")
         else:
-            self.action_button.setText(self._t("shell.start" if self.step == 3 else "shell.continue"))
+            self.action_button.setText(self._t("shell.continue"))
             self.action_button.setEnabled(not (self.step == 0 and self._project_validation_state == "pending"))
 
     def _footer_effect(self) -> str:
         return (
-            self._t("footer.review")
+            self._t("footer.blank_review" if self._blank_translation_mode else "footer.review")
             if self.step == 3
             else self._t("footer.progress")
             if self.step == 4
@@ -887,6 +935,8 @@ class QtRenWeaveWindow(QMainWindow):
     def _go_to_step(self, selected: int) -> None:
         if 0 <= selected <= self.step:
             self.step = selected
+            if self.step == 3:
+                self._start_scope_preview()
             self._refresh_shell()
 
     def _continue(self) -> None:
@@ -910,11 +960,20 @@ class QtRenWeaveWindow(QMainWindow):
                 self._start_scope_preview()
             return
         if self.step == 3:
-            self._start_translation()
+            if self._scope_preview_status != "ready":
+                self.language_scope_label.setText(self._t("languages.scanning"))
+                self._start_scope_preview()
+                self._refresh_shell()
+                return
+            self.step = 4
+            self._refresh_shell()
             return
-        if self.step == 4 and self._cancel_token is not None:
-            self._cancel_token.cancel()
-            self.progress_runtime.setText(self._t("progress.pausing"))
+        if self.step == 4:
+            if self._translation_started and self._cancel_token is not None:
+                self._cancel_token.cancel()
+                self.progress_runtime.setText(self._t("progress.pausing"))
+            else:
+                self._start_translation()
 
     def _toggle_locale(self) -> None:
         self.locale = "zh" if self.locale == "en" else "en"
@@ -952,6 +1011,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.api_key_label.setText(self._t("model.api_key"))
         self.model_label.setText(self._t("model.model"))
         self.endpoint_label.setText(self._t("model.endpoint"))
+        self.reasoning_label.setText(self._t("model.reasoning"))
+        self.reasoning_combo.setItemText(0, self._t("reasoning.auto"))
+        self.reasoning_combo.setItemText(1, self._t("reasoning.low"))
+        self.reasoning_combo.setItemText(2, self._t("reasoning.high"))
+        self.reasoning_combo.setItemText(3, self._t("reasoning.maximum"))
+        self.reasoning_hint_label.setText(self._t("model.reasoning_hint"))
+        for preset, button in zip(PROVIDER_PRESETS, self.provider_buttons):
+            button.setText(preset.display_name(self.locale))
         self.use_model_check.setText(self._t("model.use"))
         self.connect_model_button.setText(self._t("model.load"))
         self.verify_model_button.setText(self._t("model.verify"))
@@ -960,7 +1027,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.budget_title.setText("AI usage estimate" if self.locale == "en" else "AI 用量预估")
         if self._scope_preview_inventory is None:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
-        self.review_mode_label.setText(self._t("review.model_translation"))
+        self.review_mode_label.setText(
+            self._t("review.blank_translation" if self._blank_translation_mode else "review.model_translation")
+        )
         for key, label in self.review_fact_titles:
             label.setText(self._t(key))
         if self._scope_preview_inventory is None:
@@ -1010,6 +1079,8 @@ class QtRenWeaveWindow(QMainWindow):
         self._discovered_project = None
         self._project_validation_error = ""
         has_project = bool(self.project_edit.text().strip())
+        if has_project and self._workspace_auto_generated:
+            self._suggest_workspace(self.project_edit.text().strip())
         self._project_validation_state = "pending" if has_project else "idle"
         self._inspection_revision = None
         self._inspection_value = ""
@@ -1018,6 +1089,19 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_status.setText(self._t("game.inspecting" if has_project else "game.waiting"))
         self._inspection_timer.start(150)
         self._refresh_shell()
+
+    def _workspace_edited(self, _value: str = "") -> None:
+        self._workspace_auto_generated = False
+
+    def _suggest_workspace(self, project: str) -> None:
+        source = Path(project).expanduser()
+        if source.is_file() or source.suffix.casefold() == ".exe":
+            name = source.stem
+        else:
+            name = source.parent.name if source.name.casefold() == "game" else source.name
+        base = _user_home_fallback() / "Documents" / "RenWeaveWork"
+        self.workspace_edit.setText(str(base / (name or "project")))
+        self._workspace_auto_generated = True
 
     def _inspect_project(self) -> None:
         value = self.project_edit.text().strip()
@@ -1122,7 +1206,7 @@ class QtRenWeaveWindow(QMainWindow):
         if not project or not target:
             return
         signature = (project, workspace, self.source_combo.currentText().strip() or "auto", target)
-        if signature == self._scope_preview_signature and self._scope_preview_status == "scanning":
+        if signature == self._scope_preview_signature and self._scope_preview_status in {"scanning", "ready"}:
             return
         self._scope_preview_signature = signature
         self._scope_preview_status = "scanning"
@@ -1156,13 +1240,73 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _scope_preview_failed(self, error: BaseException) -> None:
         self._scope_preview_status = "error"
-        self.language_scope_label.setText(self._t("scope.failed", error=error))
+        self.language_scope_label.setText(self._t("scope.failed", error=str(error)))
+
+    def _persist_api_key(self, provider_id: str, base_url: str, secret: str) -> None:
+        identity = (provider_id, base_url.strip())
+        self._api_key_cache[identity] = secret
+        if not secret:
+            return
+        try:
+            self._credential_store.set(*identity, secret)
+        except CredentialStorageError:
+            self._logs.append("Could not save the API key in the system credential store.")
+
+    def _read_api_key(self, provider_id: str, base_url: str) -> str:
+        identity = (provider_id, base_url.strip())
+        if identity in self._api_key_cache:
+            return self._api_key_cache[identity]
+        try:
+            secret = self._credential_store.get(*identity)
+        except CredentialStorageError:
+            secret = ""
+        self._api_key_cache[identity] = secret or ""
+        return secret or ""
+
+    def _endpoint_edited(self) -> None:
+        endpoint = self.endpoint_edit.text().strip()
+        if not endpoint or endpoint == self._active_endpoint:
+            return
+        previous_identity = (self._active_provider_id, self._active_endpoint)
+        self._persist_api_key(*previous_identity, self.api_key_edit.text())
+        self._model_by_identity[previous_identity] = self.model_edit.currentText().strip()
+        self._active_endpoint = endpoint
+        self.api_key_edit.setText(self._read_api_key(self._active_provider_id, endpoint))
+        self.model_edit.clear()
+        remembered_model = self._model_by_identity.get((self._active_provider_id, endpoint), "")
+        if remembered_model:
+            self.model_edit.setCurrentText(remembered_model)
+        self._save_settings()
+
+    def _model_changed(self, value: str) -> None:
+        self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = value.strip()
+        self._save_settings()
+
+    def _reasoning_changed(self, _index: int) -> None:
+        self._save_settings()
 
     def _provider_changed(self, index: int) -> None:
         if not self.provider_ids:
             return
-        preset = PROVIDER_PRESETS_BY_ID[self.provider_ids[index]]
+        provider_id = self.provider_ids[index]
+        preset = PROVIDER_PRESETS_BY_ID[provider_id]
+        previous_identity = (self._active_provider_id, self._active_endpoint)
+        if previous_identity != (provider_id, preset.base_url):
+            self._persist_api_key(*previous_identity, self.api_key_edit.text())
+            self._model_by_identity[previous_identity] = self.model_edit.currentText().strip()
+        self._active_provider_id = provider_id
+        self._active_endpoint = preset.base_url
+        self.endpoint_edit.blockSignals(True)
         self.endpoint_edit.setText(preset.base_url)
+        self.endpoint_edit.blockSignals(False)
+        self.api_key_edit.setText(self._read_api_key(provider_id, preset.base_url))
+        self.model_edit.blockSignals(True)
+        self.model_edit.clear()
+        remembered_model = self._model_by_identity.get((provider_id, preset.base_url), "")
+        if remembered_model:
+            self.model_edit.setCurrentText(remembered_model)
+        self.model_edit.blockSignals(False)
+        self.reasoning_combo.setEnabled(preset.reasoning_control != "none")
         for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
             button.setChecked(button_index == index)
         self._save_settings()
@@ -1181,10 +1325,14 @@ class QtRenWeaveWindow(QMainWindow):
         current = self.model_edit.currentText().strip()
         self.model_edit.clear()
         self.model_edit.addItems(catalog.models)
-        if current:
-            self.model_edit.setCurrentText(current)
-        elif catalog.models:
-            self.model_edit.setCurrentIndex(0)
+        if catalog.models:
+            selected = current if current in catalog.models else self._model_by_identity.get(
+                (self._active_provider_id, self._active_endpoint), ""
+            )
+            selected_index = catalog.models.index(selected) if selected in catalog.models else 0
+            self.model_edit.setCurrentIndex(selected_index)
+            self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = catalog.models[selected_index]
+            self._save_settings()
 
     def _verify_model(self) -> None:
         profile = self._profile(require_model=True)
@@ -1208,7 +1356,7 @@ class QtRenWeaveWindow(QMainWindow):
             api_key=self.api_key_edit.text(),
             api_key_env=preset.api_key_env,
             supports_json=preset.supports_json_parameter,
-            reasoning_level="auto",
+            reasoning_level=str(self.reasoning_combo.currentData() or "auto"),
             max_retries=2,
             retry_base_seconds=0.5,
         )
@@ -1428,14 +1576,19 @@ class QtRenWeaveWindow(QMainWindow):
         if provider_id in self.provider_ids:
             self.provider_combo.setCurrentIndex(self.provider_ids.index(provider_id))
         self._select_provider(self.provider_combo.currentIndex())
-        self.model_edit.setCurrentText(str(self._settings.get("model", "")))
-        self.endpoint_edit.setText(str(self._settings.get("base_url", self.endpoint_edit.text())))
-        identity = (provider_id, self.endpoint_edit.text().strip())
-        try:
-            secret = self._credential_store.get(*identity)
-        except CredentialStorageError:
-            secret = ""
-        self.api_key_edit.setText(secret or "")
+        saved_endpoint = str(self._settings.get("base_url", self.endpoint_edit.text())).strip()
+        if saved_endpoint and saved_endpoint != self.endpoint_edit.text().strip():
+            self.endpoint_edit.setText(saved_endpoint)
+            self._active_endpoint = saved_endpoint
+        saved_model = str(self._settings.get("model", "")).strip()
+        if saved_model:
+            self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = saved_model
+            self.model_edit.setCurrentText(saved_model)
+        reasoning_level = str(self._settings.get("reasoning_level", "auto"))
+        reasoning_index = self.reasoning_combo.findData(reasoning_level)
+        if reasoning_index >= 0:
+            self.reasoning_combo.setCurrentIndex(reasoning_index)
+        self.api_key_edit.setText(self._read_api_key(self._active_provider_id, self._active_endpoint))
 
     def _save_settings(self) -> None:
         payload = {
@@ -1444,6 +1597,7 @@ class QtRenWeaveWindow(QMainWindow):
             "provider_id": self.provider_ids[self.provider_combo.currentIndex()],
             "model": self.model_edit.currentText().strip(),
             "base_url": self.endpoint_edit.text().strip(),
+            "reasoning_level": str(self.reasoning_combo.currentData() or "auto"),
         }
         try:
             atomic_write_json(self._settings_path, payload)
@@ -1451,15 +1605,7 @@ class QtRenWeaveWindow(QMainWindow):
             pass
 
     def _save_api_key(self) -> None:
-        provider_id = self.provider_ids[self.provider_combo.currentIndex()]
-        identity = (provider_id, self.endpoint_edit.text().strip())
-        secret = self.api_key_edit.text()
-        if not secret:
-            return
-        try:
-            self._credential_store.set(*identity, secret)
-        except CredentialStorageError:
-            self._logs.append("Could not save the API key in the system credential store.")
+        self._persist_api_key(self._active_provider_id, self.endpoint_edit.text().strip(), self.api_key_edit.text())
 
     def _browse_project(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, self._t("shell.select_project"))
