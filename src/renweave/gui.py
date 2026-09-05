@@ -2398,12 +2398,9 @@ class RenWeaveDesktopApp:
         self.review_detail_host = None
         self.review_detail_text = None
         self.review_modules: dict[str, object] = {}
-        # The shell remains mounted. The navigation is a stable module and
-        # updates its existing controls; only the footer action area is
-        # rebuilt because its command and button count depend on the page.
-        for parent in (self.footer,):
-            for child in parent.winfo_children():
-                child.destroy()
+        # The shell remains mounted. Navigation and the footer layout are
+        # stable modules; only page content and the footer's changing action
+        # controls are refreshed.
         self.page_mount = self.ttk.Frame(self.content, style="App.TFrame")
         self.page_mount.grid(row=0, column=0, sticky="nsew")
         # Keep the new page out of the paint path while its widget tree is
@@ -4362,14 +4359,21 @@ class RenWeaveDesktopApp:
 
     def _render_footer(self) -> None:
         slot_width = Metrics.COMPACT_FOOTER_SLOT_WIDTH if self.compact_layout else Metrics.FOOTER_SLOT_WIDTH
-        rule = self.ttk.Frame(self.footer, style="FooterRule.TFrame", height=1)
-        rule.grid(row=0, column=0, sticky="ew")
-        rule.grid_propagate(False)
-        action_bar = self.ttk.Frame(self.footer, style="ActionBar.TFrame")
-        action_bar.grid(row=1, column=0, sticky="ew", pady=(Metrics.SPACE_2, 0))
-        action_bar.columnconfigure(0, minsize=slot_width, uniform="footer_actions")
-        action_bar.columnconfigure(1, weight=1)
-        action_bar.columnconfigure(2, minsize=slot_width, uniform="footer_actions")
+        action_bar = getattr(self, "footer_action_bar", None)
+        if action_bar is None or not action_bar.winfo_exists():
+            rule = self.ttk.Frame(self.footer, style="FooterRule.TFrame", height=1)
+            rule.grid(row=0, column=0, sticky="ew")
+            rule.grid_propagate(False)
+            action_bar = self.ttk.Frame(self.footer, style="ActionBar.TFrame")
+            action_bar.grid(row=1, column=0, sticky="ew", pady=(Metrics.SPACE_2, 0))
+            action_bar.columnconfigure(0, minsize=slot_width, uniform="footer_actions")
+            action_bar.columnconfigure(1, weight=1)
+            action_bar.columnconfigure(2, minsize=slot_width, uniform="footer_actions")
+        else:
+            action_bar.columnconfigure(0, minsize=slot_width, uniform="footer_actions")
+            action_bar.columnconfigure(2, minsize=slot_width, uniform="footer_actions")
+            for child in action_bar.winfo_children():
+                child.destroy()
         self.footer_action_bar = action_bar
         blank_action = self.blank_translation_mode and self.step == 3
         model_setup_action = self.step == 2
