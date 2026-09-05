@@ -1602,6 +1602,7 @@ class RenWeaveDesktopApp:
         self.progress = None
         self.log = None
         self.content = None
+        self.page_mount = None
         self.content_canvas = None
         self.content_window = None
         self.content_scrollbar = None
@@ -2125,7 +2126,7 @@ class RenWeaveDesktopApp:
         )
         self.content_window = self.content_canvas.create_window((0, 0), window=self.content, anchor="nw")
         self.content.columnconfigure(0, weight=1)
-        self.content.rowconfigure(1, weight=1)
+        self.content.rowconfigure(0, weight=1)
         self.content_canvas.bind("<Configure>", self._schedule_content_layout)
         self.content.bind("<Configure>", self._schedule_content_layout)
 
@@ -2333,6 +2334,7 @@ class RenWeaveDesktopApp:
         self._schedule_content_layout()
 
     def _render(self) -> None:
+        previous_page_mount = self.page_mount
         if self.progress_activity is not None:
             try:
                 self.progress_activity.stop()
@@ -2356,14 +2358,17 @@ class RenWeaveDesktopApp:
         self.review_pending_title = None
         self.review_detail_host = None
         self.review_detail_text = None
-        for parent in (self.nav, self.content, self.footer):
-            for child in parent.winfo_children():
-                child.destroy()
+        self.page_mount = self.ttk.Frame(self.content, style="App.TFrame")
+        self.page_mount.grid(row=0, column=0, sticky="nsew")
+        self.page_mount.columnconfigure(0, weight=1)
+        self.page_mount.rowconfigure(1, weight=1)
         self._render_nav()
         self._render_header()
         getattr(self, f"_render_{self.STEPS[self.step]}")()
         self._render_footer()
         self.root.update_idletasks()
+        if previous_page_mount is not None and previous_page_mount.winfo_exists():
+            previous_page_mount.destroy()
         self._sync_content_layout()
         self._schedule_content_layout()
 
@@ -2409,7 +2414,7 @@ class RenWeaveDesktopApp:
     def _render_header(self) -> None:
         step_name = self.STEPS[self.step]
         step_badge = self.tk.Label(
-            self.content,
+            self.page_mount,
             text=self.t("step_count", current=self.step + 1, total=len(self.STEPS)),
             background=Colors.PRIMARY_CONTAINER,
             foreground=Colors.ON_PRIMARY_CONTAINER,
@@ -2418,7 +2423,7 @@ class RenWeaveDesktopApp:
             pady=5,
         )
         step_badge.grid(row=0, column=0, sticky="w")
-        body = self.ttk.Frame(self.content, style="App.TFrame")
+        body = self.ttk.Frame(self.page_mount, style="App.TFrame")
         body.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
         body.columnconfigure(0, weight=1)
         body.rowconfigure(2, weight=1)
