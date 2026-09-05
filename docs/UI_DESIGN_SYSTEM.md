@@ -5,11 +5,11 @@ RenWeave uses an **Aurora Workbench** system: Windows 11–informed component re
 ## Reference basis
 
 - [Material Design 3](https://m3.material.io/) informs semantic color roles, component states, hierarchy, and accessible interaction feedback.
-- [Sun Valley ttk theme](https://github.com/rdbende/Sun-Valley-ttk-theme) provides the bundled rounded Windows component layer.
+- Qt Widgets and the PySide6 Essentials controls provide the bundled desktop component layer.
 - [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) informs the explicit design-system workflow, responsive checks, and pre-delivery visual audit.
 - [Awesome Design Systems](https://github.com/alexpate/awesome-design-systems) was used as a catalog of mature system patterns rather than as a source of page-specific styling.
 
-Material Design 3, UI UX Pro Max, and Awesome Design Systems are design references rather than runtime dependencies. Sun Valley ttk is bundled as a runtime dependency. RenWeave's Tk composition, desktop workflow, tokens, and Aurora Workbench identity are project-specific.
+Material Design 3, UI UX Pro Max, and Awesome Design Systems are design references rather than runtime dependencies. PySide6 Essentials is the only UI runtime dependency. RenWeave's Qt Widgets composition, desktop workflow, tokens, and Aurora Workbench identity are project-specific.
 
 ## Layout grid
 

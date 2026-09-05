@@ -208,7 +208,7 @@ flowchart LR
 py -3.10 -m pip install --editable . --no-deps
 $env:PYTHONPATH = "src"
 py -3.10 -m pytest -q
-py -3.10 scripts/visual_smoke_test.py
+py -3.10 scripts/qt_visual_smoke_test.py
 py -3.10 -m compileall -q src tests packaging
 py -3.10 -m pip install build
 py -3.10 -m build
