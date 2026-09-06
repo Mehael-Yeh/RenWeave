@@ -320,6 +320,7 @@ UI_COPY = {
         "dialog.missing_fields": "Project, workspace and target language are required.",
         "dialog.target_required": "Choose a target language before continuing.",
         "dialog.model_required": "Configure and select a model before continuing.",
+        "dialog.model_verify_required": "Verify the selected model before continuing.",
         "dialog.scope_required": "Wait for the translation scope calculation to finish before continuing.",
         "dialog.validation": "Please complete the current page before continuing.",
         "dialog.open_output": "Open output",
@@ -515,6 +516,7 @@ UI_COPY = {
         "dialog.missing_fields": "项目、工作区和目标语言均为必填项。",
         "dialog.target_required": "请选择目标语言后再继续。",
         "dialog.model_required": "请先配置并选择模型后再继续。",
+        "dialog.model_verify_required": "请先验证当前模型后再继续。",
         "dialog.scope_required": "请等待翻译范围计算完成后再继续。",
         "dialog.validation": "请先完成当前页面的配置后再继续。",
         "dialog.open_output": "打开输出目录",
@@ -752,6 +754,8 @@ class QtRenWeaveWindow(QMainWindow):
         self._credential_store = SecureCredentialStore()
         self._api_key_cache: dict[tuple[str, str], str] = {}
         self._model_by_identity: dict[tuple[str, str], str] = {}
+        self._models_by_identity: dict[tuple[str, str], tuple[str, ...]] = {}
+        self._verified_model_by_identity: dict[tuple[str, str], str] = {}
         self._model_catalog_models: tuple[str, ...] = ()
         self._key_storage = str(self._settings.get("key_storage", "secure"))
         if self._key_storage not in {"secure", "memory"}:
@@ -1020,8 +1024,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.source_combo.addItems(["auto", "English", "简体中文", "繁體中文", "日本語"])
         self.target_combo = QComboBox()
         self.target_combo.setEditable(True)
+        self.target_combo.addItem("", "")
         for language in LANGUAGE_DISPLAY_NAMES:
             self.target_combo.addItem(language, language)
+        self.target_combo.setCurrentIndex(0)
         self.source_combo.currentTextChanged.connect(self._language_changed)
         self.target_combo.currentTextChanged.connect(self._language_changed)
         columns.addWidget(self.source_combo, 1, 0)
@@ -1106,16 +1112,16 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_actions = QHBoxLayout()
         self.model_actions.setContentsMargins(0, 0, 0, 0)
         self.connect_model_button = QPushButton(objectName="Secondary")
-        self.verify_model_button = QPushButton(objectName="Secondary")
+        self.verify_model_button = QPushButton(objectName="Primary")
         self.browse_model_button = QPushButton(objectName="Secondary")
         self.browse_model_button.setVisible(False)
         self.connect_model_button.clicked.connect(self._connect_models)
         self.verify_model_button.clicked.connect(self._verify_model)
         self.browse_model_button.clicked.connect(self._browse_models)
-        self.model_actions.addWidget(self.connect_model_button)
-        self.model_actions.addWidget(self.verify_model_button)
-        self.model_actions.addWidget(self.browse_model_button)
-        self.model_actions.addStretch()
+        self.connect_model_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.verify_model_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.model_actions.addWidget(self.connect_model_button, 1)
+        self.model_actions.addWidget(self.verify_model_button, 1)
         api_key_row = QHBoxLayout()
         api_key_row.setContentsMargins(0, 0, 0, 0)
         api_key_row.setSpacing(8)
@@ -1459,6 +1465,8 @@ class QtRenWeaveWindow(QMainWindow):
                 self._profile(require_model=True)
             except (TypeError, ValueError) as exc:
                 return str(exc) or self._t("dialog.model_required")
+            if not self._is_model_verified():
+                return self._t("dialog.model_verify_required")
         elif self.step in {3, 4} and self._scope_preview_status != "ready":
             return self._t("dialog.scope_required")
         return ""
@@ -1703,6 +1711,7 @@ class QtRenWeaveWindow(QMainWindow):
         current_target = self._target_language_value()
         self.target_combo.blockSignals(True)
         self.target_combo.clear()
+        self.target_combo.addItem("", "")
         existing_display_names: set[str] = set()
         for item in languages:
             display_name = getattr(item, "display_name", "") or item.language
@@ -1713,6 +1722,8 @@ class QtRenWeaveWindow(QMainWindow):
                 self.target_combo.addItem(language, language)
         if current_target:
             self._set_target_language_value(current_target)
+        else:
+            self.target_combo.setCurrentIndex(0)
         self.target_combo.blockSignals(False)
         self._refresh_existing_languages()
         self.project_status.setText(self._t("game.detected", count=len(languages)))
@@ -1929,10 +1940,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._model_by_identity[previous_identity] = self.model_edit.currentText().strip()
         self._active_endpoint = endpoint
         self.api_key_edit.setText(self._read_api_key(self._active_provider_id, endpoint))
-        self.model_edit.clear()
-        remembered_model = self._model_by_identity.get((self._active_provider_id, endpoint), "")
-        if remembered_model:
-            self.model_edit.setCurrentText(remembered_model)
+        self._restore_model_catalog((self._active_provider_id, endpoint))
         self._sync_endpoint_preset_selection()
         self._save_settings()
 
@@ -2030,6 +2038,29 @@ class QtRenWeaveWindow(QMainWindow):
         self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = value.strip()
         self._save_settings()
 
+    def _model_identity(self) -> tuple[str, str]:
+        return self._active_provider_id, self._active_endpoint
+
+    def _is_model_verified(self) -> bool:
+        model = self.model_edit.currentText().strip()
+        return bool(model) and self._verified_model_by_identity.get(self._model_identity()) == model
+
+    def _restore_model_catalog(self, identity: tuple[str, str]) -> None:
+        models = self._models_by_identity.get(identity, ())
+        remembered_model = self._model_by_identity.get(identity, "")
+        self._model_catalog_models = models
+        self.model_edit.blockSignals(True)
+        self.model_edit.clear()
+        self.model_edit.addItems(models)
+        if remembered_model and remembered_model not in models:
+            self.model_edit.setCurrentText(remembered_model)
+        elif remembered_model in models:
+            self.model_edit.setCurrentIndex(models.index(remembered_model))
+        elif models:
+            self.model_edit.setCurrentIndex(0)
+            self._model_by_identity[identity] = models[0]
+        self.model_edit.blockSignals(False)
+
     def _reasoning_changed(self, _index: int) -> None:
         self._save_settings()
 
@@ -2056,13 +2087,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.endpoint_edit.blockSignals(False)
         self._set_endpoint_presets(preset)
         self.api_key_edit.setText(self._read_api_key(provider_id, preset.base_url))
-        self.model_edit.blockSignals(True)
-        self.model_edit.clear()
-        remembered_model = self._model_by_identity.get((provider_id, preset.base_url), "")
-        if remembered_model:
-            self.model_edit.setCurrentText(remembered_model)
-        self.model_edit.blockSignals(False)
-        self._model_catalog_models = ()
+        self._restore_model_catalog((provider_id, preset.base_url))
         self.browse_model_button.setVisible(False)
         self.reasoning_combo.setEnabled(preset.reasoning_control != "none")
         self.provider_description_label.setText(preset.localized_description(self.locale))
@@ -2091,6 +2116,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _models_loaded(self, catalog) -> None:
         self._last_model_error_key = ""
         self._model_catalog_models = tuple(catalog.models)
+        self._models_by_identity[self._model_identity()] = self._model_catalog_models
         self.model_status.setText(self._t("model.loaded", count=len(catalog.models), latency=catalog.latency_ms))
         self.model_error_button.setVisible(False)
         current = self.model_edit.currentText().strip()
@@ -2104,7 +2130,7 @@ class QtRenWeaveWindow(QMainWindow):
             self.model_edit.setCurrentIndex(selected_index)
             self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = catalog.models[selected_index]
             self._save_settings()
-        self.browse_model_button.setVisible(bool(self._model_catalog_models))
+        self.browse_model_button.setVisible(False)
 
     def _browse_models(self) -> None:
         if not self._model_catalog_models:
@@ -2131,6 +2157,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _model_verified(self, result) -> None:
         self._last_model_error_key = ""
         self.model_error_button.setVisible(False)
+        self._verified_model_by_identity[self._model_identity()] = str(result.model).strip()
         self.model_status.setText(
             self._t("model.verified", model=result.model, latency=result.latency_ms)
         )

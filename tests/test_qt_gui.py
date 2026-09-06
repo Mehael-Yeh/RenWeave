@@ -246,11 +246,57 @@ class QtFrontendTests(unittest.TestCase):
         window = QtRenWeaveWindow()
         try:
             window.step = 1
+            window._set_target_language_value("zh_hans")
             window._selected_existing_language = "zh_hans"
             window._scope_preview_status = "scanning"
             window._refresh_shell()
             self.assertFalse(window.action_button.isEnabled())
             window._scope_preview_status = "ready"
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+        finally:
+            window.close()
+
+    def test_target_language_starts_blank_and_blocks_languages_continue(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 1
+            window._refresh_shell()
+            self.assertEqual(window._target_language_value(), "")
+            self.assertFalse(window.action_button.isEnabled())
+            window._set_target_language_value("简体中文")
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+        finally:
+            window.close()
+
+    def test_model_verification_and_catalog_are_remembered_per_provider(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 2
+            window.api_key_edit.setText("secret")
+            window.model_edit.setEditText("model-a")
+            window._refresh_shell()
+            self.assertFalse(window.action_button.isEnabled())
+
+            window._models_loaded(SimpleNamespace(models=("model-a", "model-b"), latency_ms=1))
+            window._model_verified(SimpleNamespace(model="model-a", latency_ms=1))
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+
+            window._select_provider(1)
+            window._refresh_shell()
+            self.assertFalse(window.action_button.isEnabled())
+
+            window._select_provider(0)
+            self.assertEqual(
+                [window.model_edit.itemText(i) for i in range(window.model_edit.count())],
+                ["model-a", "model-b"],
+            )
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+
+            window.use_model_check.setChecked(False)
             window._refresh_shell()
             self.assertTrue(window.action_button.isEnabled())
         finally:
@@ -385,7 +431,7 @@ class QtFrontendTests(unittest.TestCase):
             self.assertEqual(window.endpoint_edit.text(), "https://api.deepseek.com/v1")
 
             window._models_loaded(SimpleNamespace(models=("alpha", "beta-vision", "gamma"), latency_ms=4))
-            self.assertTrue(window.browse_model_button.isVisible() or not window.isVisible())
+            self.assertFalse(window.browse_model_button.isVisible())
             dialog = ModelPickerDialog(window, window._model_catalog_models)
             try:
                 dialog.search_edit.setText("vision")
