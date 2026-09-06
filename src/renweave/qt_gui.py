@@ -795,6 +795,8 @@ class QtRenWeaveWindow(QMainWindow):
             QPushButton { min-height: 36px; max-height: 36px; padding: 0 14px; border-radius: 7px; color: #344054; }
             QPushButton#Primary { background: #5b5ce2; color: white; font-weight: 700; }
             QPushButton#Primary:hover { background: #494ac8; }
+            QPushButton#Primary:disabled { background: #d0d5dd; color: #98a2b3; border: 1px solid #cfd4dc; }
+            QPushButton#Secondary:disabled { background: #f2f4f7; color: #98a2b3; border: 1px solid #e4e7ec; }
             QPushButton#Secondary { background: #ffffff; color: #344054; border: 1px solid #e0e6ef; }
             QPushButton#Secondary:hover { background: #e7e9ff; }
             QPushButton#Secondary:checked { background: #5b5ce2; color: #ffffff; border: 1px solid #494ac8; font-weight: 700; }
@@ -951,40 +953,29 @@ class QtRenWeaveWindow(QMainWindow):
         self.game_project_label = QLabel(objectName="SectionTitle")
         self.game_workspace_label = QLabel(objectName="SectionTitle")
         self.game_sdk_label = QLabel(objectName="SectionTitle")
-        self.project_edit = QLineEdit(self.initial_project)
-        self.workspace_edit = QLineEdit(self.initial_workspace)
+        self.project_edit = QLineEdit(self._normalise_path_text(self.initial_project))
+        self.workspace_edit = QLineEdit(self._normalise_path_text(self.initial_workspace))
         self.renpy_sdk_edit = QLineEdit()
         self.project_browse_button = QPushButton(objectName="Secondary")
         self.workspace_browse_button = QPushButton(objectName="Secondary")
         self.sdk_browse_button = QPushButton(objectName="Secondary")
-        self.project_copy_button = QPushButton(objectName="Secondary")
-        self.workspace_copy_button = QPushButton(objectName="Secondary")
-        self.sdk_copy_button = QPushButton(objectName="Secondary")
-        self.project_open_button = QPushButton(objectName="Secondary")
-        self.workspace_open_button = QPushButton(objectName="Secondary")
-        self.sdk_open_button = QPushButton(objectName="Secondary")
         self.project_browse_button.clicked.connect(self._browse_project)
         self.workspace_browse_button.clicked.connect(self._browse_workspace)
         self.sdk_browse_button.clicked.connect(self._browse_sdk)
         self.project_edit.textChanged.connect(self._project_changed)
         self.workspace_edit.textEdited.connect(self._workspace_edited)
+        self.project_edit.editingFinished.connect(lambda: self._normalise_path_edit(self.project_edit))
+        self.workspace_edit.editingFinished.connect(lambda: self._normalise_path_edit(self.workspace_edit))
+        self.renpy_sdk_edit.editingFinished.connect(lambda: self._normalise_path_edit(self.renpy_sdk_edit))
         rows = (
-            (self.game_project_label, self.project_edit, self.project_browse_button, self.project_copy_button, self.project_open_button),
-            (self.game_workspace_label, self.workspace_edit, self.workspace_browse_button, self.workspace_copy_button, self.workspace_open_button),
-            (self.game_sdk_label, self.renpy_sdk_edit, self.sdk_browse_button, self.sdk_copy_button, self.sdk_open_button),
+            (self.game_project_label, self.project_edit, self.project_browse_button),
+            (self.game_workspace_label, self.workspace_edit, self.workspace_browse_button),
+            (self.game_sdk_label, self.renpy_sdk_edit, self.sdk_browse_button),
         )
-        for row, (label, edit, browse, copy, open_button) in enumerate(rows):
+        for row, (label, edit, browse) in enumerate(rows):
             grid.addWidget(label, row, 0)
             grid.addWidget(edit, row, 1)
-            actions = QHBoxLayout()
-            actions.setContentsMargins(0, 0, 0, 0)
-            actions.setSpacing(6)
-            actions.addWidget(browse)
-            actions.addWidget(copy)
-            actions.addWidget(open_button)
-            grid.addLayout(actions, row, 2)
-            copy.clicked.connect(lambda _checked=False, field=edit: self._copy_path(field.text()))
-            open_button.clicked.connect(lambda _checked=False, field=edit: self._open_path(field.text(), self._t("dialog.open_output")))
+            grid.addWidget(browse, row, 2)
         self.project_status = QLabel(objectName="Hint")
         self.project_status.setWordWrap(True)
         grid.addWidget(self.project_status, 3, 0, 1, 3)
@@ -1029,7 +1020,8 @@ class QtRenWeaveWindow(QMainWindow):
         self.source_combo.addItems(["auto", "English", "简体中文", "繁體中文", "日本語"])
         self.target_combo = QComboBox()
         self.target_combo.setEditable(True)
-        self.target_combo.addItems(["简体中文", "繁體中文", "English", "日本語", "Français"])
+        for language in ("简体中文", "繁體中文", "English", "日本語", "Français"):
+            self.target_combo.addItem(language, language)
         self.source_combo.currentTextChanged.connect(self._language_changed)
         self.target_combo.currentTextChanged.connect(self._language_changed)
         columns.addWidget(self.source_combo, 1, 0)
@@ -1098,6 +1090,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.endpoint_edit = QLineEdit()
         self.endpoint_edit.setText(PROVIDER_PRESETS[0].base_url)
         self.endpoint_preset_combo = QComboBox()
+        self.endpoint_preset_combo.setVisible(False)
         self.endpoint_preset_combo.setToolTip("Select a provider endpoint preset")
         self.endpoint_preset_combo.currentTextChanged.connect(self._endpoint_preset_changed)
         self.reasoning_combo = QComboBox()
@@ -1134,7 +1127,6 @@ class QtRenWeaveWindow(QMainWindow):
         endpoint_row = QHBoxLayout()
         endpoint_row.setContentsMargins(0, 0, 0, 0)
         endpoint_row.setSpacing(8)
-        endpoint_row.addWidget(self.endpoint_preset_combo)
         endpoint_row.addWidget(self.endpoint_edit, 1)
         fields.addLayout(endpoint_row, 3, 0)
         fields.addLayout(self.model_actions, 3, 1)
@@ -1199,28 +1191,16 @@ class QtRenWeaveWindow(QMainWindow):
         task_layout.addWidget(self.review_resume_label)
         layout.addWidget(task_card)
 
-        facts_card, facts_layout = self._card()
-        facts_grid = QGridLayout()
-        facts_grid.setHorizontalSpacing(10)
-        facts_grid.setVerticalSpacing(8)
-        facts_grid.setColumnStretch(0, 1)
-        facts_grid.setColumnStretch(1, 1)
         self.review_fact_titles = []
         self.review_fact_values = []
-        for index, key in enumerate(("review.fact_model", "review.fact_game", "review.fact_languages", "review.fact_options")):
-            tile = QFrame(objectName="TintCard")
-            tile_layout = QVBoxLayout(tile)
-            tile_layout.setContentsMargins(12, 10, 12, 10)
+        for key in ("review.fact_model", "review.fact_options"):
             title = QLabel(objectName="Hint")
             value = QLabel(objectName="Status")
             value.setWordWrap(True)
-            tile_layout.addWidget(title)
-            tile_layout.addWidget(value)
-            facts_grid.addWidget(tile, index // 2, index % 2)
+            task_layout.addWidget(title)
+            task_layout.addWidget(value)
             self.review_fact_titles.append((key, title))
             self.review_fact_values.append(value)
-        facts_layout.addLayout(facts_grid)
-        layout.addWidget(facts_card)
         budget_card, budget_layout = self._card("TintCard")
         self.budget_title = QLabel(objectName="Hint")
         self.budget_label = QLabel(objectName="SectionTitle")
@@ -1237,13 +1217,11 @@ class QtRenWeaveWindow(QMainWindow):
         self.install_check = QCheckBox()
         options_layout.addWidget(self.generate_rpa_check)
         options_layout.addWidget(self.install_check)
-        self.review_details_toggle = QPushButton(objectName="Secondary")
-        self.review_details_toggle.clicked.connect(self._toggle_review_details)
-        options_layout.addWidget(self.review_details_toggle)
+        self.review_details_toggle = None
         self.review_details_label = QLabel()
         self.review_details_label.setObjectName("Hint")
         self.review_details_label.setWordWrap(True)
-        self.review_details_label.setVisible(False)
+        self.review_details_label.setVisible(True)
         options_layout.addWidget(self.review_details_label)
         layout.addWidget(options)
         pending, pending_layout = self._card()
@@ -1271,12 +1249,14 @@ class QtRenWeaveWindow(QMainWindow):
         heading = QHBoxLayout()
         self.progress_heading = QLabel(objectName="SectionTitle")
         self.progress_percent = QLabel("", objectName="Status")
+        self.progress_percent.setVisible(False)
         heading.addWidget(self.progress_heading)
         heading.addStretch()
         heading.addWidget(self.progress_percent)
         card_layout.addLayout(heading)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
+        self.progress_bar.setTextVisible(False)
         card_layout.addWidget(self.progress_bar)
         runtime, runtime_layout = self._card("SuccessCard")
         self.progress_runtime = QLabel(objectName="Status")
@@ -1335,16 +1315,14 @@ class QtRenWeaveWindow(QMainWindow):
         output_actions.addWidget(self.progress_open_install_button)
         output_actions.addStretch()
         card_layout.addLayout(output_actions)
-        self.log_toggle = QPushButton(objectName="Secondary")
-        self.log_toggle.clicked.connect(self._toggle_log)
-        card_layout.addWidget(self.log_toggle)
+        self.log_toggle = None
         self.log_edit = QTextEdit()
         self.log_edit.setReadOnly(True)
-        self.log_edit.setVisible(False)
-        self.log_edit.setMinimumHeight(180)
-        card_layout.addWidget(self.log_edit)
-        layout.addWidget(card)
-        layout.addStretch()
+        self.log_edit.setVisible(True)
+        self.log_edit.setMinimumHeight(240)
+        self.log_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        card_layout.addWidget(self.log_edit, 1)
+        layout.addWidget(card, 1)
         return self.pages[-1], layout
 
     def _refresh_shell(self) -> None:
@@ -1469,7 +1447,7 @@ class QtRenWeaveWindow(QMainWindow):
             if self._project_validation_state != "valid":
                 return self._project_validation_error or self._t("dialog.invalid_project")
         elif self.step == 1:
-            if not self.target_combo.currentText().strip():
+            if not self._target_language_value():
                 return self._t("dialog.target_required")
             if (
                 self._selected_existing_language is not None
@@ -1515,18 +1493,6 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_browse_button.setText(self._t("game.browse_project"))
         self.workspace_browse_button.setText(self._t("game.browse_workspace"))
         self.sdk_browse_button.setText(self._t("game.browse_sdk"))
-        for button in (
-            self.project_copy_button,
-            self.workspace_copy_button,
-            self.sdk_copy_button,
-        ):
-            button.setText(self._t("game.copy_path"))
-        for button in (
-            self.project_open_button,
-            self.workspace_open_button,
-            self.sdk_open_button,
-        ):
-            button.setText(self._t("game.open_path"))
         self.require_engine_check.setText(self._t("game.require_engine"))
         self.project_edit.setToolTip(self._t("tip.project"))
         self.workspace_edit.setToolTip(self._t("tip.workspace"))
@@ -1599,12 +1565,10 @@ class QtRenWeaveWindow(QMainWindow):
         if self._scope_preview_inventory is None:
             self.review_remaining_label.setText(self._t("review.waiting_scope"))
         self.pending_title.setText(self._t("review.no_pending"))
-        self.review_details_toggle.setText(
-            self._t("review.hide_details" if self.review_details_label.isVisible() else "review.details")
-        )
         self.pending_toggle.setText(
             self._t("review.hide_pending" if self.pending_details.isVisible() else "review.show_details")
         )
+        self._toggle_review_details()
         self.progress_open_button.setText(self._t("progress.open_rpy"))
         self.progress_open_rpa_button.setText(self._t("progress.open_rpa"))
         self.progress_open_install_button.setText(self._t("progress.open_install"))
@@ -1612,10 +1576,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_error_button.setText(self._t("model.error_details"))
         if self._last_model_error_key:
             self.model_status.setText(self._t(self._last_model_error_key))
-        self.log_toggle.setToolTip(self._t("tip.log"))
         self.progress_error_button.setText(self._t("progress.show_error"))
-        self.log_toggle.setToolTip(self._t("tip.log"))
-        self.log_toggle.setText(self._t("progress.hide_log" if self.log_edit.isVisible() else "progress.show_log"))
         for key, label in self.progress_stat_titles:
             label.setText(self._t(key))
         for label in self.progress_phase_labels:
@@ -1655,9 +1616,7 @@ class QtRenWeaveWindow(QMainWindow):
             self._refresh_review_preview()
 
     def _toggle_log(self) -> None:
-        visible = not self.log_edit.isVisible()
-        self.log_edit.setVisible(visible)
-        self.log_toggle.setText(self._t("progress.hide_log" if visible else "progress.show_log"))
+        self.log_edit.setVisible(True)
 
     def _project_changed(self, _value: str = "") -> None:
         self._project_revision += 1
@@ -1675,6 +1634,15 @@ class QtRenWeaveWindow(QMainWindow):
         self._inspection_timer.start(150)
         self._refresh_shell()
 
+    @staticmethod
+    def _normalise_path_text(value: str) -> str:
+        return str(value or "").replace("\\", "/")
+
+    def _normalise_path_edit(self, edit: QLineEdit) -> None:
+        value = self._normalise_path_text(edit.text())
+        if value != edit.text():
+            edit.setText(value)
+
     def _workspace_edited(self, _value: str = "") -> None:
         self._workspace_auto_generated = False
 
@@ -1685,7 +1653,7 @@ class QtRenWeaveWindow(QMainWindow):
         else:
             name = source.parent.name if source.name.casefold() == "game" else source.name
         base = _user_home_fallback() / "Documents" / "RenWeaveWork"
-        self.workspace_edit.setText(str(base / (name or "project")))
+        self.workspace_edit.setText(self._normalise_path_text(str(base / (name or "project"))))
         self._workspace_auto_generated = True
 
     def _inspect_project(self) -> None:
@@ -1730,17 +1698,18 @@ class QtRenWeaveWindow(QMainWindow):
         self._project_validation_state = "valid"
         self._project_validation_error = ""
         if sdk is not None and not self.renpy_sdk_edit.text().strip():
-            self.renpy_sdk_edit.setText(str(sdk.root))
+            self.renpy_sdk_edit.setText(self._normalise_path_text(str(sdk.root)))
             self.require_engine_check.setChecked(True)
-        current_target = self.target_combo.currentText().strip()
+        current_target = self._target_language_value()
         self.target_combo.blockSignals(True)
         self.target_combo.clear()
-        self.target_combo.addItems(
-            [item.language for item in languages]
-            + ["简体中文", "繁體中文", "English", "日本語", "Français"]
-        )
+        for item in languages:
+            self.target_combo.addItem(getattr(item, "display_name", "") or item.language, item.language)
+        for language in ("简体中文", "繁體中文", "English", "日本語", "Français"):
+            if self.target_combo.findData(language) < 0:
+                self.target_combo.addItem(language, language)
         if current_target:
-            self.target_combo.setCurrentText(current_target)
+            self._set_target_language_value(current_target)
         self.target_combo.blockSignals(False)
         self._refresh_existing_languages()
         self.project_status.setText(self._t("game.detected", count=len(languages)))
@@ -1764,8 +1733,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.existing_languages_title.setText(self._t("languages.existing_title"))
         self.existing_languages_body.setText(self._t("languages.existing_body"))
         for item in languages:
+            display_name = getattr(item, "display_name", "") or item.language
+            label = display_name if display_name == item.language else f"{display_name}（{item.language}）"
             button = QPushButton(
-                f"{item.language} · {item.script_files + item.compiled_files} files",
+                f"{label} · {item.script_files + item.compiled_files} files",
                 objectName="Secondary",
             )
             button.setCheckable(True)
@@ -1782,7 +1753,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._existing_selection_source = self.source_combo.currentText().strip() or "auto"
         self._changing_existing_selection = True
         try:
-            self.target_combo.setCurrentText(language)
+            self._set_target_language_value(language)
         finally:
             self._changing_existing_selection = False
         for item_language, button in self.existing_language_controls.items():
@@ -1802,13 +1773,24 @@ class QtRenWeaveWindow(QMainWindow):
     def _language_changed(self, _value: str = "") -> None:
         if not self._changing_existing_selection and self._selected_existing_language is not None:
             source = self.source_combo.currentText().strip() or "auto"
-            target = self.target_combo.currentText().strip()
+            target = self._target_language_value()
             if source != self._existing_selection_source or target != self._selected_existing_language:
                 self._clear_existing_language_selection()
                 self._invalidate_scope_preview()
         if self.step >= 3:
             self._start_scope_preview()
         self._refresh_shell()
+
+    def _target_language_value(self) -> str:
+        value = self.target_combo.currentData()
+        return str(value).strip() if value else self.target_combo.currentText().strip()
+
+    def _set_target_language_value(self, language: str) -> None:
+        index = self.target_combo.findData(language)
+        if index >= 0:
+            self.target_combo.setCurrentIndex(index)
+        else:
+            self.target_combo.setCurrentText(language)
 
     def _project_inspection_failed(
         self,
@@ -1828,7 +1810,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _start_scope_preview(self, *_args) -> None:
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip() or str(_user_home_fallback() / "Documents" / "RenWeaveWork")
-        target = self.target_combo.currentText().strip()
+        target = self._target_language_value()
         if not project or not target:
             return
         signature = (project, workspace, self.source_combo.currentText().strip() or "auto", target)
@@ -2202,7 +2184,7 @@ class QtRenWeaveWindow(QMainWindow):
         """Return a compatible, incomplete workspace state for the current task."""
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
-        target = self.target_combo.currentText().strip()
+        target = self._target_language_value()
         if not project or not workspace or not target:
             return None
         state_path = Path(workspace).expanduser() / "state.json"
@@ -2241,13 +2223,9 @@ class QtRenWeaveWindow(QMainWindow):
             f"{self.source_combo.currentText().strip() or 'auto'}  →  {self.target_combo.currentText().strip()}"
         )
         self.review_fact_values[0].setText(
-            f"{self.provider_combo.currentText()} · {self.model_edit.currentText().strip() or '—'}"
+            "—" if self._blank_translation_mode else f"{self.provider_combo.currentText()} · {self.model_edit.currentText().strip() or '—'}"
         )
         self.review_fact_values[1].setText(
-            Path(self.project_edit.text().strip()).name or self.project_edit.text().strip() or "—"
-        )
-        self.review_fact_values[2].setText(self.review_languages_label.text())
-        self.review_fact_values[3].setText(
             (
                 (
                     "生成 RPA · 校验后安装"
@@ -2283,7 +2261,14 @@ class QtRenWeaveWindow(QMainWindow):
         else:
             self.review_resume_label.clear()
             self.review_resume_label.setVisible(False)
-        if budget is not None:
+        if self._blank_translation_mode:
+            self.budget_label.setText("0 Token" if self.locale == "en" else "0 Token")
+            self.budget_note.setText(
+                "Blank translation generation uses no Tokens."
+                if self.locale == "en"
+                else "生成空白翻译不产生Token消耗"
+            )
+        elif budget is not None:
             self.budget_label.setText(
                 (
                     f"预估用量：{budget.estimated_total_low:,}–{budget.estimated_total_high:,} Token"
@@ -2308,24 +2293,19 @@ class QtRenWeaveWindow(QMainWindow):
         self.pending_details.setPlainText("\n\n".join(rows))
 
     def _toggle_review_details(self) -> None:
-        visible = not self.review_details_label.isVisible()
-        self.review_details_label.setVisible(visible)
-        self.review_details_toggle.setText(
-            self._t("review.hide_details" if visible else "review.details")
-        )
-        if visible:
-            self.review_details_label.setText(
-                "\n".join(
-                    (
-                        self._t("review.detail_project", value=self.project_edit.text()),
-                        self._t("review.detail_workspace", value=self.workspace_edit.text()),
-                        self._t(
-                            "review.detail_sdk",
-                            value=self.renpy_sdk_edit.text() or self._t("review.not_selected"),
-                        ),
-                    )
+        self.review_details_label.setVisible(True)
+        self.review_details_label.setText(
+            "\n".join(
+                (
+                    self._t("review.detail_project", value=self.project_edit.text()),
+                    self._t("review.detail_workspace", value=self.workspace_edit.text()),
+                    self._t(
+                        "review.detail_sdk",
+                        value=self.renpy_sdk_edit.text() or self._t("review.not_selected"),
+                    ),
                 )
             )
+        )
 
     def _start_translation(self) -> None:
         self._load_workspace_log()
@@ -2345,7 +2325,7 @@ class QtRenWeaveWindow(QMainWindow):
                 workspace=str(workspace),
                 provider=str(provider_path),
                 source_language=self.source_combo.currentText().strip() or "auto",
-                target_language=self.target_combo.currentText().strip(),
+                target_language=self._target_language_value(),
                 api_key=self.api_key_edit.text(),
                 generate_rpa=self.generate_rpa_check.isChecked(),
                 install=self.install_check.isChecked(),
@@ -2378,7 +2358,7 @@ class QtRenWeaveWindow(QMainWindow):
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
         source = self.source_combo.currentText().strip() or "auto"
-        target = self.target_combo.currentText().strip()
+        target = self._target_language_value()
         if not project or not workspace or not target:
             QMessageBox.warning(
                 self,
@@ -2474,6 +2454,56 @@ class QtRenWeaveWindow(QMainWindow):
             label.style().unpolish(label)
             label.style().polish(label)
 
+    def _progress_stage_text(self, stage: str) -> str:
+        stage = stage.casefold()
+        if stage in {"created", "discovered", "acquired", "decompiled", "indexed"}:
+            return self._t("progress.phase.prepare")
+        if stage in {"knowledge_ready", "synthesizing", "narrative_ready"}:
+            return self._t("progress.phase.analyze")
+        if stage == "translating":
+            return self._t("progress.phase.translate")
+        if stage in {"validated", "refining", "refined"}:
+            return self._t("progress.phase.validate")
+        if stage in {"building", "validating_build"}:
+            return self._t("progress.phase.build")
+        if stage == "complete":
+            return self._t("translation.completed")
+        if stage == "paused":
+            return self._t("progress.paused")
+        if stage == "failed":
+            return self._t("translation.failed", error="")
+        return self._t("progress.idle")
+
+    def _progress_operation_text(self, operation: str, stage: str) -> str:
+        if self.locale == "en" or not operation:
+            return operation
+        exact = {
+            "Upgrading the project analysis": "正在升级项目分析",
+            "Discovering the Ren'Py project": "正在发现 Ren'Py 项目",
+            "Collecting scripts from game files and archives": "正在收集游戏文件和归档中的脚本",
+            "Decompiling compiled Ren'Py scripts": "正在反编译已编译的 Ren'Py 脚本",
+            "Building the scene and control-flow index": "正在建立场景和控制流索引",
+            "Deterministic game knowledge is ready": "游戏知识索引已准备完成",
+            "Generating blank Ren'Py translation scripts": "正在生成空白 Ren'Py 翻译脚本",
+            "Validating blank Ren'Py translation scripts": "正在校验空白 Ren'Py 翻译脚本",
+            "Blank translation scripts are ready": "空白翻译脚本已准备完成",
+            "Preparing or restoring project context": "正在准备或恢复项目上下文",
+            "Understanding storylines, characters, and terminology": "正在理解剧情、人物和术语",
+            "Narrative context is ready": "剧情上下文已准备完成",
+            "Translating scenes with narrative context": "正在结合剧情上下文翻译场景",
+            "Reviewing terminology and voice consistency": "正在检查术语和语气一致性",
+            "Global refinement is complete": "全局润色已完成",
+            "Generating Ren'Py translation scripts": "正在生成 Ren'Py 翻译脚本",
+            "Validating generated Ren'Py scripts": "正在校验生成的 Ren'Py 脚本",
+            "Some scenes require attention before packaging": "部分场景需要处理后才能打包",
+            "Paused safely after saving the latest checkpoint": "已保存最新检查点并安全暂停",
+        }
+        if operation in exact:
+            return exact[operation]
+        if operation.startswith("Translating "):
+            return "正在翻译 " + operation.removeprefix("Translating ")
+        return self._progress_stage_text(stage)
+
     def _show_error_details(self) -> None:
         if self._last_error_details:
             ErrorDetailsDialog(self, self._last_error_details).exec()
@@ -2528,23 +2558,22 @@ class QtRenWeaveWindow(QMainWindow):
         percent = float(self._progress_payload.get("progress_percent", 0) or 0)
         self.progress_bar.setValue(max(0, min(100, round(percent))))
         self.progress_percent.setText(f"{percent:.0f}%")
-        self.progress_heading.setText(
-            str(self._progress_payload.get("current_operation", "翻译中" if self.locale == "zh" else "Translating"))
-        )
+        stage = str(self._progress_payload.get("stage", ""))
+        operation = str(self._progress_payload.get("current_operation", "") or "")
+        self.progress_heading.setText(self._progress_operation_text(operation, stage))
         completed = self._progress_payload.get("completed_scenes", 0)
         total = self._progress_payload.get("total_scenes", 0)
         self.progress_stats.setText(
             f"场景：{completed}/{total}" if self.locale == "zh" else f"Scenes: {completed}/{total}"
         )
-        self.progress_runtime.setText(str(self._progress_payload.get("stage", "运行中" if self.locale == "zh" else "running")))
-        operation = str(self._progress_payload.get("current_operation", "") or "")
+        self.progress_runtime.setText(self._progress_stage_text(stage))
         eta_seconds = self._progress_payload.get("eta_seconds", -1)
         eta = "—" if not isinstance(eta_seconds, (int, float)) or eta_seconds < 0 else f"{int(eta_seconds)}s"
         calls = int(self._progress_payload.get("total_model_calls", 0) or 0)
         tokens = int(self._progress_payload.get("total_prompt_tokens", 0) or 0) + int(
             self._progress_payload.get("total_completion_tokens", 0) or 0
         )
-        self.progress_stat_values[0].setText(operation or "—")
+        self.progress_stat_values[0].setText(self._progress_operation_text(operation, stage) or "—")
         self.progress_stat_values[1].setText(f"{completed}/{total}")
         self.progress_stat_values[2].setText(eta)
         self.progress_stat_values[3].setText(
@@ -2610,17 +2639,17 @@ class QtRenWeaveWindow(QMainWindow):
     def _browse_project(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, self._t("shell.select_project"))
         if selected:
-            self.project_edit.setText(selected)
+            self.project_edit.setText(self._normalise_path_text(selected))
 
     def _browse_workspace(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, self._t("shell.select_workspace"))
         if selected:
-            self.workspace_edit.setText(selected)
+            self.workspace_edit.setText(self._normalise_path_text(selected))
 
     def _browse_sdk(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, self._t("shell.select_sdk"))
         if selected:
-            self.renpy_sdk_edit.setText(selected)
+            self.renpy_sdk_edit.setText(self._normalise_path_text(selected))
             self.require_engine_check.setChecked(True)
 
     def closeEvent(self, event: QCloseEvent) -> None:

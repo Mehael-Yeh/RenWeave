@@ -37,7 +37,7 @@ from renweave.emitter import (
     RenpyTranslationEmitter,
     TranslationConflict,
 )
-from renweave.existing_translations import ExistingTranslationScanner, discover_existing_languages
+from renweave.existing_translations import ExistingTranslationScanner, discover_existing_languages, language_display_name
 from renweave.desktop_core import (
     TranslationRequest,
     execute_translation,
@@ -442,6 +442,7 @@ class CorePipelineTests(unittest.TestCase):
 
         summaries = discover_existing_languages(self.root)
         self.assertEqual([item.language for item in summaries], ["zh_hans"])
+        self.assertEqual(summaries[0].display_name, "简体中文")
         self.assertGreaterEqual(summaries[0].script_files, 2)
         complete = ExistingTranslationScanner().scan(index, "zh_hans")
         self.assertTrue(complete.complete)
@@ -457,6 +458,12 @@ class CorePipelineTests(unittest.TestCase):
         changed = ExistingTranslationScanner().scan(changed_index, "zh_hans")
         self.assertFalse(changed.complete)
         self.assertGreaterEqual(changed.missing_units, 1)
+
+    def test_language_display_name_uses_aliases_and_translation_sample(self) -> None:
+        self.assertEqual(language_display_name("chinese"), "简体中文")
+        self.assertEqual(language_display_name("zh_hans"), "简体中文")
+        self.assertEqual(language_display_name("custom", 'new "這是一段繁體中文翻譯"'), "繁體中文")
+        self.assertEqual(language_display_name("custom", 'new "这是简体中文翻译"'), "简体中文")
 
     def test_existing_translation_scanner_reuses_unique_source_across_block_types(self) -> None:
         language_file = self.game / "tl" / "zh_hans" / "strings.rpy"

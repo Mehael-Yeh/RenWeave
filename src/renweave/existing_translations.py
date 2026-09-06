@@ -18,12 +18,39 @@ TRANSLATE_HEADER_RE = re.compile(
 )
 
 
+LANGUAGE_DISPLAY_ALIASES = {
+    "zh_hans": "简体中文",
+    "zh_cn": "简体中文",
+    "zh_simplified": "简体中文",
+    "simplified_chinese": "简体中文",
+    "chinese": "简体中文",
+    "schinese": "简体中文",
+    "zh_hant": "繁體中文",
+    "zh_tw": "繁體中文",
+    "zh_hk": "繁體中文",
+    "traditional_chinese": "繁體中文",
+    "tchinese": "繁體中文",
+    "en": "English",
+    "english": "English",
+    "ja": "日本語",
+    "japanese": "日本語",
+    "ko": "한국어",
+    "korean": "한국어",
+}
+
+
+TRADITIONAL_MARKERS = set("體繁體臺灣國語學習說話這個與為後發現門開關車裡麼會對於從現時實產業").union(
+    "電腦檔案網頁廣東話聽見轉譯選擇畫面"
+)
+
+
 @dataclass(slots=True, frozen=True)
 class ExistingLanguageSummary:
     language: str
     script_files: int
     compiled_files: int
     total_bytes: int
+    display_name: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -85,13 +112,40 @@ def discover_existing_languages(target: str | Path) -> list[ExistingLanguageSumm
     ):
         scripts = [item for item in language_dir.rglob("*.rpy") if item.is_file()]
         compiled = [item for item in language_dir.rglob("*.rpyc") if item.is_file()]
+        sample = _sample_translation_text(scripts[:3])
         result.append(ExistingLanguageSummary(
             language=language_dir.name,
             script_files=len(scripts),
             compiled_files=len(compiled),
             total_bytes=sum(item.stat().st_size for item in [*scripts, *compiled]),
+            display_name=language_display_name(language_dir.name, sample),
         ))
     return result
+
+
+def language_display_name(language: str, sample_text: str = "") -> str:
+    """Return a user-facing language name using the folder and a small sample."""
+    normalized = re.sub(r"[^\w]+", "_", language.strip().casefold()).strip("_")
+    aliased = LANGUAGE_DISPLAY_ALIASES.get(normalized)
+    if aliased is not None:
+        return aliased
+    chinese = sum("\u3400" <= char <= "\u9fff" for char in sample_text)
+    if chinese:
+        traditional = sum(char in TRADITIONAL_MARKERS for char in sample_text)
+        return "繁體中文" if traditional >= 2 else "简体中文"
+    return language
+
+
+def _sample_translation_text(paths: list[Path]) -> str:
+    """Read a few translation files for a lightweight language sanity check."""
+    chunks: list[str] = []
+    for path in paths:
+        try:
+            text, _encoding, _newline, _bom = read_text_preserving(path)
+        except (OSError, UnicodeError):
+            continue
+        chunks.append(text[:12000])
+    return "\n".join(chunks)
 
 
 class ExistingTranslationScanner:

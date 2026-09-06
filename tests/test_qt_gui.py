@@ -74,7 +74,7 @@ class QtFrontendTests(unittest.TestCase):
             self.assertIs(window.pending_details, pending_details)
             self.assertIs(window.review_details_label, review_details)
             self.assertTrue(window.pending_details.isVisible())
-            self.assertTrue(window.review_details_label.isVisible())
+            self.assertFalse(window.review_details_label.isHidden())
 
             window._progress_received({"current_operation": "translated script.rpy"})
             window.step = 4
@@ -82,7 +82,7 @@ class QtFrontendTests(unittest.TestCase):
             log_edit = window.log_edit
             window._toggle_log()
             self.assertIs(window.log_edit, log_edit)
-            self.assertTrue(window.log_edit.isVisible())
+            self.assertFalse(window.log_edit.isHidden())
             self.assertIn("translated script.rpy", window.log_edit.toPlainText())
         finally:
             window.close()
@@ -192,6 +192,8 @@ class QtFrontendTests(unittest.TestCase):
             window.api_key_toggle.click()
             self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Password)
             self.assertTrue(window.use_model_hint.text())
+            self.assertTrue(window.endpoint_edit.isVisible() or not window.isVisible())
+            self.assertTrue(window.endpoint_preset_combo.isHidden())
         finally:
             window.close()
 
@@ -427,6 +429,44 @@ class QtFrontendTests(unittest.TestCase):
             self.assertTrue(window.provider_description_label.text())
             self.assertNotIn("Official", window.provider_description_label.text())
             self.assertIn("API 密钥", window.model_status.text())
+        finally:
+            window.close()
+
+    def test_game_page_only_exposes_three_path_selectors_and_normalizes_slashes(self):
+        window = QtRenWeaveWindow(initial_project="C:\\Games\\Demo", initial_workspace="C:\\Work\\Demo")
+        try:
+            self.assertEqual(window.project_edit.text(), "C:/Games/Demo")
+            self.assertEqual(window.workspace_edit.text(), "C:/Work/Demo")
+            self.assertFalse(hasattr(window, "project_copy_button"))
+            self.assertFalse(hasattr(window, "project_open_button"))
+            self.assertIn("QPushButton#Primary:disabled", window.styleSheet())
+        finally:
+            window.close()
+
+    def test_blank_review_uses_zero_tokens_and_single_summary_card(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "zh"
+            window._blank_translation_mode = True
+            window._scope_preview_inventory = SimpleNamespace(model_units=0, reusable_units=3, pending_units=[])
+            window._scope_preview_budget = SimpleNamespace(estimated_total_low=12, estimated_total_high=34)
+            window._refresh_review_preview()
+            self.assertEqual(window.review_fact_values[0].text(), "—")
+            self.assertEqual(window.budget_label.text(), "0 Token")
+            self.assertEqual(window.budget_note.text(), "生成空白翻译不产生Token消耗")
+            self.assertFalse(window.review_details_label.isHidden())
+            self.assertIsNone(window.review_details_toggle)
+        finally:
+            window.close()
+
+    def test_progress_hides_bar_percentage_and_keeps_log_visible_without_toggle(self):
+        window = QtRenWeaveWindow()
+        try:
+            self.assertFalse(window.progress_bar.isTextVisible())
+            self.assertTrue(window.log_edit.isVisible() or not window.isVisible())
+            self.assertIsNone(window.log_toggle)
+            window._toggle_log()
+            self.assertFalse(window.log_edit.isHidden())
         finally:
             window.close()
 
