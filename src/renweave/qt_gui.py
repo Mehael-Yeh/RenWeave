@@ -53,7 +53,7 @@ from .desktop_core import (
     execute_translation,
 )
 from .io import atomic_write_json, read_json
-from .pipeline import RenWeavePipeline
+from .pipeline import PipelineStage, RenWeavePipeline
 from .provider import ModelProfile, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID
 from .runtime import CancellationToken
@@ -252,6 +252,8 @@ UI_COPY = {
         "review.fact_options": "Options",
         "review.waiting_scope": "Waiting for scope preview",
         "review.estimate_unavailable": "Token usage estimate unavailable",
+        "review.resume_found": "Recoverable translation found",
+        "review.resume_body": "{completed} completed scene checkpoint(s) are available. Continuing will reuse them.",
         "review.rpa": "Generate RPA package",
         "review.install": "Install after validation",
         "review.details": "Show technical details",
@@ -314,6 +316,14 @@ UI_COPY = {
         "translation.ready": "Translation package is ready",
         "translation.completed": "Completed",
         "progress.pausing": "Pausing safely…",
+        "progress.paused": "Translation paused safely",
+        "progress.paused_body": "Completed checkpoints are preserved. Resume with the same project and workspace.",
+        "progress.resume": "Resume translation",
+        "progress.retry": "Retry translation",
+        "progress.output": "Open output",
+        "progress.rpy_output": "RPY output: {path}",
+        "progress.rpa_output": "RPA output: {path}",
+        "dialog.translation_running": "Translation is still running. Pause it before leaving this page.",
         "top.settings": "Settings",
         "settings.title": "Settings",
         "settings.body": "Control API key storage and optional version checks for this user account.",
@@ -399,6 +409,8 @@ UI_COPY = {
         "review.fact_options": "选项",
         "review.waiting_scope": "等待翻译范围预览",
         "review.estimate_unavailable": "暂时无法预估 Token 用量",
+        "review.resume_found": "发现可恢复的翻译任务",
+        "review.resume_body": "已有 {completed} 个场景检查点。继续时会复用这些检查点。",
         "review.rpa": "生成 RPA 语言包",
         "review.install": "校验后安装",
         "review.details": "显示技术详情",
@@ -461,6 +473,14 @@ UI_COPY = {
         "translation.ready": "翻译包已准备完成",
         "translation.completed": "已完成",
         "progress.pausing": "正在安全暂停……",
+        "progress.paused": "翻译已安全暂停",
+        "progress.paused_body": "已完成的检查点已经保留，可以使用相同项目和工作区继续。",
+        "progress.resume": "继续翻译",
+        "progress.retry": "重试翻译",
+        "progress.output": "打开输出",
+        "progress.rpy_output": "RPY 输出：{path}",
+        "progress.rpa_output": "RPA 输出：{path}",
+        "dialog.translation_running": "翻译仍在运行，请先暂停后再离开当前页面。",
         "top.settings": "设置",
         "settings.title": "设置",
         "settings.body": "管理当前用户的 API 密钥存储方式和可选的版本检查。",
@@ -553,6 +573,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._logs: list[str] = []
         self._progress_payload: dict[str, object] = {}
         self._last_stage = ""
+        self._resume_candidate: dict[str, object] | None = None
         self._translation_started = False
         self._blank_translation_mode = False
         self._last_logged_operation = ""
@@ -961,11 +982,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.review_mode_label = QLabel(objectName="Status")
         self.review_remaining_label = QLabel(objectName="Status")
         self.review_preserved_label = QLabel("", objectName="Hint")
+        self.review_resume_label = QLabel("", objectName="Hint")
+        self.review_resume_label.setWordWrap(True)
         task_layout.addWidget(self.review_game_label)
         task_layout.addWidget(self.review_languages_label)
         task_layout.addWidget(self.review_mode_label)
         task_layout.addWidget(self.review_remaining_label)
         task_layout.addWidget(self.review_preserved_label)
+        task_layout.addWidget(self.review_resume_label)
         layout.addWidget(task_card)
 
         facts_card, facts_layout = self._card()
@@ -1109,20 +1133,31 @@ class QtRenWeaveWindow(QMainWindow):
             button.setProperty("current", "true" if index == self.step else "false")
             button.style().unpolish(button)
             button.style().polish(button)
-            button.setEnabled(index <= self.step)
+            button.setEnabled(index <= self.step and not self._translation_started)
         self.back_button.setVisible(self.step > 0)
+        self.back_button.setEnabled(not self._translation_started)
         self.breadcrumb.setText(self._t("shell.breadcrumb", current=self.step + 1, total=len(self.STEPS)))
         self.footer_effect.setText(self._footer_effect())
         if self.step == 4 and self._translation_started:
             self.action_button.setText(self._t("shell.pause"))
             self.action_button.setEnabled(True)
         elif self.step == 4:
-            self.action_button.setText(
-                self._t("shell.extract_blank")
-                if self._blank_translation_mode
-                else self._t("shell.continue_translation" if self._last_stage else "shell.start_translation")
+            if self._last_stage == "paused":
+                self.action_button.setText(self._t("progress.resume"))
+            elif self._last_stage == "failed":
+                self.action_button.setText(self._t("progress.retry"))
+            elif self._last_stage == "complete":
+                self.action_button.setText(self._t("progress.output"))
+            else:
+                self.action_button.setText(
+                    self._t("shell.extract_blank")
+                    if self._blank_translation_mode
+                    else self._t("shell.start_translation")
+                )
+            self.action_button.setEnabled(
+                self._last_stage == "complete"
+                or self._scope_preview_status == "ready"
             )
-            self.action_button.setEnabled(self._scope_preview_status == "ready")
         elif self.step == 3:
             self.action_button.setText(self._t("shell.continue"))
             self.action_button.setEnabled(self._can_continue())
@@ -1142,11 +1177,17 @@ class QtRenWeaveWindow(QMainWindow):
         )
 
     def _go_back(self) -> None:
+        if self._translation_started:
+            QMessageBox.warning(self, self._t("dialog.project"), self._t("dialog.translation_running"))
+            return
         if self.step > 0:
             self.step -= 1
             self._refresh_shell()
 
     def _go_to_step(self, selected: int) -> None:
+        if self._translation_started:
+            QMessageBox.warning(self, self._t("dialog.project"), self._t("dialog.translation_running"))
+            return
         if 0 <= selected <= self.step:
             self.step = selected
             if self.step == 3:
@@ -1178,12 +1219,17 @@ class QtRenWeaveWindow(QMainWindow):
                 self._refresh_shell()
                 return
             self.step = 4
+            self._resume_candidate = self._load_resume_candidate()
+            if self._resume_candidate:
+                self._last_stage = str(self._resume_candidate.get("stage", "")).casefold()
             self._refresh_shell()
             return
         if self.step == 4:
             if self._translation_started and self._cancel_token is not None:
                 self._cancel_token.cancel()
                 self.progress_runtime.setText(self._t("progress.pausing"))
+            elif self._last_stage == "complete":
+                self._open_output_folder()
             else:
                 self._start_translation()
 
@@ -1796,11 +1842,44 @@ class QtRenWeaveWindow(QMainWindow):
         self._worker = worker
         self.thread_pool.start(worker)
 
+    def _load_resume_candidate(self) -> dict[str, object] | None:
+        """Return a compatible, incomplete workspace state for the current task."""
+        project = self.project_edit.text().strip()
+        workspace = self.workspace_edit.text().strip()
+        target = self.target_combo.currentText().strip()
+        if not project or not workspace or not target:
+            return None
+        state_path = Path(workspace).expanduser() / "state.json"
+        try:
+            payload = read_json(state_path)
+        except (OSError, ValueError, TypeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        stage = str(payload.get("stage", "")).strip().casefold()
+        completed = payload.get("completed_scene_ids", [])
+        if stage in {"", PipelineStage.COMPLETE.value} or not isinstance(completed, list) or not completed:
+            return None
+        try:
+            current_project = str(Path(project).expanduser().resolve())
+            saved_project = str(Path(str(payload.get("project_target", ""))).expanduser().resolve())
+        except (OSError, RuntimeError, TypeError):
+            return None
+        if current_project != saved_project:
+            return None
+        source = self.source_combo.currentText().strip() or "auto"
+        if str(payload.get("source_language", "auto")) != source:
+            return None
+        if str(payload.get("target_language", "")) != target:
+            return None
+        return payload
+
     def _refresh_review_preview(self) -> None:
         inventory = self._scope_preview_inventory
         budget = self._scope_preview_budget
         if inventory is None:
             return
+        self._resume_candidate = self._load_resume_candidate()
         self.review_game_label.setText(Path(self.project_edit.text().strip()).name or self.project_edit.text().strip())
         self.review_languages_label.setText(
             f"{self.source_combo.currentText().strip() or 'auto'}  →  {self.target_combo.currentText().strip()}"
@@ -1837,6 +1916,17 @@ class QtRenWeaveWindow(QMainWindow):
         self.review_preserved_label.setText(
             (f"可复用已有单元：{inventory.reusable_units}" if self.locale == "zh" else f"Reusable existing units: {inventory.reusable_units}")
         )
+        if self._resume_candidate:
+            self.review_resume_label.setVisible(True)
+            self.review_resume_label.setText(
+                self._t(
+                    "review.resume_body",
+                    completed=len(self._resume_candidate.get("completed_scene_ids", [])),
+                )
+            )
+        else:
+            self.review_resume_label.clear()
+            self.review_resume_label.setVisible(False)
         if budget is not None:
             self.budget_label.setText(
                 (
@@ -1946,17 +2036,25 @@ class QtRenWeaveWindow(QMainWindow):
         )
 
     def _translation_finished(self, state) -> None:
-        self._last_stage = "complete"
         self._progress_payload = state.to_dict()
         self._translation_started = False
+        if state.stage == PipelineStage.PAUSED:
+            self._last_stage = "paused"
+            self.progress_heading.setText(self._t("progress.paused"))
+            self.progress_runtime.setText(self._t("progress.paused_body"))
+            self.progress_output.clear()
+            self.progress_open_button.setVisible(False)
+            self._refresh_shell()
+            return
+        self._last_stage = "complete"
         self.progress_heading.setText(self._t("translation.ready"))
         self.progress_runtime.setText(self._t("translation.completed"))
         output_dir = str(self._progress_payload.get("output_dir", "") or "")
         package_path = str(self._progress_payload.get("package_path", "") or "")
         self.progress_output.setText(
             "\n".join(item for item in (
-                f"RPY output: {output_dir}" if output_dir else "",
-                f"RPA output: {package_path}" if package_path else "",
+                self._t("progress.rpy_output", path=output_dir) if output_dir else "",
+                self._t("progress.rpa_output", path=package_path) if package_path else "",
             ) if item)
         )
         self.progress_open_button.setVisible(bool(output_dir))
@@ -2081,9 +2179,12 @@ class QtRenWeaveWindow(QMainWindow):
             self.require_engine_check.setChecked(True)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._translation_started and self._cancel_token is not None:
+            self._cancel_token.cancel()
         self._save_api_key()
         self._save_settings()
         self.thread_pool.clear()
+        self.thread_pool.waitForDone(3000)
         event.accept()
 
 

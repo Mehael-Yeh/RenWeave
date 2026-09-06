@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
 from renweave.decompiler import run_unrpyc_in_process
+from renweave.pipeline import PipelineStage
 from renweave.qt_gui import QtRenWeaveWindow
 
 
@@ -289,6 +290,39 @@ class QtFrontendTests(unittest.TestCase):
             self.assertEqual(window.step, 4)
             self.assertFalse(window._translation_started)
             self.assertEqual(window.action_button.text(), "Start translation")
+        finally:
+            window.close()
+
+    def test_paused_translation_is_presented_as_resumable(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 4
+            window._scope_preview_status = "ready"
+            window._translation_started = True
+            window._translation_finished(
+                SimpleNamespace(
+                    stage=PipelineStage.PAUSED,
+                    to_dict=lambda: {
+                        "stage": "paused",
+                        "completed_scene_ids": ["scene-1"],
+                    },
+                )
+            )
+            self.assertEqual(window._last_stage, "paused")
+            self.assertFalse(window._translation_started)
+            self.assertEqual(window.action_button.text(), "Resume translation")
+            self.assertIn("paused", window.progress_heading.text().casefold())
+        finally:
+            window.close()
+
+    def test_navigation_is_disabled_while_translation_is_running(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 4
+            window._translation_started = True
+            window._refresh_shell()
+            self.assertFalse(window.back_button.isEnabled())
+            self.assertFalse(any(button.isEnabled() for button in window.nav_buttons))
         finally:
             window.close()
 
