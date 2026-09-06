@@ -414,6 +414,22 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_model_connection_failure_is_friendly_and_keeps_copyable_details(self):
+        window = QtRenWeaveWindow()
+        try:
+            self.assertFalse(window.model_error_button.isVisible())
+            window._model_operation_failed(RuntimeError("401 unauthorized: invalid api key"), loading=True)
+            self.assertTrue(window.model_error_button.isVisible() or not window.isVisible())
+            self.assertIn("API", window.model_status.text())
+            self.assertIn("401 unauthorized", window._last_error_details)
+            window.locale = "zh"
+            window._retranslate_ui()
+            self.assertTrue(window.provider_description_label.text())
+            self.assertNotIn("Official", window.provider_description_label.text())
+            self.assertIn("API 密钥", window.model_status.text())
+        finally:
+            window.close()
+
 
 if __name__ == "__main__":
     unittest.main()

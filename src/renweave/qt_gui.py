@@ -329,6 +329,11 @@ UI_COPY = {
         "model.verified": "Verified {model} · {latency} ms",
         "model.load_failed": "Model loading failed: {error}",
         "model.verify_failed": "Verification failed: {error}",
+        "model.error_details": "Show connection details",
+        "error.api_key": "The API key was rejected. Check the key and provider endpoint.",
+        "error.timeout": "The provider request timed out. Retry or check the network.",
+        "error.connection": "The provider could not be reached. Check the endpoint and network.",
+        "error.generic": "The provider operation failed. Open details for the full error.",
         "scope.failed": "Scope preview failed: {error}",
         "translation.failed": "Translation failed: {error}",
         "translation.ready": "Translation package is ready",
@@ -519,6 +524,11 @@ UI_COPY = {
         "model.verified": "模型已验证：{model} · {latency} ms",
         "model.load_failed": "获取模型失败：{error}",
         "model.verify_failed": "模型验证失败：{error}",
+        "model.error_details": "显示连接详情",
+        "error.api_key": "API 密钥被拒绝，请检查密钥和供应商接口地址。",
+        "error.timeout": "供应商请求超时，可以重试或检查网络连接。",
+        "error.connection": "无法连接供应商，请检查接口地址和网络。",
+        "error.generic": "供应商操作失败，请打开详情查看完整错误。",
         "scope.failed": "翻译范围预览失败：{error}",
         "translation.failed": "翻译失败：{error}",
         "translation.ready": "翻译包已准备完成",
@@ -732,6 +742,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._progress_payload: dict[str, object] = {}
         self._last_stage = ""
         self._last_error_details = ""
+        self._last_model_error_key = ""
         self._resume_candidate: dict[str, object] | None = None
         self._translation_started = False
         self._blank_translation_mode = False
@@ -1067,6 +1078,9 @@ class QtRenWeaveWindow(QMainWindow):
             provider_grid.addWidget(button, index // 4, index % 4)
             self.provider_buttons.append(button)
         card_layout.addWidget(provider_panel)
+        self.provider_description_label = QLabel(objectName="Hint")
+        self.provider_description_label.setWordWrap(True)
+        card_layout.addWidget(self.provider_description_label)
 
         fields = QGridLayout()
         fields.setHorizontalSpacing(12)
@@ -1152,6 +1166,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_status.setMaximumHeight(62)
         self.model_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         card_layout.addWidget(self.model_status)
+        self.model_error_button = QPushButton(objectName="Secondary")
+        self.model_error_button.clicked.connect(self._show_model_error_details)
+        self.model_error_button.setVisible(False)
+        card_layout.addWidget(self.model_error_button)
         layout.addWidget(card)
         layout.addStretch()
         return self.pages[-1], layout
@@ -1526,6 +1544,8 @@ class QtRenWeaveWindow(QMainWindow):
         self.existing_languages_title.setText(self._t("languages.existing_title"))
         self.existing_languages_body.setText(self._t("languages.existing_body"))
         self.model_provider_label.setText(self._t("model.provider"))
+        active_preset = PROVIDER_PRESETS_BY_ID.get(self._active_provider_id, PROVIDER_PRESETS[0])
+        self.provider_description_label.setText(active_preset.localized_description(self.locale))
         self.api_key_label.setText(self._t("model.api_key"))
         self.api_key_toggle.setText(self._t("model.hide_key" if self._api_key_visible else "model.show_key"))
         self.model_label.setText(self._t("model.model"))
@@ -1589,6 +1609,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_open_rpa_button.setText(self._t("progress.open_rpa"))
         self.progress_open_install_button.setText(self._t("progress.open_install"))
         self.progress_error_button.setText(self._t("progress.show_error"))
+        self.model_error_button.setText(self._t("model.error_details"))
+        if self._last_model_error_key:
+            self.model_status.setText(self._t(self._last_model_error_key))
         self.log_toggle.setToolTip(self._t("tip.log"))
         self.progress_error_button.setText(self._t("progress.show_error"))
         self.log_toggle.setToolTip(self._t("tip.log"))
@@ -2057,23 +2080,34 @@ class QtRenWeaveWindow(QMainWindow):
         self._model_catalog_models = ()
         self.browse_model_button.setVisible(False)
         self.reasoning_combo.setEnabled(preset.reasoning_control != "none")
+        self.provider_description_label.setText(preset.localized_description(self.locale))
+        self._last_model_error_key = ""
+        self.model_error_button.setVisible(False)
         self._refresh_reasoning_hint()
         for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
             button.setChecked(button_index == index)
         self._save_settings()
 
     def _connect_models(self) -> None:
-        profile = self._profile()
+        try:
+            profile = self._profile()
+        except (TypeError, ValueError) as error:
+            self._model_operation_failed(error)
+            return
         self.model_status.setText(self._t("model.loading"))
+        self._last_model_error_key = ""
+        self.model_error_button.setVisible(False)
         self._run_worker(
             lambda: OpenAICompatibleCatalog(profile).list_models(),
             lambda catalog: self._models_loaded(catalog),
-            lambda error: self.model_status.setText(self._t("model.load_failed", error=error)),
+            lambda error: self._model_operation_failed(error, loading=True),
         )
 
     def _models_loaded(self, catalog) -> None:
+        self._last_model_error_key = ""
         self._model_catalog_models = tuple(catalog.models)
         self.model_status.setText(self._t("model.loaded", count=len(catalog.models), latency=catalog.latency_ms))
+        self.model_error_button.setVisible(False)
         current = self.model_edit.currentText().strip()
         self.model_edit.clear()
         self.model_edit.addItems(catalog.models)
@@ -2095,15 +2129,47 @@ class QtRenWeaveWindow(QMainWindow):
             self.model_edit.setCurrentText(dialog.selected_model)
 
     def _verify_model(self) -> None:
-        profile = self._profile(require_model=True)
+        try:
+            profile = self._profile(require_model=True)
+        except (TypeError, ValueError) as error:
+            self._model_operation_failed(error)
+            return
         self.model_status.setText(self._t("model.verifying"))
+        self._last_model_error_key = ""
+        self.model_error_button.setVisible(False)
         self._run_worker(
             lambda: OpenAICompatibleCatalog(profile).verify_model(),
-            lambda result: self.model_status.setText(
-                self._t("model.verified", model=result.model, latency=result.latency_ms)
-            ),
-            lambda error: self.model_status.setText(self._t("model.verify_failed", error=error)),
+            self._model_verified,
+            lambda error: self._model_operation_failed(error, verifying=True),
         )
+
+    def _model_verified(self, result) -> None:
+        self._last_model_error_key = ""
+        self.model_error_button.setVisible(False)
+        self.model_status.setText(
+            self._t("model.verified", model=result.model, latency=result.latency_ms)
+        )
+
+    def _friendly_error_key(self, error: object) -> str:
+        message = str(error)
+        lowered = message.casefold()
+        if any(token in lowered for token in ("401", "403", "unauthorized", "forbidden", "api key", "authentication")):
+            return "error.api_key"
+        if "timeout" in lowered or "timed out" in lowered:
+            return "error.timeout"
+        if any(token in lowered for token in ("connection", "dns", "network", "name resolution")):
+            return "error.connection"
+        return "error.generic"
+
+    def _model_operation_failed(self, error: object, *, loading: bool = False, verifying: bool = False) -> None:
+        self._last_error_details = str(error)
+        self._last_model_error_key = self._friendly_error_key(error)
+        self.model_error_button.setVisible(True)
+        self.model_status.setText(self._t(self._last_model_error_key))
+
+    def _show_model_error_details(self) -> None:
+        if self._last_error_details:
+            ErrorDetailsDialog(self, self._last_error_details).exec()
 
     def _profile(self, *, require_model: bool = False) -> ModelProfile:
         provider_id = self.provider_ids[self.provider_combo.currentIndex()]
