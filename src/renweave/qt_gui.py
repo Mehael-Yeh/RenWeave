@@ -302,6 +302,7 @@ UI_COPY = {
         "shell.start_translation": "Start translation",
         "shell.continue_translation": "Continue translation",
         "shell.pause": "Pause",
+        "shell.pausing": "Pausing…",
         "shell.extract_blank": "Extract blank translation",
         "shell.breadcrumb": "Step {current} / {total}",
         "footer.default": "Changes are saved locally",
@@ -504,6 +505,7 @@ UI_COPY = {
         "shell.start_translation": "开始翻译",
         "shell.continue_translation": "继续翻译",
         "shell.pause": "暂停",
+        "shell.pausing": "暂停中",
         "shell.extract_blank": "提取空白翻译",
         "shell.breadcrumb": "第 {current} / {total} 步",
         "footer.default": "修改会保存到本地",
@@ -1364,8 +1366,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.breadcrumb.setText(self._t("shell.breadcrumb", current=self.step + 1, total=len(self.STEPS)))
         self.footer_effect.setText(self._footer_effect())
         if self.step == 4 and self._translation_started:
-            self.action_button.setText(self._t("shell.pause"))
-            self.action_button.setEnabled(True)
+            self.action_button.setText(
+                self._t("shell.pausing" if self._pause_requested else "shell.pause")
+            )
+            self.action_button.setEnabled(not self._pause_requested)
         elif self.step == 4:
             if self._last_stage == "paused":
                 self.action_button.setText(self._t("progress.resume"))
@@ -1381,6 +1385,7 @@ class QtRenWeaveWindow(QMainWindow):
                 )
             self.action_button.setEnabled(
                 self._last_stage == "complete"
+                or self._last_stage == "paused"
                 or self._scope_preview_status == "ready"
             )
         elif self.step == 3:
@@ -1450,18 +1455,25 @@ class QtRenWeaveWindow(QMainWindow):
             self._refresh_shell()
             return
         if self.step == 4:
-            if self._translation_started and self._cancel_token is not None:
-                self._cancel_token.cancel()
-                self.progress_runtime.setText(self._t("progress.pausing"))
+            if self._translation_started:
+                self._request_pause()
             elif self._last_stage == "complete":
                 self._open_output_folder()
             else:
                 self._start_translation()
 
     def _can_continue(self) -> bool:
-        if self.step == 4 and self._translation_started:
+        if self.step == 4 and (self._translation_started or self._last_stage == "paused"):
             return True
         return not bool(self._current_step_validation_error())
+
+    def _request_pause(self) -> None:
+        if not self._translation_started or self._cancel_token is None or self._pause_requested:
+            return
+        self._pause_requested = True
+        self._cancel_token.cancel()
+        self.progress_runtime.setText(self._t("progress.pausing"))
+        self._refresh_shell()
 
     def _current_step_validation_error(self) -> str:
         if self.step == 0:
@@ -2377,6 +2389,8 @@ class QtRenWeaveWindow(QMainWindow):
     def _start_translation(self) -> None:
         self._load_workspace_log()
         self._last_error_details = ""
+        self._pause_requested = False
+        self._exit_after_pause = False
         self.progress_error_button.setVisible(False)
         if self._blank_translation_mode:
             self._start_blank_translation()
@@ -2421,6 +2435,8 @@ class QtRenWeaveWindow(QMainWindow):
     def _start_blank_translation(self) -> None:
         self._load_workspace_log()
         self._last_error_details = ""
+        self._pause_requested = False
+        self._exit_after_pause = False
         self.progress_error_button.setVisible(False)
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
@@ -2453,6 +2469,9 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _translation_finished(self, state) -> None:
         self._progress_payload = state.to_dict()
+        exit_after_pause = self._exit_after_pause
+        self._pause_requested = False
+        self._exit_after_pause = False
         self._translation_started = False
         if state.stage == PipelineStage.PAUSED:
             self._last_stage = "paused"
@@ -2464,6 +2483,8 @@ class QtRenWeaveWindow(QMainWindow):
             self.progress_open_rpa_button.setVisible(False)
             self.progress_open_install_button.setVisible(False)
             self._refresh_shell()
+            if exit_after_pause:
+                QTimer.singleShot(0, self.close)
             return
         self._last_stage = "complete"
         self._last_error_details = ""
@@ -2482,9 +2503,13 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_open_rpa_button.setVisible(bool(package_path))
         self.progress_open_install_button.setVisible(bool(self._progress_payload.get("installed_dir", "")))
         self._refresh_shell()
+        if exit_after_pause:
+            QTimer.singleShot(0, self.close)
 
     def _translation_failed(self, error: BaseException) -> None:
         self._last_stage = "failed"
+        self._pause_requested = False
+        self._exit_after_pause = False
         self._translation_started = False
         self._last_error_details = str(error)
         self.progress_error_button.setVisible(True)
@@ -2722,6 +2747,34 @@ class QtRenWeaveWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._translation_started and self._cancel_token is not None:
+            if not self._force_exit:
+                dialog = QMessageBox(self)
+                dialog.setIcon(QMessageBox.Icon.Warning)
+                dialog.setWindowTitle(self._t("dialog.exit_title"))
+                dialog.setText(self._t("dialog.exit_running"))
+                pause_button = dialog.addButton(
+                    self._t("dialog.exit_pause"),
+                    QMessageBox.ButtonRole.AcceptRole,
+                )
+                exit_button = dialog.addButton(
+                    self._t("dialog.exit_now"),
+                    QMessageBox.ButtonRole.DestructiveRole,
+                )
+                cancel_button = dialog.addButton(
+                    self._t("dialog.exit_cancel"),
+                    QMessageBox.ButtonRole.RejectRole,
+                )
+                dialog.exec()
+                clicked = dialog.clickedButton()
+                if clicked is pause_button:
+                    self._exit_after_pause = True
+                    self._request_pause()
+                    event.ignore()
+                    return
+                if clicked is not exit_button or clicked is cancel_button:
+                    event.ignore()
+                    return
+                self._force_exit = True
             self._cancel_token.cancel()
         self._save_api_key()
         self._save_settings()

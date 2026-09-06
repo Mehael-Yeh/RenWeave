@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from renweave.decompiler import run_unrpyc_in_process
 from renweave.pipeline import PipelineStage
 from renweave.qt_gui import ModelPickerDialog, QtRenWeaveWindow
+from renweave.runtime import CancellationToken
 
 
 class QtFrontendTests(unittest.TestCase):
@@ -393,6 +394,41 @@ class QtFrontendTests(unittest.TestCase):
             self.assertFalse(window._translation_started)
             self.assertEqual(window.action_button.text(), "Resume translation")
             self.assertIn("paused", window.progress_heading.text().casefold())
+        finally:
+            window.close()
+
+    def test_pause_is_immediate_single_click_and_resume_is_single_click(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "en"
+            window._retranslate_ui()
+            window.step = 4
+            window._scope_preview_status = "idle"
+            window._translation_started = True
+            window._cancel_token = CancellationToken()
+            window._refresh_shell()
+            self.assertEqual(window.action_button.text(), "Pause")
+            self.assertTrue(window.action_button.isEnabled())
+
+            window._continue()
+            self.assertTrue(window._cancel_token.cancelled)
+            self.assertTrue(window._pause_requested)
+            self.assertEqual(window.action_button.text(), "Pausing…")
+            self.assertFalse(window.action_button.isEnabled())
+
+            window._continue()
+            self.assertTrue(window._pause_requested)
+
+            window._translation_finished(
+                SimpleNamespace(
+                    stage=PipelineStage.PAUSED,
+                    to_dict=lambda: {"stage": "paused", "completed_scene_ids": ["scene-1"]},
+                )
+            )
+            self.assertFalse(window._translation_started)
+            self.assertFalse(window._pause_requested)
+            self.assertEqual(window.action_button.text(), "Resume translation")
+            self.assertTrue(window.action_button.isEnabled())
         finally:
             window.close()
 
