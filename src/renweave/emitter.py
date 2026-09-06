@@ -441,7 +441,8 @@ class RenpyTranslationEmitter:
         if strings_header is not None and insertion == len(lines):
             insertion = strings_header
         replacement = block.rstrip("\n").splitlines()
-        lines[insertion:insertion] = [*replacement, ""]
+        separator = [""] if insertion and lines[insertion - 1].strip() else []
+        lines[insertion:insertion] = [*separator, *replacement, ""]
         return "\n".join(lines).rstrip("\n") + "\n"
 
     @staticmethod

@@ -435,6 +435,24 @@ class CorePipelineTests(unittest.TestCase):
                 ("tl/es_es/script.rpy", "tl/es_es/strings.rpy"),
             )
 
+    def test_emitter_is_byte_stable_between_first_build_and_rebuild(self) -> None:
+        index = ProjectIndexer().build(self.root)
+        translations = {unit.id: f"ES: {unit.source}" for unit in index.text_units}
+        output = Path(self.temp.name) / "stable-output"
+
+        first = RenpyTranslationEmitter().emit(index, translations, "es-ES", output)
+        first_payloads = {
+            item.relative_path: (output / item.relative_path).read_bytes()
+            for item in first.files
+        }
+        second = RenpyTranslationEmitter().emit(index, translations, "es-ES", output)
+        second_payloads = {
+            item.relative_path: (output / item.relative_path).read_bytes()
+            for item in second.files
+        }
+
+        self.assertEqual(first_payloads, second_payloads)
+
     def test_existing_translation_scanner_detects_complete_and_changed_source(self) -> None:
         index = ProjectIndexer().build(self.root)
         translations = {unit.id: f"ZH: {unit.source}" for unit in index.text_units}
