@@ -153,6 +153,71 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_progress_page_retranslates_live_runtime_state(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.show()
+            window.locale = "en"
+            window._retranslate_ui()
+            window.step = 4
+            window._translation_started = True
+            window._progress_received(
+                {
+                    "stage": "translating",
+                    "current_operation": "Translating scenes with narrative context",
+                    "completed_scenes": 3,
+                    "total_scenes": 9,
+                    "eta_seconds": 12,
+                    "total_model_calls": 4,
+                    "total_prompt_tokens": 1200,
+                    "total_completion_tokens": 300,
+                }
+            )
+            self.assertIn("Scenes: 3/9", window.progress_stats.text())
+            self.assertIn("4 calls", window.progress_stat_values[3].text())
+            self.assertIn("Translating scenes", window.progress_heading.text())
+
+            window._toggle_locale()
+            self.assertIn("场景：3/9", window.progress_stats.text())
+            self.assertIn("4 次调用", window.progress_stat_values[3].text())
+            self.assertIn("正在结合剧情上下文翻译场景", window.progress_heading.text())
+            self.assertEqual(window.action_button.text(), "暂停")
+            self.assertEqual(window.progress_phase_labels[2].text(), "●  翻译")
+
+            window._translation_finished(
+                SimpleNamespace(
+                    stage=PipelineStage.PAUSED,
+                    to_dict=lambda: {"stage": "paused", "completed_scene_ids": ["scene-1"]},
+                )
+            )
+            self.assertIn("检查点", window.progress_runtime.text())
+            self.assertEqual(window.action_button.text(), "继续翻译")
+
+            window._toggle_locale()
+            self.assertEqual(window.action_button.text(), "Resume translation")
+            self.assertIn("checkpoints", window.progress_runtime.text())
+        finally:
+            window.close()
+
+    def test_language_scope_and_existing_file_counts_retranslate(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "en"
+            window._scope_preview_status = "ready"
+            window._scope_preview_inventory = SimpleNamespace(
+                total_units=12,
+                model_units=5,
+                reusable_units=7,
+                pending_units=[],
+            )
+            window._refresh_static_texts()
+            self.assertIn("12 units", window.language_scope_label.text())
+
+            window._toggle_locale()
+            self.assertIn("共 12 个单元", window.language_scope_label.text())
+        finally:
+            window.close()
+
     def test_project_revision_invalidates_pending_inspection(self):
         window = QtRenWeaveWindow()
         try:
@@ -692,7 +757,7 @@ class QtFrontendTests(unittest.TestCase):
             window._refresh_review_preview()
             self.assertEqual(window.review_fact_values[0].text(), "—")
             self.assertEqual(window.budget_label.text(), "0 Token")
-            self.assertEqual(window.budget_note.text(), "生成空白翻译不产生Token消耗")
+            self.assertEqual(window.budget_note.text(), "生成空白翻译不产生 Token 消耗。")
             self.assertFalse(window.review_details_label.isHidden())
             self.assertIsNone(window.review_details_toggle)
         finally:

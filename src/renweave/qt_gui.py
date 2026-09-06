@@ -231,6 +231,7 @@ UI_COPY = {
         "languages.target_hint": "This determines the Ren'Py language directory.",
         "languages.existing_title": "Existing translations found",
         "languages.existing_body": "Choose one to preserve valid translations and process only missing or outdated text.",
+        "languages.existing_files": "{count} files",
         "model.provider": "Provider",
         "model.api_key": "API key",
         "model.show_key": "Show",
@@ -264,6 +265,15 @@ UI_COPY = {
         "review.fact_options": "Options",
         "review.waiting_scope": "Waiting for scope preview",
         "review.estimate_unavailable": "Token usage estimate unavailable",
+        "review.ai_estimate": "AI usage estimate",
+        "review.blank_budget_note": "Blank translation generation uses no Tokens.",
+        "review.estimate_note": "The estimate is refined after indexing.",
+        "review.remaining": "Remaining model units: {count}",
+        "review.reusable": "Reusable existing units: {count}",
+        "review.pending": "Pending units ({count})",
+        "review.options.rpa_install": "Generate RPA · Install after validation",
+        "review.options.rpa": "Generate RPA",
+        "review.options.no_rpa": "Do not generate RPA",
         "review.resume_found": "Recoverable translation found",
         "review.resume_body": "{completed} completed scene checkpoint(s) are available. Continuing will reuse them.",
         "review.rpa": "Generate RPA package",
@@ -288,6 +298,9 @@ UI_COPY = {
         "progress.files": "File progress",
         "progress.eta": "Estimated remaining",
         "progress.usage": "Model usage",
+        "progress.scenes": "Scenes: {completed}/{total}",
+        "progress.seconds": "{seconds}s",
+        "progress.calls": "{calls} calls · {tokens:,} tokens",
         "progress.phase.prepare": "Prepare",
         "progress.phase.analyze": "Analyze",
         "progress.phase.translate": "Translate",
@@ -340,6 +353,7 @@ UI_COPY = {
         "error.generic": "The provider operation failed. Open details for the full error.",
         "scope.failed": "Scope preview failed: {error}",
         "translation.failed": "Translation failed: {error}",
+        "translation.failed_title": "Translation failed",
         "translation.ready": "Translation package is ready",
         "translation.completed": "Completed",
         "progress.pausing": "Pausing safely…",
@@ -435,6 +449,7 @@ UI_COPY = {
         "languages.target_hint": "该选项决定 Ren'Py 语言目录名称。",
         "languages.existing_title": "发现已有翻译",
         "languages.existing_body": "选择已有语言可以保留有效译文，只处理缺失或已经过时的文本。",
+        "languages.existing_files": "{count} 个文件",
         "model.provider": "提供商",
         "model.api_key": "API 密钥",
         "model.show_key": "显示",
@@ -468,6 +483,15 @@ UI_COPY = {
         "review.fact_options": "选项",
         "review.waiting_scope": "等待翻译范围预览",
         "review.estimate_unavailable": "暂时无法预估 Token 用量",
+        "review.ai_estimate": "AI 用量预估",
+        "review.blank_budget_note": "生成空白翻译不产生 Token 消耗。",
+        "review.estimate_note": "预估范围会在建立索引后更新。",
+        "review.remaining": "待翻译模型单元：{count}",
+        "review.reusable": "可复用已有单元：{count}",
+        "review.pending": "待处理单元（{count}）",
+        "review.options.rpa_install": "生成 RPA · 校验后安装",
+        "review.options.rpa": "生成 RPA",
+        "review.options.no_rpa": "不生成 RPA",
         "review.resume_found": "发现可恢复的翻译任务",
         "review.resume_body": "已有 {completed} 个场景检查点。继续时会复用这些检查点。",
         "review.rpa": "生成 RPA 语言包",
@@ -492,6 +516,9 @@ UI_COPY = {
         "progress.files": "文件进度",
         "progress.eta": "预计剩余",
         "progress.usage": "模型用量",
+        "progress.scenes": "场景：{completed}/{total}",
+        "progress.seconds": "{seconds} 秒",
+        "progress.calls": "{calls} 次调用 · {tokens:,} Token",
         "progress.phase.prepare": "准备",
         "progress.phase.analyze": "分析",
         "progress.phase.translate": "翻译",
@@ -544,6 +571,7 @@ UI_COPY = {
         "error.generic": "供应商操作失败，请打开详情查看完整错误。",
         "scope.failed": "翻译范围预览失败：{error}",
         "translation.failed": "翻译失败：{error}",
+        "translation.failed_title": "翻译失败",
         "translation.ready": "翻译包已准备完成",
         "translation.completed": "已完成",
         "progress.pausing": "正在安全暂停……",
@@ -771,6 +799,9 @@ class QtRenWeaveWindow(QMainWindow):
         self._force_exit = False
         self._blank_translation_mode = False
         self._last_logged_operation = ""
+        self._resume_requested = False
+        self._progress_log_prefix = ""
+        self._progress_operation_history: list[tuple[str, str]] = []
         self._settings_path = default_desktop_settings_path()
         self._settings = self._load_settings()
         self._credential_store = SecureCredentialStore()
@@ -1487,6 +1518,7 @@ class QtRenWeaveWindow(QMainWindow):
                 self._open_output_folder()
             else:
                 if self._last_stage == "paused":
+                    self._resume_requested = True
                     self.progress_runtime.setText(self._t("progress.resuming"))
                 self._start_translation()
 
@@ -1574,6 +1606,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.target_hint.setText(self._t("languages.target_hint"))
         self.existing_languages_title.setText(self._t("languages.existing_title"))
         self.existing_languages_body.setText(self._t("languages.existing_body"))
+        self._refresh_existing_language_button_texts()
         self.model_provider_label.setText(self._t("model.provider"))
         active_preset = PROVIDER_PRESETS_BY_ID.get(self._active_provider_id, PROVIDER_PRESETS[0])
         self.provider_description_label.setText(active_preset.localized_description(self.locale))
@@ -1619,7 +1652,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.install_check.setToolTip(self._t("tip.install"))
         self.generate_rpa_check.setToolTip(self._t("tip.rpa"))
         self.install_check.setToolTip(self._t("tip.install"))
-        self.budget_title.setText("AI usage estimate" if self.locale == "en" else "AI 用量预估")
+        self.budget_title.setText(self._t("review.ai_estimate"))
         if self._scope_preview_inventory is None:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
         self.review_mode_label.setText(
@@ -1656,8 +1689,19 @@ class QtRenWeaveWindow(QMainWindow):
             self.project_status.setText(self._t("game.detected", count=len(getattr(self, "existing_languages", []))))
         elif self._project_validation_state == "invalid":
             self.project_status.setText(self._t("game.not_recognized", error=self._project_validation_error))
-        if self._scope_preview_status == "scanning":
+        if self._scope_preview_inventory is not None:
+            self.language_scope_label.setText(
+                self._t(
+                    "languages.scope_value",
+                    total=self._scope_preview_inventory.total_units,
+                    reusable=self._scope_preview_inventory.reusable_units,
+                    model=self._scope_preview_inventory.model_units,
+                )
+            )
+        elif self._scope_preview_status == "scanning":
             self.language_scope_label.setText(self._t("languages.scanning"))
+        else:
+            self.language_scope_label.setText(self._t("languages.scope"))
         if not self.model_status.text() or self.model_status.text() in {"Not connected", "尚未连接"}:
             self.model_status.setText(self._t("model.not_connected"))
         if not self.progress_heading.text() or self.progress_heading.text() in {"Ready", "准备就绪"}:
@@ -1666,11 +1710,92 @@ class QtRenWeaveWindow(QMainWindow):
             self.progress_runtime.setText(self._t("progress.idle"))
         if self._scope_preview_inventory is not None:
             self._refresh_review_preview()
+        self._refresh_progress_dynamic_texts()
 
     def _toggle_pending_details(self) -> None:
         visible = not self.pending_details.isVisible()
         self.pending_details.setVisible(visible)
         self.pending_toggle.setText(self._t("review.hide_pending" if visible else "review.show_details"))
+
+    def _refresh_progress_dynamic_texts(self) -> None:
+        """Re-render step 05 state using the current locale and cached payload."""
+        payload = self._progress_payload
+        stage = str(payload.get("stage", "") or "").casefold()
+        operation = str(payload.get("current_operation", "") or "")
+
+        if self._translation_started:
+            if self._resume_requested:
+                self.progress_runtime.setText(self._t("progress.resuming"))
+            elif self._pause_requested:
+                self.progress_runtime.setText(self._t("progress.pausing"))
+            else:
+                self.progress_runtime.setText(self._progress_stage_text(stage))
+            if operation:
+                self.progress_heading.setText(self._progress_operation_text(operation, stage))
+        elif self._last_stage == "paused":
+            self.progress_heading.setText(self._t("progress.paused"))
+            self.progress_runtime.setText(self._t("progress.paused_body"))
+        elif self._last_stage == "complete":
+            self.progress_heading.setText(self._t("translation.ready"))
+            self.progress_runtime.setText(self._t("translation.completed"))
+        elif self._last_stage == "failed":
+            self.progress_heading.setText(self._t("translation.failed_title"))
+            self.progress_runtime.setText(
+                self._t("translation.failed", error=self._last_error_details)
+            )
+        elif operation:
+            self.progress_heading.setText(self._progress_operation_text(operation, stage))
+            self.progress_runtime.setText(self._progress_stage_text(stage))
+        elif not self.progress_heading.text() or self.progress_heading.text() in {"Ready", "准备就绪"}:
+            self.progress_heading.setText(self._t("progress.ready"))
+            self.progress_runtime.setText(self._t("progress.idle"))
+
+        if payload:
+            completed = payload.get("completed_scenes", 0)
+            total = payload.get("total_scenes", 0)
+            eta_seconds = payload.get("eta_seconds", -1)
+            eta = (
+                self._t("progress.seconds", seconds=int(eta_seconds))
+                if isinstance(eta_seconds, (int, float)) and eta_seconds >= 0
+                else "—"
+            )
+            calls = int(payload.get("total_model_calls", 0) or 0)
+            tokens = int(payload.get("total_prompt_tokens", 0) or 0) + int(
+                payload.get("total_completion_tokens", 0) or 0
+            )
+            self.progress_stats.setText(
+                self._t("progress.scenes", completed=completed, total=total)
+            )
+            self.progress_stat_values[0].setText(
+                self._progress_operation_text(operation, stage) or "—"
+            )
+            self.progress_stat_values[1].setText(f"{completed}/{total}")
+            self.progress_stat_values[2].setText(eta)
+            self.progress_stat_values[3].setText(
+                self._t("progress.calls", calls=calls, tokens=tokens)
+            )
+
+        if self._last_stage == "complete":
+            output_dir = str(payload.get("output_dir", "") or "")
+            package_path = str(payload.get("package_path", "") or "")
+            self.progress_output.setText(
+                "\n".join(
+                    item
+                    for item in (
+                        self._t("progress.rpy_output", path=output_dir) if output_dir else "",
+                        self._t("progress.rpa_output", path=package_path) if package_path else "",
+                    )
+                    if item
+                )
+            )
+
+        if self._progress_operation_history:
+            lines = [self._progress_log_prefix] if self._progress_log_prefix else []
+            lines.extend(
+                self._progress_operation_text(item, item_stage)
+                for item, item_stage in self._progress_operation_history
+            )
+            self.log_edit.setPlainText("\n".join(line for line in lines if line))
 
     def _sync_rpa_option(self, enabled: bool) -> None:
         self.install_check.setEnabled(enabled)
@@ -1810,7 +1935,7 @@ class QtRenWeaveWindow(QMainWindow):
             display_name = getattr(item, "display_name", "") or item.language
             label = display_name if display_name == item.language else f"{display_name}（{item.language}）"
             button = QPushButton(
-                f"{label} · {item.script_files + item.compiled_files} files",
+                f"{label} · {self._t('languages.existing_files', count=item.script_files + item.compiled_files)}",
                 objectName="Secondary",
             )
             button.setCheckable(True)
@@ -1819,6 +1944,17 @@ class QtRenWeaveWindow(QMainWindow):
             )
             self.existing_language_controls[item.language] = button
             self.existing_language_buttons.addWidget(button)
+
+    def _refresh_existing_language_button_texts(self) -> None:
+        for item in getattr(self, "existing_languages", []):
+            button = self.existing_language_controls.get(item.language)
+            if button is None:
+                continue
+            display_name = getattr(item, "display_name", "") or item.language
+            label = display_name if display_name == item.language else f"{display_name}（{item.language}）"
+            button.setText(
+                f"{label} · {self._t('languages.existing_files', count=item.script_files + item.compiled_files)}"
+            )
 
     def _select_existing_language(self, language: str) -> None:
         if language not in self.existing_language_controls:
@@ -2338,29 +2474,19 @@ class QtRenWeaveWindow(QMainWindow):
             "—" if self._blank_translation_mode else self.reasoning_combo.currentText().strip()
         )
         self.review_fact_values[2].setText(
-            (
-                (
-                    "生成 RPA · 校验后安装"
-                    if self.generate_rpa_check.isChecked() and self.install_check.isChecked()
-                    else "生成 RPA"
-                    if self.generate_rpa_check.isChecked()
-                    else "不生成 RPA"
-                )
-                if self.locale == "zh"
-                else (
-                    "Generate RPA · Install after validation"
-                    if self.generate_rpa_check.isChecked() and self.install_check.isChecked()
-                    else "Generate RPA"
-                    if self.generate_rpa_check.isChecked()
-                    else "Do not generate RPA"
-                )
+            self._t(
+                "review.options.rpa_install"
+                if self.generate_rpa_check.isChecked() and self.install_check.isChecked()
+                else "review.options.rpa"
+                if self.generate_rpa_check.isChecked()
+                else "review.options.no_rpa"
             )
         )
         self.review_remaining_label.setText(
-            (f"待翻译模型单元：{inventory.model_units}" if self.locale == "zh" else f"Remaining model units: {inventory.model_units}")
+            self._t("review.remaining", count=inventory.model_units)
         )
         self.review_preserved_label.setText(
-            (f"可复用已有单元：{inventory.reusable_units}" if self.locale == "zh" else f"Reusable existing units: {inventory.reusable_units}")
+            self._t("review.reusable", count=inventory.reusable_units)
         )
         if self._resume_candidate:
             self.review_resume_label.setVisible(True)
@@ -2374,12 +2500,8 @@ class QtRenWeaveWindow(QMainWindow):
             self.review_resume_label.clear()
             self.review_resume_label.setVisible(False)
         if self._blank_translation_mode:
-            self.budget_label.setText("0 Token" if self.locale == "en" else "0 Token")
-            self.budget_note.setText(
-                "Blank translation generation uses no Tokens."
-                if self.locale == "en"
-                else "生成空白翻译不产生Token消耗"
-            )
+            self.budget_label.setText("0 Token")
+            self.budget_note.setText(self._t("review.blank_budget_note"))
         elif budget is not None:
             self.budget_label.setText(
                 (
@@ -2388,16 +2510,12 @@ class QtRenWeaveWindow(QMainWindow):
                     else f"Estimated usage: {budget.estimated_total_low:,}–{budget.estimated_total_high:,} tokens"
                 )
             )
-            self.budget_note.setText(
-                "预估范围会在建立索引后更新。" if self.locale == "zh" else "The estimate is refined after indexing."
-            )
+            self.budget_note.setText(self._t("review.estimate_note"))
         else:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
             self.budget_note.clear()
         self.pending_title.setText(
-            f"待处理单元（{len(inventory.pending_units)}）"
-            if self.locale == "zh"
-            else f"Pending units ({len(inventory.pending_units)})"
+            self._t("review.pending", count=len(inventory.pending_units))
         )
         rows = []
         for item in inventory.pending_units[:50]:
@@ -2470,6 +2588,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_error_details = ""
         self._pause_requested = False
         self._exit_after_pause = False
+        self._resume_requested = False
         self.progress_error_button.setVisible(False)
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
@@ -2504,6 +2623,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._progress_payload = state.to_dict()
         exit_after_pause = self._exit_after_pause
         self._pause_requested = False
+        self._resume_requested = False
         self._exit_after_pause = False
         self._translation_started = False
         if state.stage == PipelineStage.PAUSED:
@@ -2542,10 +2662,12 @@ class QtRenWeaveWindow(QMainWindow):
     def _translation_failed(self, error: BaseException) -> None:
         self._last_stage = "failed"
         self._pause_requested = False
+        self._resume_requested = False
         self._exit_after_pause = False
         self._translation_started = False
         self._last_error_details = str(error)
         self.progress_error_button.setVisible(True)
+        self.progress_heading.setText(self._t("translation.failed_title"))
         self.progress_runtime.setText(self._t("translation.failed", error=error))
         self._refresh_shell()
 
@@ -2663,7 +2785,10 @@ class QtRenWeaveWindow(QMainWindow):
         self._open_progress_path("output_dir")
 
     def _load_workspace_log(self) -> None:
+        if self._progress_operation_history:
+            return
         if self.log_edit.toPlainText().strip():
+            self._progress_log_prefix = self.log_edit.toPlainText().strip()
             return
         workspace = Path(self.workspace_edit.text().strip()).expanduser()
         candidates = []
@@ -2674,43 +2799,25 @@ class QtRenWeaveWindow(QMainWindow):
         for candidate in candidates:
             try:
                 if candidate.is_file():
-                    self.log_edit.setPlainText(candidate.read_text(encoding="utf-8"))
+                    self._progress_log_prefix = candidate.read_text(encoding="utf-8").strip()
+                    self.log_edit.setPlainText(self._progress_log_prefix)
                     return
             except (OSError, UnicodeError):
                 continue
 
     def _progress_received(self, payload) -> None:
         self._progress_payload = payload.to_dict() if hasattr(payload, "to_dict") else dict(payload)
-        self._set_progress_phase(str(self._progress_payload.get("stage", "")))
+        stage = str(self._progress_payload.get("stage", "") or "")
+        self._set_progress_phase(stage)
         percent = float(self._progress_payload.get("progress_percent", 0) or 0)
         self.progress_bar.setValue(max(0, min(100, round(percent))))
         self.progress_percent.setText(f"{percent:.0f}%")
-        stage = str(self._progress_payload.get("stage", ""))
         operation = str(self._progress_payload.get("current_operation", "") or "")
-        self.progress_heading.setText(self._progress_operation_text(operation, stage))
-        completed = self._progress_payload.get("completed_scenes", 0)
-        total = self._progress_payload.get("total_scenes", 0)
-        self.progress_stats.setText(
-            f"场景：{completed}/{total}" if self.locale == "zh" else f"Scenes: {completed}/{total}"
-        )
-        self.progress_runtime.setText(self._progress_stage_text(stage))
-        eta_seconds = self._progress_payload.get("eta_seconds", -1)
-        eta = "—" if not isinstance(eta_seconds, (int, float)) or eta_seconds < 0 else f"{int(eta_seconds)}s"
-        calls = int(self._progress_payload.get("total_model_calls", 0) or 0)
-        tokens = int(self._progress_payload.get("total_prompt_tokens", 0) or 0) + int(
-            self._progress_payload.get("total_completion_tokens", 0) or 0
-        )
-        self.progress_stat_values[0].setText(self._progress_operation_text(operation, stage) or "—")
-        self.progress_stat_values[1].setText(f"{completed}/{total}")
-        self.progress_stat_values[2].setText(eta)
-        self.progress_stat_values[3].setText(
-            f"{calls} 次调用 · {tokens:,} Token"
-            if self.locale == "zh"
-            else f"{calls} calls · {tokens:,} tokens"
-        )
+        self._resume_requested = False
         if operation and operation != self._last_logged_operation:
             self._last_logged_operation = operation
-            self.log_edit.append(operation)
+            self._progress_operation_history.append((operation, stage))
+        self._refresh_progress_dynamic_texts()
 
     def _load_settings(self) -> dict[str, object]:
         try:
