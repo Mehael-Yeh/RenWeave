@@ -318,6 +318,26 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_review_options_and_path_details_refresh_immediately(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "zh"
+            window._retranslate_ui()
+            window.project_edit.setText("C:/Games/Demo")
+            window.workspace_edit.setText("C:/Work/Demo")
+            window.renpy_sdk_edit.setText("C:/SDK/RenPy")
+            window._scope_preview_inventory = SimpleNamespace(model_units=2, reusable_units=1, pending_units=[])
+            window._scope_preview_budget = SimpleNamespace(estimated_total_low=1, estimated_total_high=2)
+            window._refresh_review_preview()
+            self.assertIn("项目：C:/Games/Demo", window.review_details_label.text())
+            self.assertIn("工作区：C:/Work/Demo", window.review_details_label.text())
+            self.assertIn("SDK：C:/SDK/RenPy", window.review_details_label.text())
+            self.assertNotIn("校验后安装", window.review_fact_values[1].text())
+            window.install_check.setChecked(True)
+            self.assertIn("校验后安装", window.review_fact_values[1].text())
+        finally:
+            window.close()
+
     def test_model_continue_is_blocked_without_a_selected_model(self):
         window = QtRenWeaveWindow()
         try:

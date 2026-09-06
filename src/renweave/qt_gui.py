@@ -1221,6 +1221,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.generate_rpa_check.setChecked(True)
         self.generate_rpa_check.toggled.connect(self._sync_rpa_option)
         self.install_check = QCheckBox()
+        self.install_check.toggled.connect(lambda _checked=False: self._refresh_review_preview())
         options_layout.addWidget(self.generate_rpa_check)
         options_layout.addWidget(self.install_check)
         self.review_details_toggle = None
@@ -1640,6 +1641,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._scope_preview_status = "idle"
         self.project_status.setText(self._t("game.inspecting" if has_project else "game.waiting"))
         self._inspection_timer.start(150)
+        self._toggle_review_details()
         self._refresh_shell()
 
     @staticmethod
@@ -1653,6 +1655,7 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _workspace_edited(self, _value: str = "") -> None:
         self._workspace_auto_generated = False
+        self._toggle_review_details()
 
     def _suggest_workspace(self, project: str) -> None:
         source = Path(project).expanduser()
@@ -1708,6 +1711,7 @@ class QtRenWeaveWindow(QMainWindow):
         if sdk is not None and not self.renpy_sdk_edit.text().strip():
             self.renpy_sdk_edit.setText(self._normalise_path_text(str(sdk.root)))
             self.require_engine_check.setChecked(True)
+        self._toggle_review_details()
         current_target = self._target_language_value()
         self.target_combo.blockSignals(True)
         self.target_combo.clear()
@@ -2243,6 +2247,7 @@ class QtRenWeaveWindow(QMainWindow):
         return payload
 
     def _refresh_review_preview(self) -> None:
+        self._toggle_review_details()
         inventory = self._scope_preview_inventory
         budget = self._scope_preview_budget
         if inventory is None:
@@ -2681,6 +2686,7 @@ class QtRenWeaveWindow(QMainWindow):
         if selected:
             self.renpy_sdk_edit.setText(self._normalise_path_text(selected))
             self.require_engine_check.setChecked(True)
+            self._toggle_review_details()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._translation_started and self._cancel_token is not None:
