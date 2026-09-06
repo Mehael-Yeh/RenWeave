@@ -121,14 +121,18 @@ class QtFrontendTests(unittest.TestCase):
             window.close()
 
     def test_project_selection_suggests_a_workspace(self):
-        window = QtRenWeaveWindow(initial_project=r"C:\Games\Example")
+        initial_project = str(Path("Games") / "Example")
+        window = QtRenWeaveWindow(initial_project=initial_project)
         try:
-            self.assertTrue(window.workspace_edit.text().endswith(r"Documents\RenWeaveWork\Example"))
+            workspace = Path(window.workspace_edit.text())
+            self.assertEqual(workspace.name, "Example")
+            self.assertEqual(workspace.parent.name, "RenWeaveWork")
             self.assertTrue(window._workspace_auto_generated)
-            window.workspace_edit.setText(r"C:\Custom\Workspace")
+            custom_workspace = str(Path("Custom") / "Workspace")
+            window.workspace_edit.setText(custom_workspace)
             window.workspace_edit.textEdited.emit(window.workspace_edit.text())
-            window.project_edit.setText(r"C:\Games\Other")
-            self.assertEqual(window.workspace_edit.text(), r"C:\Custom\Workspace")
+            window.project_edit.setText(str(Path("Games") / "Other"))
+            self.assertEqual(window.workspace_edit.text(), custom_workspace)
         finally:
             window.close()
 
@@ -136,6 +140,8 @@ class QtFrontendTests(unittest.TestCase):
         window = QtRenWeaveWindow()
         try:
             self.assertFalse(window.windowIcon().isNull())
+            window._select_provider(0)
+            self.assertEqual(window.endpoint_edit.text(), "https://api.openai.com/v1")
             self.assertEqual(window.model_edit.__class__.__name__, "QComboBox")
             window.provider_buttons[0].click()
             self.assertEqual(window.provider_combo.currentIndex(), 0)

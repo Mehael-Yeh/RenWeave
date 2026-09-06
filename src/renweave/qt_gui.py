@@ -701,6 +701,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_edit = QComboBox()
         self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
+        self.endpoint_edit.setText(PROVIDER_PRESETS[0].base_url)
         self.reasoning_combo = QComboBox()
         self.reasoning_combo.setObjectName("ReasoningCombo")
         self.reasoning_combo.addItem(self._t("reasoning.auto"), "auto")
