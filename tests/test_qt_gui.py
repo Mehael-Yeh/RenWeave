@@ -154,6 +154,18 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_all_combo_boxes_share_the_same_field_height_and_arrow_theme(self):
+        window = QtRenWeaveWindow()
+        try:
+            combos = [window.source_combo, window.target_combo, window.provider_combo,
+                      window.model_edit, window.reasoning_combo]
+            self.assertTrue(all(combo.minimumHeight() == 34 for combo in combos))
+            self.assertTrue(all(combo.maximumHeight() == 34 for combo in combos))
+            self.assertIn("QComboBox::down-arrow", window.styleSheet())
+            self.assertIn("chevron-down.svg", window.styleSheet())
+        finally:
+            window.close()
+
     def test_loaded_models_select_an_actual_catalog_item_and_reasoning_is_saved(self):
         window = QtRenWeaveWindow()
         try:

@@ -583,6 +583,7 @@ class QtRenWeaveWindow(QMainWindow):
             QTimer.singleShot(800, self._check_updates)
 
     def _configure_palette(self) -> None:
+        arrow_path = (Path(__file__).resolve().parent / "assets" / "chevron-down.svg").as_posix()
         self.setStyleSheet(
             """
             QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f6fb; color: #101828; font-family: "Microsoft YaHei UI"; }
@@ -610,10 +611,15 @@ class QtRenWeaveWindow(QMainWindow):
             QTextEdit { background: #ffffff; color: #344054; selection-background-color: #5b5ce2; selection-color: #ffffff; border: 1px solid #e0e6ef; border-radius: 6px; padding: 7px; }
             QLineEdit:focus, QComboBox:focus, QTextEdit:focus { border: 1px solid #5b5ce2; }
             QLineEdit::placeholder { color: #98a2b3; }
-            QComboBox QAbstractItemView { background: #ffffff; color: #344054; selection-background-color: #e7e9ff; selection-color: #101828; }
+            QComboBox QAbstractItemView { background: #ffffff; color: #344054; border: 1px solid #d0d5dd; selection-background-color: #e7e9ff; selection-color: #101828; padding: 4px; outline: 0; }
+            QComboBox QAbstractItemView::item { min-height: 30px; padding: 5px 8px; border-radius: 4px; }
+            QComboBox QAbstractItemView::item:hover { background: #f2f4f7; color: #101828; }
             QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 32px; border-left: 1px solid #e0e6ef; background: #f7f8fc; border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
             QComboBox::drop-down:hover { background: #e7e9ff; }
-            QComboBox::down-arrow { width: 8px; height: 8px; }
+            QComboBox::down-arrow { image: url("__ARROW__"); width: 12px; height: 8px; }
+            QComboBox::down-arrow:hover { image: url("__ARROW__"); }
+            QComboBox:disabled { background: #f2f4f7; color: #98a2b3; }
+            QComboBox:disabled::drop-down { background: #eaecf0; }
             QCheckBox { min-height: 28px; color: #344054; }
             QScrollBar:vertical { background: #e9edf5; width: 10px; margin: 2px 0 2px 0; border-radius: 5px; }
             QScrollBar::handle:vertical { background: #b8c1d1; min-height: 36px; border-radius: 5px; }
@@ -623,7 +629,7 @@ class QtRenWeaveWindow(QMainWindow):
             QScrollBar:horizontal { height: 0; }
             QProgressBar { border: 0; background: #e9edf5; border-radius: 5px; height: 10px; }
             QProgressBar::chunk { background: #5b5ce2; border-radius: 5px; }
-            """
+            """.replace("__ARROW__", arrow_path)
         )
 
     def _build_shell(self) -> None:
@@ -728,6 +734,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_page, self.model_layout = self._build_model_page()
         self.review_page, self.review_layout = self._build_review_page()
         self.progress_page, self.progress_layout = self._build_progress_page()
+        combos = list(self.findChildren(QComboBox)) + [self.provider_combo]
+        for combo in combos:
+            combo.setFixedHeight(34)
 
     @staticmethod
     def _card(object_name: str = "Card") -> tuple[QFrame, QVBoxLayout]:
