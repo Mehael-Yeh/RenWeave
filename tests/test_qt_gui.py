@@ -517,6 +517,11 @@ class QtFrontendTests(unittest.TestCase):
             window._last_stage = "complete"
             window._refresh_shell()
             self.assertFalse(window.back_button.isVisible())
+
+            window._last_stage = ""
+            window._blank_translation_mode = True
+            window._refresh_shell()
+            self.assertFalse(window.back_button.isVisible())
         finally:
             window.close()
 

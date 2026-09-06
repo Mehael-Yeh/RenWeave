@@ -1371,7 +1371,14 @@ class QtRenWeaveWindow(QMainWindow):
             button.style().polish(button)
             button.setEnabled(index <= self.step and not self._translation_started)
         if self.step == 4:
-            can_go_back = not self._translation_started and self._last_stage in {"", "paused"}
+            can_go_back = (
+                not self._translation_started
+                and self._last_stage == "paused"
+            ) or (
+                not self._translation_started
+                and self._last_stage == ""
+                and not self._blank_translation_mode
+            )
         else:
             can_go_back = self.step > 0 and not self._translation_started
         self.back_button.setVisible(can_go_back)
