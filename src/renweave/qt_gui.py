@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 from .build_validation import RenpySdkLocator
 from .credentials import CredentialStorageError, SecureCredentialStore
 from .discovery import ProjectDiscovery
-from .existing_translations import discover_existing_languages
+from .existing_translations import LANGUAGE_DISPLAY_NAMES, discover_existing_languages
 from .desktop_core import (
     TranslationRequest,
     _user_home_fallback,
@@ -1020,7 +1020,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.source_combo.addItems(["auto", "English", "简体中文", "繁體中文", "日本語"])
         self.target_combo = QComboBox()
         self.target_combo.setEditable(True)
-        for language in ("简体中文", "繁體中文", "English", "日本語", "Français"):
+        for language in LANGUAGE_DISPLAY_NAMES:
             self.target_combo.addItem(language, language)
         self.source_combo.currentTextChanged.connect(self._language_changed)
         self.target_combo.currentTextChanged.connect(self._language_changed)
@@ -1708,7 +1708,7 @@ class QtRenWeaveWindow(QMainWindow):
             display_name = getattr(item, "display_name", "") or item.language
             existing_display_names.add(display_name)
             self.target_combo.addItem(display_name, item.language)
-        for language in ("简体中文", "繁體中文", "English", "日本語", "Français"):
+        for language in LANGUAGE_DISPLAY_NAMES:
             if language not in existing_display_names and self.target_combo.findData(language) < 0:
                 self.target_combo.addItem(language, language)
         if current_target:

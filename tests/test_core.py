@@ -462,8 +462,18 @@ class CorePipelineTests(unittest.TestCase):
     def test_language_display_name_uses_aliases_and_translation_sample(self) -> None:
         self.assertEqual(language_display_name("chinese"), "简体中文")
         self.assertEqual(language_display_name("zh_hans"), "简体中文")
+        self.assertEqual(language_display_name("ru"), "Русский")
+        self.assertEqual(language_display_name("id"), "Bahasa Indonesia")
+        self.assertEqual(language_display_name("fr"), "Français")
+        self.assertEqual(language_display_name("de"), "Deutsch")
+        self.assertEqual(language_display_name("ja"), "日本語")
+        self.assertEqual(language_display_name("ko"), "한국어")
         self.assertEqual(language_display_name("custom", 'new "這是一段繁體中文翻譯"'), "繁體中文")
         self.assertEqual(language_display_name("custom", 'new "这是简体中文翻译"'), "简体中文")
+        self.assertEqual(language_display_name("custom", 'new "これは日本語の翻訳です"'), "日本語")
+        self.assertEqual(language_display_name("custom", 'new "이것은 한국어 번역입니다"'), "한국어")
+        self.assertEqual(language_display_name("custom", 'new "Это русский перевод"'), "Русский")
+        self.assertEqual(language_display_name("custom", 'new "Ini adalah terjemahan bahasa Indonesia"'), "Bahasa Indonesia")
 
     def test_existing_translation_scanner_reuses_unique_source_across_block_types(self) -> None:
         language_file = self.game / "tl" / "zh_hans" / "strings.rpy"

@@ -19,29 +19,175 @@ TRANSLATE_HEADER_RE = re.compile(
 
 
 LANGUAGE_DISPLAY_ALIASES = {
+    # Chinese, Japanese and Korean.
+    "zh": "简体中文",
     "zh_hans": "简体中文",
     "zh_cn": "简体中文",
+    "zh_sg": "简体中文",
     "zh_simplified": "简体中文",
     "simplified_chinese": "简体中文",
     "chinese": "简体中文",
+    "mandarin": "简体中文",
     "schinese": "简体中文",
+    "sc": "简体中文",
     "zh_hant": "繁體中文",
     "zh_tw": "繁體中文",
     "zh_hk": "繁體中文",
+    "zh_mo": "繁體中文",
     "traditional_chinese": "繁體中文",
     "tchinese": "繁體中文",
-    "en": "English",
-    "english": "English",
+    "tc": "繁體中文",
     "ja": "日本語",
+    "jp": "日本語",
     "japanese": "日本語",
+    "nihongo": "日本語",
     "ko": "한국어",
+    "kr": "한국어",
     "korean": "한국어",
+    # Germanic and Romance languages.
+    "en": "English",
+    "en_us": "English",
+    "en_gb": "English",
+    "english": "English",
+    "de": "Deutsch",
+    "de_de": "Deutsch",
+    "german": "Deutsch",
+    "deutsch": "Deutsch",
+    "fr": "Français",
+    "fr_fr": "Français",
+    "french": "Français",
+    "francais": "Français",
+    "français": "Français",
+    "es": "Español",
+    "es_es": "Español",
+    "spanish": "Español",
+    "espanol": "Español",
+    "it": "Italiano",
+    "italian": "Italiano",
+    "italiano": "Italiano",
+    "pt": "Português",
+    "pt_br": "Português",
+    "pt_pt": "Português",
+    "portuguese": "Português",
+    "portugues": "Português",
+    "nl": "Nederlands",
+    "dutch": "Nederlands",
+    "nederlands": "Nederlands",
+    "af": "Afrikaans",
+    "afrikaans": "Afrikaans",
+    # Slavic and other European languages.
+    "ru": "Русский",
+    "ru_ru": "Русский",
+    "russian": "Русский",
+    "русский": "Русский",
+    "uk": "Українська",
+    "uk_ua": "Українська",
+    "ukrainian": "Українська",
+    "be": "Беларуская",
+    "belarusian": "Беларуская",
+    "bg": "Български",
+    "bulgarian": "Български",
+    "sr": "Српски",
+    "serbian": "Српски",
+    "hr": "Hrvatski",
+    "croatian": "Hrvatski",
+    "pl": "Polski",
+    "polish": "Polski",
+    "cs": "Čeština",
+    "czech": "Čeština",
+    "sk": "Slovenčina",
+    "slovak": "Slovenčina",
+    "sl": "Slovenščina",
+    "slovenian": "Slovenščina",
+    "hu": "Magyar",
+    "hungarian": "Magyar",
+    "ro": "Română",
+    "romanian": "Română",
+    "el": "Ελληνικά",
+    "greek": "Ελληνικά",
+    "tr": "Türkçe",
+    "turkish": "Türkçe",
+    "sv": "Svenska",
+    "swedish": "Svenska",
+    "da": "Dansk",
+    "danish": "Dansk",
+    "no": "Norsk",
+    "nb": "Norsk",
+    "norwegian": "Norsk",
+    "fi": "Suomi",
+    "finnish": "Suomi",
+    "et": "Eesti",
+    "estonian": "Eesti",
+    "lv": "Latviešu",
+    "latvian": "Latviešu",
+    "lt": "Lietuvių",
+    "lithuanian": "Lietuvių",
+    "ca": "Català",
+    "catalan": "Català",
+    # Southeast Asian and South Asian languages.
+    "id": "Bahasa Indonesia",
+    "id_id": "Bahasa Indonesia",
+    "indonesian": "Bahasa Indonesia",
+    "bahasa_indonesia": "Bahasa Indonesia",
+    "ms": "Bahasa Melayu",
+    "malay": "Bahasa Melayu",
+    "vi": "Tiếng Việt",
+    "vietnamese": "Tiếng Việt",
+    "th": "ไทย",
+    "thai": "ไทย",
+    "hi": "हिन्दी",
+    "hindi": "हिन्दी",
+    "bn": "বাংলা",
+    "bengali": "বাংলা",
+    "ta": "தமிழ்",
+    "tamil": "தமிழ்",
+    "te": "తెలుగు",
+    "telugu": "తెలుగు",
+    # Middle Eastern and African languages.
+    "ar": "العربية",
+    "arabic": "العربية",
+    "fa": "فارسی",
+    "persian": "فارسی",
+    "farsi": "فارسی",
+    "ur": "اردو",
+    "urdu": "اردو",
+    "he": "עברית",
+    "hebrew": "עברית",
+    "ka": "ქართული",
+    "georgian": "ქართული",
+    "hy": "Հայերեն",
+    "armenian": "Հայերեն",
+    "am": "አማርኛ",
+    "amharic": "አማርኛ",
 }
+
+LANGUAGE_DISPLAY_NAMES = tuple(dict.fromkeys(LANGUAGE_DISPLAY_ALIASES.values()))
 
 
 TRADITIONAL_MARKERS = set("體繁體臺灣國語學習說話這個與為後發現門開關車裡麼會對於從現時實產業").union(
     "電腦檔案網頁廣東話聽見轉譯選擇畫面"
 )
+
+
+LANGUAGE_WORD_HINTS = {
+    "English": {"the", "and", "this", "that", "with", "you", "for", "not", "are", "from"},
+    "Deutsch": {"der", "die", "das", "und", "ist", "ein", "eine", "nicht", "mit", "für", "auf"},
+    "Français": {"les", "des", "une", "est", "que", "dans", "pour", "avec", "pas", "sont", "français"},
+    "Español": {"los", "las", "una", "que", "para", "con", "del", "está", "están", "español"},
+    "Italiano": {"gli", "una", "che", "per", "con", "non", "sono", "questo", "italiano"},
+    "Português": {"uma", "que", "para", "com", "não", "dos", "das", "está", "português"},
+    "Nederlands": {"het", "een", "van", "voor", "met", "niet", "zijn", "naar", "dutch"},
+    "Bahasa Indonesia": {"yang", "dan", "untuk", "dengan", "tidak", "ini", "itu", "dari", "bahasa"},
+    "Bahasa Melayu": {"yang", "dan", "untuk", "dengan", "tidak", "ini", "itu", "daripada", "melayu"},
+    "Türkçe": {"bir", "ve", "için", "ile", "değil", "bu", "şu", "türkçe"},
+    "Polski": {"jest", "nie", "dla", "oraz", "się", "tego", "polski"},
+    "Română": {"este", "pentru", "care", "nu", "și", "din", "română"},
+    "Svenska": {"och", "det", "att", "för", "inte", "med", "svenska"},
+    "Dansk": {"og", "det", "at", "for", "ikke", "med", "dansk"},
+    "Norsk": {"og", "det", "for", "ikke", "med", "som", "norsk"},
+    "Suomi": {"ja", "että", "on", "ei", "kanssa", "suomi"},
+    "Tiếng Việt": {"và", "của", "cho", "không", "trong", "tiếng", "việt"},
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -129,11 +275,84 @@ def language_display_name(language: str, sample_text: str = "") -> str:
     aliased = LANGUAGE_DISPLAY_ALIASES.get(normalized)
     if aliased is not None:
         return aliased
-    chinese = sum("\u3400" <= char <= "\u9fff" for char in sample_text)
-    if chinese:
-        traditional = sum(char in TRADITIONAL_MARKERS for char in sample_text)
-        return "繁體中文" if traditional >= 2 else "简体中文"
+    detected = _detect_language_from_sample(sample_text)
+    if detected is not None:
+        return detected
     return language
+
+
+def _detect_language_from_sample(sample_text: str) -> str | None:
+    """Infer a language from script markers and a conservative word score."""
+    if not sample_text.strip():
+        return None
+    text = sample_text.casefold()
+    counts = {
+        "han": sum("\u3400" <= char <= "\u9fff" for char in text),
+        "kana": sum("\u3040" <= char <= "\u30ff" for char in text),
+        "hangul": sum("\uac00" <= char <= "\ud7af" for char in text),
+        "cyrillic": sum("\u0400" <= char <= "\u052f" for char in text),
+        "arabic": sum("\u0600" <= char <= "\u06ff" for char in text),
+        "hebrew": sum("\u0590" <= char <= "\u05ff" for char in text),
+        "devanagari": sum("\u0900" <= char <= "\u097f" for char in text),
+        "bengali": sum("\u0980" <= char <= "\u09ff" for char in text),
+        "tamil": sum("\u0b80" <= char <= "\u0bff" for char in text),
+        "telugu": sum("\u0c00" <= char <= "\u0c7f" for char in text),
+        "thai": sum("\u0e00" <= char <= "\u0e7f" for char in text),
+        "greek": sum("\u0370" <= char <= "\u03ff" for char in text),
+        "georgian": sum("\u10a0" <= char <= "\u10ff" for char in text),
+        "armenian": sum("\u0530" <= char <= "\u058f" for char in text),
+        "ethiopic": sum("\u1200" <= char <= "\u137f" for char in text),
+    }
+    if counts["kana"]:
+        return "日本語"
+    if counts["hangul"]:
+        return "한국어"
+    if counts["han"]:
+        traditional = sum(char in TRADITIONAL_MARKERS for char in text)
+        return "繁體中文" if traditional >= 2 else "简体中文"
+    if counts["cyrillic"]:
+        if any(char in text for char in "іїєґ"):
+            return "Українська"
+        if any(char in text for char in "ђјљњћџ"):
+            return "Српски"
+        if any(char in text for char in "ъьъ") and "ы" not in text:
+            return "Български"
+        return "Русский"
+    if counts["arabic"]:
+        if any(char in text for char in "پچژگ"):
+            return "فارسی"
+        if any(char in text for char in "ٹڈڑںے"):
+            return "اردو"
+        return "العربية"
+    if counts["hebrew"]:
+        return "עברית"
+    script_names = (
+        ("devanagari", "हिन्दी"),
+        ("bengali", "বাংলা"),
+        ("tamil", "தமிழ்"),
+        ("telugu", "తెలుగు"),
+        ("thai", "ไทย"),
+        ("greek", "Ελληνικά"),
+        ("georgian", "ქართული"),
+        ("armenian", "Հայերեն"),
+        ("ethiopic", "አማርኛ"),
+    )
+    for script, display_name in script_names:
+        if counts[script]:
+            return display_name
+
+    words = set(re.findall(r"[\wÀ-ÿ]+", text, re.UNICODE))
+    scores = {
+        name: len(words.intersection(hints))
+        for name, hints in LANGUAGE_WORD_HINTS.items()
+    }
+    best_name, best_score = max(scores.items(), key=lambda item: item[1])
+    if best_score < 2:
+        return None
+    tied = [name for name, score in scores.items() if score == best_score]
+    if len(tied) > 1:
+        return None
+    return best_name
 
 
 def _sample_translation_text(paths: list[Path]) -> str:
@@ -144,7 +363,12 @@ def _sample_translation_text(paths: list[Path]) -> str:
             text, _encoding, _newline, _bom = read_text_preserving(path)
         except (OSError, UnicodeError):
             continue
-        chunks.append(text[:12000])
+        new_values = re.findall(r"^\s*new\s+(.+)$", text, re.MULTILINE)
+        if new_values:
+            chunks.append("\n".join(new_values)[:12000])
+            continue
+        quoted_values = [match[3] for match in _quoted_segments(text) if match[3].strip()]
+        chunks.append("\n".join(quoted_values)[:12000] if quoted_values else text[:12000])
     return "\n".join(chunks)
 
 
