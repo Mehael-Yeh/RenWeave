@@ -13,6 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import __version__
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
@@ -29,6 +30,8 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressBar,
     QPushButton,
+    QDialog,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
@@ -54,6 +57,7 @@ from .pipeline import RenWeavePipeline
 from .provider import ModelProfile, OpenAICompatibleCatalog
 from .provider_presets import PROVIDER_PRESETS, PROVIDER_PRESETS_BY_ID
 from .runtime import CancellationToken
+from .update_check import check_for_updates
 
 
 @dataclass(slots=True)
@@ -89,6 +93,97 @@ class _Worker(QRunnable):
             self.signals.finished.emit(result)
         except BaseException as exc:  # pragma: no cover - exercised by UI
             self.signals.failed.emit(exc)
+
+
+class SettingsDialog(QDialog):
+    """Qt replacement for the legacy privacy and maintenance settings dialog."""
+
+    def __init__(self, app: "QtRenWeaveWindow") -> None:
+        super().__init__(app)
+        self.app = app
+        self.setWindowTitle(app._t("settings.title"))
+        self.setModal(True)
+        self.resize(760, 430)
+        self.setMinimumSize(680, 390)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(14)
+
+        title = QLabel(app._t("settings.title"), objectName="PageTitle")
+        root.addWidget(title)
+        body = QLabel(app._t("settings.body"), objectName="PageBody")
+        body.setWordWrap(True)
+        root.addWidget(body)
+
+        cards = QHBoxLayout()
+        cards.setSpacing(12)
+        root.addLayout(cards, 1)
+
+        credentials = QFrame(objectName="Card")
+        credentials_layout = QVBoxLayout(credentials)
+        credentials_layout.setContentsMargins(16, 16, 16, 16)
+        credentials_layout.setSpacing(8)
+        credentials_title = QLabel(app._t("settings.credentials"), objectName="SectionTitle")
+        credentials_layout.addWidget(credentials_title)
+        credentials_hint = QLabel(app._t("settings.credentials_hint"), objectName="Hint")
+        credentials_hint.setWordWrap(True)
+        credentials_layout.addWidget(credentials_hint)
+        self.secure_radio = QRadioButton(app._t("settings.secure"))
+        self.memory_radio = QRadioButton(app._t("settings.memory"))
+        self.secure_radio.setChecked(app._key_storage == "secure")
+        self.memory_radio.setChecked(app._key_storage == "memory")
+        self.secure_radio.toggled.connect(self._storage_changed)
+        credentials_layout.addWidget(self.secure_radio)
+        credentials_layout.addWidget(self.memory_radio)
+        self.forget_button = QPushButton(app._t("settings.forget_key"), objectName="Secondary")
+        self.forget_button.clicked.connect(app._forget_api_key)
+        credentials_layout.addWidget(self.forget_button, 0, Qt.AlignmentFlag.AlignLeft)
+        credentials_layout.addStretch()
+        cards.addWidget(credentials, 1)
+
+        updates = QFrame(objectName="Card")
+        updates_layout = QVBoxLayout(updates)
+        updates_layout.setContentsMargins(16, 16, 16, 16)
+        updates_layout.setSpacing(8)
+        updates_title = QLabel(app._t("settings.updates"), objectName="SectionTitle")
+        updates_layout.addWidget(updates_title)
+        updates_hint = QLabel(app._t("settings.updates_hint"), objectName="Hint")
+        updates_hint.setWordWrap(True)
+        updates_layout.addWidget(updates_hint)
+        self.update_toggle = QCheckBox(app._t("settings.update_toggle"))
+        self.update_toggle.setChecked(app._update_checks_enabled)
+        self.update_toggle.toggled.connect(app._update_checks_toggled)
+        updates_layout.addWidget(self.update_toggle)
+        self.check_button = QPushButton(app._t("settings.check_now"), objectName="Secondary")
+        self.check_button.clicked.connect(lambda: app._check_updates(manual=True, dialog=self))
+        updates_layout.addWidget(self.check_button, 0, Qt.AlignmentFlag.AlignLeft)
+        self.update_status = QLabel(app._t("settings.current_version", version=__version__), objectName="Hint")
+        self.update_status.setWordWrap(True)
+        updates_layout.addWidget(self.update_status)
+        updates_layout.addStretch()
+        cards.addWidget(updates, 1)
+
+        footer = QHBoxLayout()
+        footer.addStretch()
+        close_button = QPushButton(app._t("settings.close"), objectName="Primary")
+        close_button.clicked.connect(self.accept)
+        footer.addWidget(close_button)
+        root.addLayout(footer)
+
+    def _storage_changed(self, checked: bool) -> None:
+        if checked:
+            self.app._set_key_storage("secure")
+        elif self.memory_radio.isChecked():
+            self.app._set_key_storage("memory")
+
+    def set_update_status(self, text: str) -> None:
+        self.update_status.setText(text)
+
+    def set_update_busy(self, busy: bool) -> None:
+        self.check_button.setEnabled(not busy)
+        if busy:
+            self.set_update_status(self.app._t("settings.update_checking"))
 
 
 UI_COPY = {
@@ -133,6 +228,8 @@ UI_COPY = {
         "languages.existing_body": "Choose one to preserve valid translations and process only missing or outdated text.",
         "model.provider": "Provider",
         "model.api_key": "API key",
+        "model.show_key": "Show",
+        "model.hide_key": "Hide",
         "model.model": "Model",
         "model.endpoint": "Endpoint",
         "model.reasoning": "Thinking level",
@@ -217,6 +314,25 @@ UI_COPY = {
         "translation.ready": "Translation package is ready",
         "translation.completed": "Completed",
         "progress.pausing": "Pausing safely…",
+        "top.settings": "Settings",
+        "settings.title": "Settings",
+        "settings.body": "Control API key storage and optional version checks for this user account.",
+        "settings.credentials": "API key storage",
+        "settings.credentials_hint": "Secure storage uses the operating system credential service. API keys never enter RenWeave settings, project files, logs, or translation packages.",
+        "settings.secure": "Encrypted system storage (recommended)",
+        "settings.memory": "Memory only — cleared when RenWeave closes",
+        "settings.forget_key": "Forget current key",
+        "settings.updates": "Version updates",
+        "settings.updates_hint": "Check GitHub Releases after startup. Checks are disabled by default and never install anything automatically.",
+        "settings.update_toggle": "Check for updates after startup",
+        "settings.check_now": "Check now",
+        "settings.current_version": "Installed version: {version}",
+        "settings.update_checking": "Checking for updates…",
+        "settings.update_available": "Version {latest} is available. You currently have {current}.",
+        "settings.up_to_date": "RenWeave {current} is up to date. Latest release: {latest}.",
+        "settings.update_failed": "Update check failed: {error}",
+        "settings.key_forgotten": "The current API key was forgotten.",
+        "settings.close": "Close",
     },
     "zh": {
         "nav.game": "游戏",
@@ -259,6 +375,8 @@ UI_COPY = {
         "languages.existing_body": "选择已有语言可以保留有效译文，只处理缺失或已经过时的文本。",
         "model.provider": "提供商",
         "model.api_key": "API 密钥",
+        "model.show_key": "显示",
+        "model.hide_key": "隐藏",
         "model.model": "模型",
         "model.endpoint": "接口地址",
         "model.reasoning": "思考设置",
@@ -343,6 +461,25 @@ UI_COPY = {
         "translation.ready": "翻译包已准备完成",
         "translation.completed": "已完成",
         "progress.pausing": "正在安全暂停……",
+        "top.settings": "设置",
+        "settings.title": "设置",
+        "settings.body": "管理当前用户的 API 密钥存储方式和可选的版本检查。",
+        "settings.credentials": "API 密钥存储",
+        "settings.credentials_hint": "安全存储使用操作系统凭据服务。密钥不会写入织译设置、项目文件、日志或翻译包。",
+        "settings.secure": "系统加密存储（推荐）",
+        "settings.memory": "仅保留在内存——关闭织译后忘记密钥",
+        "settings.forget_key": "删除当前密钥",
+        "settings.updates": "版本更新",
+        "settings.updates_hint": "启动后检查 GitHub Releases；默认关闭，且绝不会自动安装更新。",
+        "settings.update_toggle": "启动后检查新版本",
+        "settings.check_now": "立即检查",
+        "settings.current_version": "当前版本：{version}",
+        "settings.update_checking": "正在检查更新……",
+        "settings.update_available": "已有新版本 {latest}；当前版本为 {current}。",
+        "settings.up_to_date": "织译 {current} 已是最新版本；最新发布版为 {latest}。",
+        "settings.update_failed": "检查更新失败：{error}",
+        "settings.key_forgotten": "当前 API 密钥已删除。",
+        "settings.close": "关闭",
     },
 }
 
@@ -424,6 +561,13 @@ class QtRenWeaveWindow(QMainWindow):
         self._credential_store = SecureCredentialStore()
         self._api_key_cache: dict[tuple[str, str], str] = {}
         self._model_by_identity: dict[tuple[str, str], str] = {}
+        self._key_storage = str(self._settings.get("key_storage", "secure"))
+        if self._key_storage not in {"secure", "memory"}:
+            self._key_storage = "secure"
+        self._update_checks_enabled = bool(self._settings.get("update_checks_enabled", False))
+        self._update_worker = None
+        self._settings_dialog: SettingsDialog | None = None
+        self._api_key_visible = False
 
         self._configure_palette()
         self._build_shell()
@@ -435,6 +579,8 @@ class QtRenWeaveWindow(QMainWindow):
         self._refresh_shell()
         if self.project_edit.text().strip():
             self._inspection_timer.start(0)
+        if self._update_checks_enabled:
+            QTimer.singleShot(800, self._check_updates)
 
     def _configure_palette(self) -> None:
         self.setStyleSheet(
@@ -520,6 +666,9 @@ class QtRenWeaveWindow(QMainWindow):
         top.addStretch()
         self.locale_button = QPushButton("中文", objectName="Secondary")
         self.locale_button.clicked.connect(self._toggle_locale)
+        self.settings_button = QPushButton("Settings", objectName="Secondary")
+        self.settings_button.clicked.connect(self._open_settings)
+        top.addWidget(self.settings_button)
         top.addWidget(self.locale_button)
         main_layout.addLayout(top)
 
@@ -719,7 +868,11 @@ class QtRenWeaveWindow(QMainWindow):
         for column in range(2):
             fields.setColumnStretch(column, 1)
         self.api_key_edit = QLineEdit()
-        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_toggle = QPushButton(objectName="Secondary")
+        self.api_key_toggle.setCheckable(True)
+        self.api_key_toggle.setFixedWidth(68)
+        self.api_key_toggle.toggled.connect(self._toggle_api_key_visibility)
         self.model_edit = QComboBox()
         self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
@@ -743,8 +896,13 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_actions.addWidget(self.connect_model_button)
         self.model_actions.addWidget(self.verify_model_button)
         self.model_actions.addStretch()
+        api_key_row = QHBoxLayout()
+        api_key_row.setContentsMargins(0, 0, 0, 0)
+        api_key_row.setSpacing(8)
+        api_key_row.addWidget(self.api_key_edit, 1)
+        api_key_row.addWidget(self.api_key_toggle)
         fields.addWidget(self.api_key_label, 0, 0, 1, 2)
-        fields.addWidget(self.api_key_edit, 1, 0, 1, 2)
+        fields.addLayout(api_key_row, 1, 0, 1, 2)
         fields.addWidget(self.endpoint_label, 2, 0, 1, 2)
         fields.addWidget(self.endpoint_edit, 3, 0)
         fields.addLayout(self.model_actions, 3, 1)
@@ -767,7 +925,6 @@ class QtRenWeaveWindow(QMainWindow):
         self._model_route_layout.setContentsMargins(0, 0, 0, 0)
         self._model_route_layout.addWidget(self.use_model_check)
         self._model_route_layout.addWidget(self.use_model_hint, 1)
-        card_layout.addLayout(self.model_actions)
         card_layout.addWidget(self.reasoning_hint_label)
         card_layout.addLayout(self._model_route_layout)
         self.model_status = QLabel(objectName="Hint")
@@ -1055,6 +1212,13 @@ class QtRenWeaveWindow(QMainWindow):
         self._save_settings()
         self._refresh_shell()
 
+    def _toggle_api_key_visibility(self, visible: bool) -> None:
+        self._api_key_visible = visible
+        self.api_key_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        )
+        self.api_key_toggle.setText(self._t("model.hide_key" if visible else "model.show_key"))
+
     def _retranslate_ui(self) -> None:
         """Update mounted widgets in place without rebuilding any page."""
         self.locale_button.setText("中文" if self.locale == "en" else "English")
@@ -1065,6 +1229,7 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _refresh_static_texts(self) -> None:
         self.back_button.setText(self._t("shell.back"))
+        self.settings_button.setText(self._t("top.settings"))
         self.game_project_label.setText(self._t("game.project"))
         self.game_workspace_label.setText(self._t("game.workspace"))
         self.game_sdk_label.setText(self._t("game.sdk"))
@@ -1083,6 +1248,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.existing_languages_body.setText(self._t("languages.existing_body"))
         self.model_provider_label.setText(self._t("model.provider"))
         self.api_key_label.setText(self._t("model.api_key"))
+        self.api_key_toggle.setText(self._t("model.hide_key" if self._api_key_visible else "model.show_key"))
         self.model_label.setText(self._t("model.model"))
         self.endpoint_label.setText(self._t("model.endpoint"))
         self.reasoning_label.setText(self._t("model.reasoning"))
@@ -1388,7 +1554,13 @@ class QtRenWeaveWindow(QMainWindow):
     def _persist_api_key(self, provider_id: str, base_url: str, secret: str) -> None:
         identity = (provider_id, base_url.strip())
         self._api_key_cache[identity] = secret
+        if self._key_storage != "secure":
+            return
         if not secret:
+            try:
+                self._credential_store.delete(*identity)
+            except CredentialStorageError:
+                self._logs.append("Could not forget the API key in the system credential store.")
             return
         try:
             self._credential_store.set(*identity, secret)
@@ -1399,6 +1571,8 @@ class QtRenWeaveWindow(QMainWindow):
         identity = (provider_id, base_url.strip())
         if identity in self._api_key_cache:
             return self._api_key_cache[identity]
+        if self._key_storage != "secure":
+            return ""
         try:
             secret = self._credential_store.get(*identity)
         except CredentialStorageError:
@@ -1420,6 +1594,96 @@ class QtRenWeaveWindow(QMainWindow):
         if remembered_model:
             self.model_edit.setCurrentText(remembered_model)
         self._save_settings()
+
+    def _set_key_storage(self, storage: str) -> None:
+        if storage not in {"secure", "memory"} or storage == self._key_storage:
+            return
+        identity = (self._active_provider_id, self.endpoint_edit.text().strip())
+        if storage == "secure":
+            self._key_storage = storage
+            self._persist_api_key(*identity, self.api_key_edit.text())
+        else:
+            self._key_storage = storage
+            try:
+                self._credential_store.delete(*identity)
+            except CredentialStorageError:
+                self._logs.append("Could not remove the API key from the system credential store.")
+        self._save_settings()
+
+    def _forget_api_key(self) -> None:
+        identity = (self._active_provider_id, self.endpoint_edit.text().strip())
+        self._api_key_cache.pop(identity, None)
+        try:
+            self._credential_store.delete(*identity)
+        except CredentialStorageError as exc:
+            QMessageBox.warning(self, self._t("settings.title"), str(exc))
+        self.api_key_edit.clear()
+        self._save_settings()
+        if self._settings_dialog is not None:
+            self._settings_dialog.set_update_status(self._t("settings.key_forgotten"))
+
+    def _open_settings(self) -> None:
+        if self._settings_dialog is not None:
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+        dialog = SettingsDialog(self)
+        self._settings_dialog = dialog
+        try:
+            dialog.exec()
+        finally:
+            self._settings_dialog = None
+
+    def _update_checks_toggled(self, enabled: bool) -> None:
+        self._update_checks_enabled = enabled
+        self._save_settings()
+        if enabled:
+            self._check_updates()
+
+    def _check_updates(self, *, manual: bool = False, dialog: SettingsDialog | None = None) -> None:
+        if self._update_worker is not None:
+            return
+        worker = _Worker(lambda: check_for_updates(__version__))
+        self._update_worker = worker
+        if dialog is not None:
+            dialog.set_update_busy(True)
+
+        def finished(result) -> None:
+            self._update_worker = None
+            target = dialog or self._settings_dialog
+            if target is not None:
+                target.set_update_status(
+                    self._t(
+                        "settings.update_available" if result.update_available else "settings.up_to_date",
+                        latest=result.latest_version,
+                        current=result.current_version,
+                    )
+                )
+                target.set_update_busy(False)
+            elif manual or result.update_available:
+                QMessageBox.information(
+                    self,
+                    self._t("settings.title"),
+                    self._t(
+                        "settings.update_available" if result.update_available else "settings.up_to_date",
+                        latest=result.latest_version,
+                        current=result.current_version,
+                    ),
+                )
+
+        def failed(error: BaseException) -> None:
+            self._update_worker = None
+            target = dialog or self._settings_dialog
+            message = self._t("settings.update_failed", error=str(error))
+            if target is not None:
+                target.set_update_status(message)
+                target.set_update_busy(False)
+            elif manual:
+                QMessageBox.warning(self, self._t("settings.title"), message)
+
+        worker.signals.finished.connect(finished)
+        worker.signals.failed.connect(failed)
+        self.thread_pool.start(worker)
 
     def _model_changed(self, value: str) -> None:
         self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = value.strip()
@@ -1780,6 +2044,8 @@ class QtRenWeaveWindow(QMainWindow):
             "model": self.model_edit.currentText().strip(),
             "base_url": self.endpoint_edit.text().strip(),
             "reasoning_level": str(self.reasoning_combo.currentData() or "auto"),
+            "key_storage": self._key_storage,
+            "update_checks_enabled": self._update_checks_enabled,
         }
         try:
             atomic_write_json(self._settings_path, payload)

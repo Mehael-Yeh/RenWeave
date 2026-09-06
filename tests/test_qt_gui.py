@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -171,8 +172,37 @@ class QtFrontendTests(unittest.TestCase):
         window = QtRenWeaveWindow()
         try:
             self.assertEqual(window.model_edit.currentText(), "")
+            self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Password)
+            window.api_key_edit.setText("secret")
+            window.api_key_toggle.click()
             self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Normal)
+            window.api_key_toggle.click()
+            self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Password)
             self.assertTrue(window.use_model_hint.text())
+        finally:
+            window.close()
+
+    def test_settings_restore_key_storage_and_persist_without_secret(self):
+        window = QtRenWeaveWindow()
+        try:
+            class FakeCredentialStore:
+                def set(self, *_args):
+                    return None
+
+                def delete(self, *_args):
+                    return None
+
+            with tempfile.TemporaryDirectory() as directory:
+                window._settings_path = Path(directory) / "settings.json"
+                window._credential_store = FakeCredentialStore()
+                window._set_key_storage("memory")
+                window.api_key_edit.setText("session-secret")
+                window._save_api_key()
+                window._save_settings()
+                self.assertEqual(window._key_storage, "memory")
+                self.assertEqual(window._settings_path.read_text(encoding="utf-8").find("session-secret"), -1)
+            window._forget_api_key()
+            self.assertEqual(window.api_key_edit.text(), "")
         finally:
             window.close()
 
