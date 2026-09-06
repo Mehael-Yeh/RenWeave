@@ -93,12 +93,12 @@ class _Worker(QRunnable):
 
 UI_COPY = {
     "en": {
-        "nav.game": "Game setup",
+        "nav.game": "Game",
         "nav.languages": "Languages",
         "nav.model": "Model",
         "nav.review": "Review",
         "nav.progress": "Translation",
-        "page.game.title": "Game setup",
+        "page.game.title": "Game",
         "page.game.body": "Choose the Ren'Py project and workspace used by the translation pipeline.",
         "page.languages.title": "Languages",
         "page.languages.body": "Choose the source and target language for the generated translation files.",
@@ -143,6 +143,7 @@ UI_COPY = {
         "reasoning.high": "High",
         "reasoning.maximum": "Maximum",
         "model.use": "Use model translation",
+        "model.use_hint": "When disabled, only blank translation files are generated for manual editing.",
         "model.load": "Load models",
         "model.verify": "Verify model",
         "model.not_connected": "Not connected",
@@ -200,6 +201,10 @@ UI_COPY = {
         "dialog.invalid_project": "Select a valid Ren'Py project first.",
         "dialog.cannot_start": "Cannot start",
         "dialog.missing_fields": "Project, workspace and target language are required.",
+        "dialog.target_required": "Choose a target language before continuing.",
+        "dialog.model_required": "Configure and select a model before continuing.",
+        "dialog.scope_required": "Wait for the translation scope calculation to finish before continuing.",
+        "dialog.validation": "Please complete the current page before continuing.",
         "dialog.open_output": "Open output",
         "model.loading": "Loading models…",
         "model.loaded": "Loaded {count} model(s) · {latency} ms",
@@ -214,20 +219,20 @@ UI_COPY = {
         "progress.pausing": "Pausing safely…",
     },
     "zh": {
-        "nav.game": "游戏设置",
-        "nav.languages": "语言设置",
-        "nav.model": "模型设置",
-        "nav.review": "确认任务",
-        "nav.progress": "翻译进度",
-        "page.game.title": "游戏设置",
+        "nav.game": "游戏",
+        "nav.languages": "语言",
+        "nav.model": "模型",
+        "nav.review": "确认",
+        "nav.progress": "翻译",
+        "page.game.title": "游戏",
         "page.game.body": "选择翻译流程使用的 Ren'Py 项目和工作区。",
-        "page.languages.title": "语言设置",
+        "page.languages.title": "语言",
         "page.languages.body": "选择生成翻译文件使用的源语言和目标语言。",
-        "page.model.title": "模型设置",
+        "page.model.title": "模型",
         "page.model.body": "配置翻译使用的 API 提供商和模型。",
-        "page.review.title": "确认任务",
+        "page.review.title": "确认",
         "page.review.body": "开始翻译前确认翻译范围和输出选项。",
-        "page.progress.title": "翻译进度",
+        "page.progress.title": "翻译",
         "page.progress.body": "在当前页面查看翻译任务进度。",
         "game.project": "游戏项目",
         "game.workspace": "工作区",
@@ -264,6 +269,7 @@ UI_COPY = {
         "reasoning.high": "高",
         "reasoning.maximum": "最高",
         "model.use": "使用模型翻译",
+        "model.use_hint": "不勾选时只生成空白翻译文件，之后可以手动填写译文。",
         "model.load": "获取模型",
         "model.verify": "验证模型",
         "model.not_connected": "尚未连接",
@@ -321,6 +327,10 @@ UI_COPY = {
         "dialog.invalid_project": "请先选择有效的 Ren'Py 项目。",
         "dialog.cannot_start": "无法开始",
         "dialog.missing_fields": "项目、工作区和目标语言均为必填项。",
+        "dialog.target_required": "请选择目标语言后再继续。",
+        "dialog.model_required": "请先配置并选择模型后再继续。",
+        "dialog.scope_required": "请等待翻译范围计算完成后再继续。",
+        "dialog.validation": "请先完成当前页面的配置后再继续。",
         "dialog.open_output": "打开输出目录",
         "model.loading": "正在获取模型……",
         "model.loaded": "已加载 {count} 个模型 · {latency} ms",
@@ -394,6 +404,10 @@ class QtRenWeaveWindow(QMainWindow):
         self._scope_preview_inventory = None
         self._scope_preview_budget = None
         self._scope_preview_worker = None
+        self._selected_existing_language: str | None = None
+        self._existing_selection_source = ""
+        self._changing_existing_selection = False
+        self.existing_language_controls: dict[str, QPushButton] = {}
         self._project_validation_state = "idle"
         self._project_validation_error = ""
         self._discovered_project = None
@@ -451,6 +465,9 @@ class QtRenWeaveWindow(QMainWindow):
             QLineEdit:focus, QComboBox:focus, QTextEdit:focus { border: 1px solid #5b5ce2; }
             QLineEdit::placeholder { color: #98a2b3; }
             QComboBox QAbstractItemView { background: #ffffff; color: #344054; selection-background-color: #e7e9ff; selection-color: #101828; }
+            QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 32px; border-left: 1px solid #e0e6ef; background: #f7f8fc; border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+            QComboBox::drop-down:hover { background: #e7e9ff; }
+            QComboBox::down-arrow { width: 8px; height: 8px; }
             QCheckBox { min-height: 28px; color: #344054; }
             QScrollBar:vertical { background: #e9edf5; width: 10px; margin: 2px 0 2px 0; border-radius: 5px; }
             QScrollBar::handle:vertical { background: #b8c1d1; min-height: 36px; border-radius: 5px; }
@@ -536,6 +553,10 @@ class QtRenWeaveWindow(QMainWindow):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Reserve the scrollbar gutter even while the handle is hidden. This
+        # prevents page content from shifting when a page becomes scrollable.
+        scroll.setViewportMargins(0, 0, 10, 0)
+        scroll.verticalScrollBar().setFixedWidth(10)
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setContentsMargins(2, 2, 10, 18)
@@ -643,7 +664,8 @@ class QtRenWeaveWindow(QMainWindow):
         self.target_combo = QComboBox()
         self.target_combo.setEditable(True)
         self.target_combo.addItems(["简体中文", "繁體中文", "English", "日本語", "Français"])
-        self.target_combo.currentTextChanged.connect(self._start_scope_preview)
+        self.source_combo.currentTextChanged.connect(self._language_changed)
+        self.target_combo.currentTextChanged.connect(self._language_changed)
         columns.addWidget(self.source_combo, 1, 0)
         columns.addWidget(self.target_combo, 1, 1)
         self.source_hint = QLabel(objectName="Hint")
@@ -694,10 +716,10 @@ class QtRenWeaveWindow(QMainWindow):
         fields = QGridLayout()
         fields.setHorizontalSpacing(12)
         fields.setVerticalSpacing(8)
-        for column in range(3):
+        for column in range(2):
             fields.setColumnStretch(column, 1)
         self.api_key_edit = QLineEdit()
-        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
         self.model_edit = QComboBox()
         self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
@@ -712,33 +734,42 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_label = QLabel(objectName="SectionTitle")
         self.endpoint_label = QLabel(objectName="SectionTitle")
         self.reasoning_label = QLabel(objectName="SectionTitle")
-        fields.addWidget(self.api_key_label, 0, 0, 1, 3)
-        fields.addWidget(self.api_key_edit, 1, 0, 1, 3)
-        fields.addWidget(self.model_label, 2, 0)
-        fields.addWidget(self.endpoint_label, 2, 1)
-        fields.addWidget(self.reasoning_label, 2, 2)
-        fields.addWidget(self.model_edit, 3, 0)
-        fields.addWidget(self.endpoint_edit, 3, 1)
-        fields.addWidget(self.reasoning_combo, 3, 2)
+        self.model_actions = QHBoxLayout()
+        self.model_actions.setContentsMargins(0, 0, 0, 0)
+        self.connect_model_button = QPushButton(objectName="Secondary")
+        self.verify_model_button = QPushButton(objectName="Secondary")
+        self.connect_model_button.clicked.connect(self._connect_models)
+        self.verify_model_button.clicked.connect(self._verify_model)
+        self.model_actions.addWidget(self.connect_model_button)
+        self.model_actions.addWidget(self.verify_model_button)
+        self.model_actions.addStretch()
+        fields.addWidget(self.api_key_label, 0, 0, 1, 2)
+        fields.addWidget(self.api_key_edit, 1, 0, 1, 2)
+        fields.addWidget(self.endpoint_label, 2, 0, 1, 2)
+        fields.addWidget(self.endpoint_edit, 3, 0)
+        fields.addLayout(self.model_actions, 3, 1)
+        fields.addWidget(self.model_label, 4, 0)
+        fields.addWidget(self.reasoning_label, 4, 1)
+        fields.addWidget(self.model_edit, 5, 0)
+        fields.addWidget(self.reasoning_combo, 5, 1)
         self.model_edit.currentTextChanged.connect(self._model_changed)
         self.endpoint_edit.editingFinished.connect(self._endpoint_edited)
         self.reasoning_combo.currentIndexChanged.connect(self._reasoning_changed)
         card_layout.addLayout(fields)
         self.reasoning_hint_label = QLabel(objectName="Hint")
         self.reasoning_hint_label.setWordWrap(True)
-        card_layout.addWidget(self.reasoning_hint_label)
         self.use_model_check = QCheckBox()
         self.use_model_check.setChecked(True)
-        card_layout.addWidget(self.use_model_check)
-        buttons = QHBoxLayout()
-        self.connect_model_button = QPushButton(objectName="Secondary")
-        self.verify_model_button = QPushButton(objectName="Secondary")
-        self.connect_model_button.clicked.connect(self._connect_models)
-        self.verify_model_button.clicked.connect(self._verify_model)
-        buttons.addWidget(self.connect_model_button)
-        buttons.addWidget(self.verify_model_button)
-        buttons.addStretch()
-        card_layout.addLayout(buttons)
+        self.use_model_check.toggled.connect(self._model_route_changed)
+        self.use_model_hint = QLabel(objectName="Hint")
+        self.use_model_hint.setWordWrap(True)
+        self._model_route_layout = QHBoxLayout()
+        self._model_route_layout.setContentsMargins(0, 0, 0, 0)
+        self._model_route_layout.addWidget(self.use_model_check)
+        self._model_route_layout.addWidget(self.use_model_hint, 1)
+        card_layout.addLayout(self.model_actions)
+        card_layout.addWidget(self.reasoning_hint_label)
+        card_layout.addLayout(self._model_route_layout)
         self.model_status = QLabel(objectName="Hint")
         self.model_status.setWordWrap(True)
         self.model_status.setMinimumHeight(24)
@@ -805,6 +836,7 @@ class QtRenWeaveWindow(QMainWindow):
         options, options_layout = self._card()
         self.generate_rpa_check = QCheckBox()
         self.generate_rpa_check.setChecked(True)
+        self.generate_rpa_check.toggled.connect(self._sync_rpa_option)
         self.install_check = QCheckBox()
         options_layout.addWidget(self.generate_rpa_check)
         options_layout.addWidget(self.install_check)
@@ -833,6 +865,7 @@ class QtRenWeaveWindow(QMainWindow):
         pending_layout.addWidget(self.pending_details)
         layout.addWidget(pending)
         layout.addStretch()
+        self._sync_rpa_option(self.generate_rpa_check.isChecked())
         return self.pages[-1], layout
 
     def _build_progress_page(self):
@@ -926,10 +959,10 @@ class QtRenWeaveWindow(QMainWindow):
             self.action_button.setEnabled(self._scope_preview_status == "ready")
         elif self.step == 3:
             self.action_button.setText(self._t("shell.continue"))
-            self.action_button.setEnabled(self._scope_preview_status == "ready")
+            self.action_button.setEnabled(self._can_continue())
         else:
             self.action_button.setText(self._t("shell.continue"))
-            self.action_button.setEnabled(not (self.step == 0 and self._project_validation_state == "pending"))
+            self.action_button.setEnabled(self._can_continue())
 
     def _footer_effect(self) -> str:
         return (
@@ -955,20 +988,18 @@ class QtRenWeaveWindow(QMainWindow):
             self._refresh_shell()
 
     def _continue(self) -> None:
-        if self.step == 0:
-            if self._project_validation_state == "pending":
+        if not self._can_continue():
+            message = self._current_step_validation_error()
+            if self.step == 0 and self._project_validation_state == "pending":
                 self.project_status.setText(self._t("game.inspecting"))
-                return
-            if self._project_validation_state != "valid":
-                QMessageBox.warning(
-                    self,
-                    self._t("dialog.project"),
-                    self._project_validation_error or self._t("dialog.invalid_project"),
-                )
-                return
+            QMessageBox.warning(self, self._t("dialog.project"), message)
+            return
         if self.step < 3:
             if self.step == 2:
                 self._blank_translation_mode = not self.use_model_check.isChecked()
+                if self._blank_translation_mode:
+                    self.generate_rpa_check.setChecked(False)
+                    self.install_check.setChecked(False)
             self.step += 1
             self._refresh_shell()
             if self.step == 3:
@@ -989,6 +1020,34 @@ class QtRenWeaveWindow(QMainWindow):
                 self.progress_runtime.setText(self._t("progress.pausing"))
             else:
                 self._start_translation()
+
+    def _can_continue(self) -> bool:
+        if self.step == 4 and self._translation_started:
+            return True
+        return not bool(self._current_step_validation_error())
+
+    def _current_step_validation_error(self) -> str:
+        if self.step == 0:
+            if self._project_validation_state == "pending":
+                return self._t("game.inspecting")
+            if self._project_validation_state != "valid":
+                return self._project_validation_error or self._t("dialog.invalid_project")
+        elif self.step == 1:
+            if not self.target_combo.currentText().strip():
+                return self._t("dialog.target_required")
+            if (
+                self._selected_existing_language is not None
+                and self._scope_preview_status != "ready"
+            ):
+                return self._t("dialog.scope_required")
+        elif self.step == 2 and self.use_model_check.isChecked():
+            try:
+                self._profile(require_model=True)
+            except (TypeError, ValueError) as exc:
+                return str(exc) or self._t("dialog.model_required")
+        elif self.step in {3, 4} and self._scope_preview_status != "ready":
+            return self._t("dialog.scope_required")
+        return ""
 
     def _toggle_locale(self) -> None:
         self.locale = "zh" if self.locale == "en" else "en"
@@ -1035,6 +1094,7 @@ class QtRenWeaveWindow(QMainWindow):
         for preset, button in zip(PROVIDER_PRESETS, self.provider_buttons):
             button.setText(preset.display_name(self.locale))
         self.use_model_check.setText(self._t("model.use"))
+        self.use_model_hint.setText(self._t("model.use_hint"))
         self.connect_model_button.setText(self._t("model.load"))
         self.verify_model_button.setText(self._t("model.verify"))
         self.generate_rpa_check.setText(self._t("review.rpa"))
@@ -1086,6 +1146,14 @@ class QtRenWeaveWindow(QMainWindow):
         visible = not self.pending_details.isVisible()
         self.pending_details.setVisible(visible)
         self.pending_toggle.setText(self._t("review.hide_pending" if visible else "review.show_details"))
+
+    def _sync_rpa_option(self, enabled: bool) -> None:
+        self.install_check.setEnabled(enabled)
+        self.install_check.setVisible(enabled)
+        if not enabled:
+            self.install_check.setChecked(False)
+        if self._scope_preview_inventory is not None:
+            self._refresh_review_preview()
 
     def _toggle_log(self) -> None:
         visible = not self.log_edit.isVisible()
@@ -1179,11 +1247,13 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_status.setText(self._t("game.detected", count=len(languages)))
         self._inspection_revision = None
         self._inspection_value = ""
-        self._start_scope_preview()
         self._refresh_shell()
 
     def _refresh_existing_languages(self) -> None:
         languages = list(getattr(self, "existing_languages", []))
+        self._selected_existing_language = None
+        self._existing_selection_source = ""
+        self.existing_language_controls.clear()
         while self.existing_language_buttons.count():
             item = self.existing_language_buttons.takeAt(0)
             widget = item.widget()
@@ -1199,8 +1269,47 @@ class QtRenWeaveWindow(QMainWindow):
                 f"{item.language} · {item.script_files + item.compiled_files} files",
                 objectName="Secondary",
             )
-            button.clicked.connect(lambda _checked=False, language=item.language: self.target_combo.setCurrentText(language))
+            button.setCheckable(True)
+            button.clicked.connect(
+                lambda _checked=False, language=item.language: self._select_existing_language(language)
+            )
+            self.existing_language_controls[item.language] = button
             self.existing_language_buttons.addWidget(button)
+
+    def _select_existing_language(self, language: str) -> None:
+        if language not in self.existing_language_controls:
+            return
+        self._selected_existing_language = language
+        self._existing_selection_source = self.source_combo.currentText().strip() or "auto"
+        self._changing_existing_selection = True
+        try:
+            self.target_combo.setCurrentText(language)
+        finally:
+            self._changing_existing_selection = False
+        for item_language, button in self.existing_language_controls.items():
+            button.setChecked(item_language == language)
+        self._invalidate_scope_preview()
+        self._start_scope_preview()
+        self._refresh_shell()
+
+    def _clear_existing_language_selection(self) -> None:
+        if self._selected_existing_language is None:
+            return
+        self._selected_existing_language = None
+        self._existing_selection_source = ""
+        for button in self.existing_language_controls.values():
+            button.setChecked(False)
+
+    def _language_changed(self, _value: str = "") -> None:
+        if not self._changing_existing_selection and self._selected_existing_language is not None:
+            source = self.source_combo.currentText().strip() or "auto"
+            target = self.target_combo.currentText().strip()
+            if source != self._existing_selection_source or target != self._selected_existing_language:
+                self._clear_existing_language_selection()
+                self._invalidate_scope_preview()
+        if self.step >= 3:
+            self._start_scope_preview()
+        self._refresh_shell()
 
     def _project_inspection_failed(
         self,
@@ -1241,6 +1350,13 @@ class QtRenWeaveWindow(QMainWindow):
 
         self._run_worker(preview, self._scope_preview_ready, self._scope_preview_failed)
 
+    def _invalidate_scope_preview(self) -> None:
+        self._scope_preview_signature = None
+        self._scope_preview_status = "idle"
+        self._scope_preview_inventory = None
+        self._scope_preview_budget = None
+        self.language_scope_label.setText(self._t("languages.scope"))
+
     def _scope_preview_ready(self, result) -> None:
         inventory, budget = result
         self._scope_preview_status = "ready"
@@ -1255,10 +1371,12 @@ class QtRenWeaveWindow(QMainWindow):
             )
         )
         self._refresh_review_preview()
+        self._refresh_shell()
 
     def _scope_preview_failed(self, error: BaseException) -> None:
         self._scope_preview_status = "error"
         self.language_scope_label.setText(self._t("scope.failed", error=str(error)))
+        self._refresh_shell()
 
     def _refresh_reasoning_hint(self) -> None:
         provider_id = self.provider_ids[self.provider_combo.currentIndex()]
@@ -1309,6 +1427,13 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _reasoning_changed(self, _index: int) -> None:
         self._save_settings()
+
+    def _model_route_changed(self, checked: bool) -> None:
+        self._blank_translation_mode = not checked
+        if not checked:
+            self.generate_rpa_check.setChecked(False)
+            self.install_check.setChecked(False)
+        self._refresh_shell()
 
     def _provider_changed(self, index: int) -> None:
         if not self.provider_ids:
@@ -1415,7 +1540,23 @@ class QtRenWeaveWindow(QMainWindow):
         )
         self.review_fact_values[2].setText(self.review_languages_label.text())
         self.review_fact_values[3].setText(
-            ("生成 RPA · 校验后安装" if self.locale == "zh" else "Generate RPA · Install after validation")
+            (
+                (
+                    "生成 RPA · 校验后安装"
+                    if self.generate_rpa_check.isChecked() and self.install_check.isChecked()
+                    else "生成 RPA"
+                    if self.generate_rpa_check.isChecked()
+                    else "不生成 RPA"
+                )
+                if self.locale == "zh"
+                else (
+                    "Generate RPA · Install after validation"
+                    if self.generate_rpa_check.isChecked() and self.install_check.isChecked()
+                    else "Generate RPA"
+                    if self.generate_rpa_check.isChecked()
+                    else "Do not generate RPA"
+                )
+            )
         )
         self.review_remaining_label.setText(
             (f"待翻译模型单元：{inventory.model_units}" if self.locale == "zh" else f"Remaining model units: {inventory.model_units}")
@@ -1625,7 +1766,6 @@ class QtRenWeaveWindow(QMainWindow):
         saved_model = str(self._settings.get("model", "")).strip()
         if saved_model:
             self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = saved_model
-            self.model_edit.setCurrentText(saved_model)
         reasoning_level = str(self._settings.get("reasoning_level", "auto"))
         reasoning_index = self.reasoning_combo.findData(reasoning_level)
         if reasoning_index >= 0:

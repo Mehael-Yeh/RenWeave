@@ -93,12 +93,12 @@ class QtFrontendTests(unittest.TestCase):
             page_widgets = [page.scroll for page in window.pages]
             window._toggle_locale()
             self.assertEqual(window.locale, "zh")
-            self.assertEqual(window.pages[0].title.text(), "游戏设置")
+            self.assertEqual(window.pages[0].title.text(), "游戏")
             self.assertEqual(window.action_button.text(), "继续")
             self.assertEqual(window.back_button.text(), "返回")
             self.assertEqual([page.scroll for page in window.pages], page_widgets)
             window._toggle_locale()
-            self.assertEqual(window.pages[0].title.text(), "Game setup")
+            self.assertEqual(window.pages[0].title.text(), "Game")
             self.assertEqual(window.action_button.text(), "Continue")
         finally:
             window.close()
@@ -167,9 +167,79 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_model_page_starts_without_a_model_and_shows_api_key(self):
+        window = QtRenWeaveWindow()
+        try:
+            self.assertEqual(window.model_edit.currentText(), "")
+            self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Normal)
+            self.assertTrue(window.use_model_hint.text())
+        finally:
+            window.close()
+
+    def test_existing_language_selection_is_cancelled_when_languages_change(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.existing_languages = [
+                SimpleNamespace(language="zh_hans", script_files=1, compiled_files=0),
+            ]
+            window._refresh_existing_languages()
+            window._start_scope_preview = lambda *_args: None
+            window._select_existing_language("zh_hans")
+            self.assertEqual(window._selected_existing_language, "zh_hans")
+            self.assertTrue(window.existing_language_controls["zh_hans"].isChecked())
+            window.source_combo.setCurrentText("English")
+            self.assertIsNone(window._selected_existing_language)
+            self.assertFalse(window.existing_language_controls["zh_hans"].isChecked())
+        finally:
+            window.close()
+
+    def test_existing_language_reuse_must_finish_before_languages_continue(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.step = 1
+            window._selected_existing_language = "zh_hans"
+            window._scope_preview_status = "scanning"
+            window._refresh_shell()
+            self.assertFalse(window.action_button.isEnabled())
+            window._scope_preview_status = "ready"
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+        finally:
+            window.close()
+
+    def test_rpa_option_controls_install_visibility(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.show()
+            window.step = 3
+            window._refresh_shell()
+            self.assertTrue(window.install_check.isVisible())
+            window.generate_rpa_check.setChecked(False)
+            self.assertFalse(window.install_check.isVisible())
+            self.assertFalse(window.install_check.isEnabled())
+            window.generate_rpa_check.setChecked(True)
+            self.assertTrue(window.install_check.isVisible())
+            self.assertTrue(window.install_check.isEnabled())
+        finally:
+            window.close()
+
+    def test_model_continue_is_blocked_without_a_selected_model(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "en"
+            window._retranslate_ui()
+            window.step = 2
+            window.model_edit.setEditText("")
+            window._refresh_shell()
+            self.assertFalse(window.action_button.isEnabled())
+        finally:
+            window.close()
+
     def test_review_continue_only_enters_progress_page(self):
         window = QtRenWeaveWindow()
         try:
+            window.locale = "en"
+            window._retranslate_ui()
             window.step = 3
             window._scope_preview_status = "ready"
             window._refresh_shell()
