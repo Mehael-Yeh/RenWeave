@@ -236,7 +236,7 @@ UI_COPY = {
         "model.hide_key": "Hide",
         "model.model": "Model",
         "model.endpoint": "Endpoint",
-        "model.reasoning": "Thinking level",
+        "model.reasoning": "Reasoning level",
         "model.reasoning_hint": "Automatic uses the provider default.",
         "model.reasoning_unavailable": "This provider uses the model default.",
         "reasoning.auto": "Automatic (provider default)",
@@ -257,6 +257,7 @@ UI_COPY = {
         "review.model_translation": "Model translation",
         "review.blank_translation": "Blank translation extraction",
         "review.fact_model": "Model",
+        "review.fact_reasoning": "Reasoning level",
         "review.fact_game": "Game",
         "review.fact_languages": "Languages",
         "review.fact_options": "Options",
@@ -351,6 +352,11 @@ UI_COPY = {
         "progress.rpy_output": "RPY output: {path}",
         "progress.rpa_output": "RPA output: {path}",
         "dialog.translation_running": "Translation is still running. Pause it before leaving this page.",
+        "dialog.exit_title": "Translation is running",
+        "dialog.exit_running": "The translation is still running. Choose how to exit.",
+        "dialog.exit_pause": "Pause then exit",
+        "dialog.exit_now": "Exit",
+        "dialog.exit_cancel": "Cancel",
         "top.settings": "Settings",
         "settings.title": "Settings",
         "settings.body": "Control API key storage and optional version checks for this user account.",
@@ -432,7 +438,7 @@ UI_COPY = {
         "model.hide_key": "隐藏",
         "model.model": "模型",
         "model.endpoint": "接口地址",
-        "model.reasoning": "思考设置",
+        "model.reasoning": "思考强度",
         "model.reasoning_hint": "自动使用提供商或模型的默认思考设置。",
         "model.reasoning_unavailable": "此提供商使用模型默认思考设置。",
         "reasoning.auto": "自动（提供商默认）",
@@ -453,6 +459,7 @@ UI_COPY = {
         "review.model_translation": "模型翻译",
         "review.blank_translation": "生成空白翻译文件",
         "review.fact_model": "模型",
+        "review.fact_reasoning": "思考强度",
         "review.fact_game": "游戏",
         "review.fact_languages": "语言",
         "review.fact_options": "选项",
@@ -547,6 +554,11 @@ UI_COPY = {
         "progress.rpy_output": "RPY 输出：{path}",
         "progress.rpa_output": "RPA 输出：{path}",
         "dialog.translation_running": "翻译仍在运行，请先暂停后再离开当前页面。",
+        "dialog.exit_title": "翻译正在进行",
+        "dialog.exit_running": "翻译仍在进行，请选择退出方式。",
+        "dialog.exit_pause": "暂停后退出",
+        "dialog.exit_now": "退出",
+        "dialog.exit_cancel": "取消",
         "top.settings": "设置",
         "settings.title": "设置",
         "settings.body": "管理当前用户的 API 密钥存储方式和可选的版本检查。",
@@ -747,6 +759,9 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_model_error_key = ""
         self._resume_candidate: dict[str, object] | None = None
         self._translation_started = False
+        self._pause_requested = False
+        self._exit_after_pause = False
+        self._force_exit = False
         self._blank_translation_mode = False
         self._last_logged_operation = ""
         self._settings_path = default_desktop_settings_path()
@@ -1111,6 +1126,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.reasoning_label = QLabel(objectName="SectionTitle")
         self.model_actions = QHBoxLayout()
         self.model_actions.setContentsMargins(0, 0, 0, 0)
+        self.model_actions.setSpacing(8)
         self.connect_model_button = QPushButton(objectName="Secondary")
         self.verify_model_button = QPushButton(objectName="Primary")
         self.browse_model_button = QPushButton(objectName="Secondary")
@@ -1199,7 +1215,7 @@ class QtRenWeaveWindow(QMainWindow):
 
         self.review_fact_titles = []
         self.review_fact_values = []
-        for key in ("review.fact_model", "review.fact_options"):
+        for key in ("review.fact_model", "review.fact_reasoning", "review.fact_options"):
             title = QLabel(objectName="Hint")
             value = QLabel(objectName="Status")
             value.setWordWrap(True)
@@ -2041,6 +2057,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _model_changed(self, value: str) -> None:
         self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = value.strip()
         self._save_settings()
+        self._refresh_review_preview()
 
     def _model_identity(self) -> tuple[str, str]:
         return self._active_provider_id, self._active_endpoint
@@ -2067,6 +2084,7 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _reasoning_changed(self, _index: int) -> None:
         self._save_settings()
+        self._refresh_review_preview()
 
     def _model_route_changed(self, checked: bool) -> None:
         self._blank_translation_mode = not checked
@@ -2101,6 +2119,7 @@ class QtRenWeaveWindow(QMainWindow):
         for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
             button.setChecked(button_index == index)
         self._save_settings()
+        self._refresh_review_preview()
 
     def _connect_models(self) -> None:
         try:
@@ -2261,10 +2280,19 @@ class QtRenWeaveWindow(QMainWindow):
         self.review_languages_label.setText(
             f"{self.source_combo.currentText().strip() or 'auto'}  →  {self.target_combo.currentText().strip()}"
         )
+        active_preset = PROVIDER_PRESETS_BY_ID.get(self._active_provider_id, PROVIDER_PRESETS[0])
+        selected_model = self.model_edit.currentText().strip() or self._model_by_identity.get(
+            self._model_identity(), ""
+        )
         self.review_fact_values[0].setText(
-            "—" if self._blank_translation_mode else f"{self.provider_combo.currentText()} · {self.model_edit.currentText().strip() or '—'}"
+            "—"
+            if self._blank_translation_mode
+            else f"{active_preset.display_name(self.locale)} · {selected_model or '—'}"
         )
         self.review_fact_values[1].setText(
+            "—" if self._blank_translation_mode else self.reasoning_combo.currentText().strip()
+        )
+        self.review_fact_values[2].setText(
             (
                 (
                     "生成 RPA · 校验后安装"

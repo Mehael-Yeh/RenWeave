@@ -184,7 +184,13 @@ class QtFrontendTests(unittest.TestCase):
     def test_model_page_starts_without_a_model_and_shows_api_key(self):
         window = QtRenWeaveWindow()
         try:
+            window.locale = "en"
+            window._retranslate_ui()
             self.assertEqual(window.model_edit.currentText(), "")
+            window.reasoning_combo.setCurrentIndex(0)
+            self.assertEqual(window.reasoning_combo.currentData(), "auto")
+            self.assertEqual(window.reasoning_label.text(), "Reasoning level")
+            self.assertEqual(window.model_actions.spacing(), 8)
             self.assertEqual(window.api_key_edit.echoMode(), window.api_key_edit.EchoMode.Password)
             window.api_key_edit.setText("secret")
             window.api_key_toggle.click()
@@ -322,6 +328,9 @@ class QtFrontendTests(unittest.TestCase):
         try:
             window.locale = "zh"
             window._retranslate_ui()
+            window._blank_translation_mode = False
+            window.use_model_check.setChecked(True)
+            window.reasoning_combo.setCurrentIndex(0)
             window.project_edit.setText("C:/Games/Demo")
             window.workspace_edit.setText("C:/Work/Demo")
             window.renpy_sdk_edit.setText("C:/SDK/RenPy")
@@ -331,9 +340,10 @@ class QtFrontendTests(unittest.TestCase):
             self.assertIn("项目：C:/Games/Demo", window.review_details_label.text())
             self.assertIn("工作区：C:/Work/Demo", window.review_details_label.text())
             self.assertIn("SDK：C:/SDK/RenPy", window.review_details_label.text())
-            self.assertNotIn("校验后安装", window.review_fact_values[1].text())
+            self.assertNotIn("校验后安装", window.review_fact_values[2].text())
             window.install_check.setChecked(True)
-            self.assertIn("校验后安装", window.review_fact_values[1].text())
+            self.assertIn("校验后安装", window.review_fact_values[2].text())
+            self.assertEqual(window.review_fact_values[1].text(), "自动（提供商默认）")
         finally:
             window.close()
 
