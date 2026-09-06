@@ -209,6 +209,8 @@ UI_COPY = {
         "game.browse_project": "Browse project",
         "game.browse_workspace": "Browse workspace",
         "game.browse_sdk": "Browse SDK",
+        "game.copy_path": "Copy path",
+        "game.open_path": "Open",
         "game.require_engine": "Require engine validation",
         "game.waiting": "Waiting for project",
         "game.inspecting": "Inspecting project…",
@@ -264,6 +266,9 @@ UI_COPY = {
         "progress.ready": "Ready",
         "progress.idle": "Idle",
         "progress.open": "Open output folder",
+        "progress.open_rpy": "Open RPY output",
+        "progress.open_rpa": "Open RPA package",
+        "progress.open_install": "Open installed files",
         "progress.current": "Current operation",
         "progress.files": "File progress",
         "progress.eta": "Estimated remaining",
@@ -366,6 +371,8 @@ UI_COPY = {
         "game.browse_project": "选择项目",
         "game.browse_workspace": "选择工作区",
         "game.browse_sdk": "选择 SDK",
+        "game.copy_path": "复制路径",
+        "game.open_path": "打开",
         "game.require_engine": "要求进行引擎校验",
         "game.waiting": "等待选择项目",
         "game.inspecting": "正在检查项目……",
@@ -421,6 +428,9 @@ UI_COPY = {
         "progress.ready": "准备就绪",
         "progress.idle": "空闲",
         "progress.open": "打开输出目录",
+        "progress.open_rpy": "打开 RPY 输出",
+        "progress.open_rpa": "打开 RPA 语言包",
+        "progress.open_install": "打开已安装文件",
         "progress.current": "当前操作",
         "progress.files": "文件进度",
         "progress.eta": "预计剩余",
@@ -784,20 +794,34 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_browse_button = QPushButton(objectName="Secondary")
         self.workspace_browse_button = QPushButton(objectName="Secondary")
         self.sdk_browse_button = QPushButton(objectName="Secondary")
+        self.project_copy_button = QPushButton(objectName="Secondary")
+        self.workspace_copy_button = QPushButton(objectName="Secondary")
+        self.sdk_copy_button = QPushButton(objectName="Secondary")
+        self.project_open_button = QPushButton(objectName="Secondary")
+        self.workspace_open_button = QPushButton(objectName="Secondary")
+        self.sdk_open_button = QPushButton(objectName="Secondary")
         self.project_browse_button.clicked.connect(self._browse_project)
         self.workspace_browse_button.clicked.connect(self._browse_workspace)
         self.sdk_browse_button.clicked.connect(self._browse_sdk)
         self.project_edit.textChanged.connect(self._project_changed)
         self.workspace_edit.textEdited.connect(self._workspace_edited)
         rows = (
-            (self.game_project_label, self.project_edit, self.project_browse_button),
-            (self.game_workspace_label, self.workspace_edit, self.workspace_browse_button),
-            (self.game_sdk_label, self.renpy_sdk_edit, self.sdk_browse_button),
+            (self.game_project_label, self.project_edit, self.project_browse_button, self.project_copy_button, self.project_open_button),
+            (self.game_workspace_label, self.workspace_edit, self.workspace_browse_button, self.workspace_copy_button, self.workspace_open_button),
+            (self.game_sdk_label, self.renpy_sdk_edit, self.sdk_browse_button, self.sdk_copy_button, self.sdk_open_button),
         )
-        for row, (label, edit, button) in enumerate(rows):
+        for row, (label, edit, browse, copy, open_button) in enumerate(rows):
             grid.addWidget(label, row, 0)
             grid.addWidget(edit, row, 1)
-            grid.addWidget(button, row, 2)
+            actions = QHBoxLayout()
+            actions.setContentsMargins(0, 0, 0, 0)
+            actions.setSpacing(6)
+            actions.addWidget(browse)
+            actions.addWidget(copy)
+            actions.addWidget(open_button)
+            grid.addLayout(actions, row, 2)
+            copy.clicked.connect(lambda _checked=False, field=edit: self._copy_path(field.text()))
+            open_button.clicked.connect(lambda _checked=False, field=edit: self._open_path(field.text(), self._t("dialog.open_output")))
         self.project_status = QLabel(objectName="Hint")
         self.project_status.setWordWrap(True)
         grid.addWidget(self.project_status, 3, 0, 1, 3)
@@ -1108,9 +1132,22 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_output.setWordWrap(True)
         card_layout.addWidget(self.progress_output)
         self.progress_open_button = QPushButton(objectName="Secondary")
-        self.progress_open_button.clicked.connect(self._open_output_folder)
+        self.progress_open_button.clicked.connect(lambda: self._open_progress_path("output_dir"))
         self.progress_open_button.setVisible(False)
-        card_layout.addWidget(self.progress_open_button)
+        self.progress_open_rpa_button = QPushButton(objectName="Secondary")
+        self.progress_open_rpa_button.clicked.connect(lambda: self._open_progress_path("package_path"))
+        self.progress_open_rpa_button.setVisible(False)
+        self.progress_open_install_button = QPushButton(objectName="Secondary")
+        self.progress_open_install_button.clicked.connect(lambda: self._open_progress_path("installed_dir"))
+        self.progress_open_install_button.setVisible(False)
+        output_actions = QHBoxLayout()
+        output_actions.setContentsMargins(0, 0, 0, 0)
+        output_actions.setSpacing(8)
+        output_actions.addWidget(self.progress_open_button)
+        output_actions.addWidget(self.progress_open_rpa_button)
+        output_actions.addWidget(self.progress_open_install_button)
+        output_actions.addStretch()
+        card_layout.addLayout(output_actions)
         self.log_toggle = QPushButton(objectName="Secondary")
         self.log_toggle.clicked.connect(self._toggle_log)
         card_layout.addWidget(self.log_toggle)
@@ -1291,6 +1328,18 @@ class QtRenWeaveWindow(QMainWindow):
         self.project_browse_button.setText(self._t("game.browse_project"))
         self.workspace_browse_button.setText(self._t("game.browse_workspace"))
         self.sdk_browse_button.setText(self._t("game.browse_sdk"))
+        for button in (
+            self.project_copy_button,
+            self.workspace_copy_button,
+            self.sdk_copy_button,
+        ):
+            button.setText(self._t("game.copy_path"))
+        for button in (
+            self.project_open_button,
+            self.workspace_open_button,
+            self.sdk_open_button,
+        ):
+            button.setText(self._t("game.open_path"))
         self.require_engine_check.setText(self._t("game.require_engine"))
         self.game_safety_title.setText(self._t("game.safety_title"))
         self.game_safety_body.setText(self._t("game.safety_body"))
@@ -1337,7 +1386,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.pending_toggle.setText(
             self._t("review.hide_pending" if self.pending_details.isVisible() else "review.show_details")
         )
-        self.progress_open_button.setText(self._t("progress.open"))
+        self.progress_open_button.setText(self._t("progress.open_rpy"))
+        self.progress_open_rpa_button.setText(self._t("progress.open_rpa"))
+        self.progress_open_install_button.setText(self._t("progress.open_install"))
         self.log_toggle.setText(self._t("progress.hide_log" if self.log_edit.isVisible() else "progress.show_log"))
         for key, label in self.progress_stat_titles:
             label.setText(self._t(key))
@@ -1965,6 +2016,7 @@ class QtRenWeaveWindow(QMainWindow):
             )
 
     def _start_translation(self) -> None:
+        self._load_workspace_log()
         if self._blank_translation_mode:
             self._start_blank_translation()
             return
@@ -2006,6 +2058,7 @@ class QtRenWeaveWindow(QMainWindow):
         )
 
     def _start_blank_translation(self) -> None:
+        self._load_workspace_log()
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
         source = self.source_combo.currentText().strip() or "auto"
@@ -2044,6 +2097,8 @@ class QtRenWeaveWindow(QMainWindow):
             self.progress_runtime.setText(self._t("progress.paused_body"))
             self.progress_output.clear()
             self.progress_open_button.setVisible(False)
+            self.progress_open_rpa_button.setVisible(False)
+            self.progress_open_install_button.setVisible(False)
             self._refresh_shell()
             return
         self._last_stage = "complete"
@@ -2058,6 +2113,8 @@ class QtRenWeaveWindow(QMainWindow):
             ) if item)
         )
         self.progress_open_button.setVisible(bool(output_dir))
+        self.progress_open_rpa_button.setVisible(bool(package_path))
+        self.progress_open_install_button.setVisible(bool(self._progress_payload.get("installed_dir", "")))
         self._refresh_shell()
 
     def _translation_failed(self, error: BaseException) -> None:
@@ -2066,12 +2123,17 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_runtime.setText(self._t("translation.failed", error=error))
         self._refresh_shell()
 
-    def _open_output_folder(self) -> None:
-        output_dir = str(self._progress_payload.get("output_dir", "") or "")
-        if not output_dir:
+    def _copy_path(self, value: str) -> None:
+        value = value.strip()
+        if value:
+            QApplication.clipboard().setText(value)
+
+    def _open_path(self, value: str, title: str) -> None:
+        value = value.strip()
+        if not value:
             return
         try:
-            target = str(Path(output_dir).expanduser().resolve(strict=True))
+            target = str(Path(value).expanduser().resolve(strict=True))
             if os.name == "nt":
                 os.startfile(target)
             elif sys.platform == "darwin":
@@ -2079,7 +2141,31 @@ class QtRenWeaveWindow(QMainWindow):
             else:
                 subprocess.Popen(["xdg-open", target])
         except OSError as exc:
-            QMessageBox.warning(self, self._t("dialog.open_output"), str(exc))
+            QMessageBox.warning(self, title, str(exc))
+
+    def _open_progress_path(self, payload_key: str) -> None:
+        value = str(self._progress_payload.get(payload_key, "") or "")
+        self._open_path(value, self._t("dialog.open_output"))
+
+    def _open_output_folder(self) -> None:
+        self._open_progress_path("output_dir")
+
+    def _load_workspace_log(self) -> None:
+        if self.log_edit.toPlainText().strip():
+            return
+        workspace = Path(self.workspace_edit.text().strip()).expanduser()
+        candidates = []
+        log_path = str(self._progress_payload.get("log_path", "") or "").strip()
+        if log_path:
+            candidates.append(Path(log_path).expanduser())
+        candidates.append(workspace / "logs" / "renweave.log")
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    self.log_edit.setPlainText(candidate.read_text(encoding="utf-8"))
+                    return
+            except (OSError, UnicodeError):
+                continue
 
     def _progress_received(self, payload) -> None:
         self._progress_payload = payload.to_dict() if hasattr(payload, "to_dict") else dict(payload)

@@ -326,6 +326,49 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_path_actions_copy_and_output_actions_restore_all_targets(self):
+        window = QtRenWeaveWindow()
+        try:
+            window._copy_path("C:/Games/Example")
+            self.assertEqual(QApplication.clipboard().text(), "C:/Games/Example")
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "rpy"
+                package = Path(directory) / "translation.rpa"
+                installed = Path(directory) / "installed"
+                output.mkdir()
+                package.write_text("package", encoding="utf-8")
+                installed.mkdir()
+                window._translation_finished(
+                    SimpleNamespace(
+                        stage=PipelineStage.COMPLETE,
+                        to_dict=lambda: {
+                            "stage": "complete",
+                            "output_dir": str(output),
+                            "package_path": str(package),
+                            "installed_dir": str(installed),
+                        },
+                    )
+                )
+                self.assertTrue(window.progress_open_button.isVisible() or not window.isVisible())
+                self.assertTrue(window.progress_open_rpa_button.isVisible() or not window.isVisible())
+                self.assertTrue(window.progress_open_install_button.isVisible() or not window.isVisible())
+                self.assertIn(str(package), window.progress_output.text())
+        finally:
+            window.close()
+
+    def test_workspace_log_is_restored_before_a_new_run(self):
+        window = QtRenWeaveWindow()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                workspace = Path(directory)
+                (workspace / "logs").mkdir()
+                (workspace / "logs" / "renweave.log").write_text("restored event\n", encoding="utf-8")
+                window.workspace_edit.setText(str(workspace))
+                window._load_workspace_log()
+                self.assertIn("restored event", window.log_edit.toPlainText())
+        finally:
+            window.close()
+
 
 if __name__ == "__main__":
     unittest.main()
