@@ -281,7 +281,6 @@ class QtFrontendTests(unittest.TestCase):
 
             window._models_loaded(SimpleNamespace(models=("model-a", "model-b"), latency_ms=1))
             window._model_verified(SimpleNamespace(model="model-a", latency_ms=1))
-            window._refresh_shell()
             self.assertTrue(window.action_button.isEnabled())
 
             window._select_provider(1)

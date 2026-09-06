@@ -2149,9 +2149,11 @@ class QtRenWeaveWindow(QMainWindow):
         except (TypeError, ValueError) as error:
             self._model_operation_failed(error)
             return
+        self._verified_model_by_identity.pop(self._model_identity(), None)
         self.model_status.setText(self._t("model.verifying"))
         self._last_model_error_key = ""
         self.model_error_button.setVisible(False)
+        self._refresh_shell()
         self._run_worker(
             lambda: OpenAICompatibleCatalog(profile).verify_model(),
             self._model_verified,
@@ -2165,6 +2167,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_status.setText(
             self._t("model.verified", model=result.model, latency=result.latency_ms)
         )
+        self._refresh_shell()
 
     def _friendly_error_key(self, error: object) -> str:
         message = str(error)
@@ -2182,6 +2185,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._last_model_error_key = self._friendly_error_key(error)
         self.model_error_button.setVisible(True)
         self.model_status.setText(self._t(self._last_model_error_key))
+        self._refresh_shell()
 
     def _show_model_error_details(self) -> None:
         if self._last_error_details:
