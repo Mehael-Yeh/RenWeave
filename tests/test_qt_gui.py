@@ -225,9 +225,13 @@ class QtFrontendTests(unittest.TestCase):
         window = QtRenWeaveWindow()
         try:
             window.existing_languages = [
-                SimpleNamespace(language="zh_hans", script_files=1, compiled_files=0),
+                SimpleNamespace(language="zh_hans", display_name="简体中文", script_files=1, compiled_files=0),
             ]
             window._refresh_existing_languages()
+            self.assertEqual(
+                [window.target_combo.itemText(index) for index in range(window.target_combo.count())].count("简体中文"),
+                1,
+            )
             window._start_scope_preview = lambda *_args: None
             window._select_existing_language("zh_hans")
             self.assertEqual(window._selected_existing_language, "zh_hans")

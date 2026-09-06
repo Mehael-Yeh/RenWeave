@@ -1703,10 +1703,13 @@ class QtRenWeaveWindow(QMainWindow):
         current_target = self._target_language_value()
         self.target_combo.blockSignals(True)
         self.target_combo.clear()
+        existing_display_names: set[str] = set()
         for item in languages:
-            self.target_combo.addItem(getattr(item, "display_name", "") or item.language, item.language)
+            display_name = getattr(item, "display_name", "") or item.language
+            existing_display_names.add(display_name)
+            self.target_combo.addItem(display_name, item.language)
         for language in ("简体中文", "繁體中文", "English", "日本語", "Français"):
-            if self.target_combo.findData(language) < 0:
+            if language not in existing_display_names and self.target_combo.findData(language) < 0:
                 self.target_combo.addItem(language, language)
         if current_target:
             self._set_target_language_value(current_target)
