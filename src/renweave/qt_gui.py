@@ -342,6 +342,7 @@ UI_COPY = {
         "translation.ready": "Translation package is ready",
         "translation.completed": "Completed",
         "progress.pausing": "Pausing safely…",
+        "progress.resuming": "Resuming translation…",
         "progress.paused": "Translation paused safely",
         "progress.paused_body": "Completed checkpoints are preserved. Resume with the same project and workspace.",
         "error.title": "Operation failed",
@@ -545,6 +546,7 @@ UI_COPY = {
         "translation.ready": "翻译包已准备完成",
         "translation.completed": "已完成",
         "progress.pausing": "正在安全暂停……",
+        "progress.resuming": "正在恢复翻译……",
         "progress.paused": "翻译已安全暂停",
         "progress.paused_body": "已完成的检查点已经保留，可以使用相同项目和工作区继续。",
         "error.title": "操作失败",
@@ -1327,7 +1329,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_open_button.clicked.connect(lambda: self._open_progress_path("output_dir"))
         self.progress_open_button.setVisible(False)
         self.progress_open_rpa_button = QPushButton(objectName="Secondary")
-        self.progress_open_rpa_button.clicked.connect(lambda: self._open_progress_path("package_path"))
+        self.progress_open_rpa_button.clicked.connect(
+            lambda: self._open_progress_path("package_path", containing_folder=True)
+        )
         self.progress_open_rpa_button.setVisible(False)
         self.progress_open_install_button = QPushButton(objectName="Secondary")
         self.progress_open_install_button.clicked.connect(lambda: self._open_progress_path("installed_dir"))
@@ -1361,8 +1365,12 @@ class QtRenWeaveWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
             button.setEnabled(index <= self.step and not self._translation_started)
-        self.back_button.setVisible(self.step > 0)
-        self.back_button.setEnabled(not self._translation_started)
+        if self.step == 4:
+            can_go_back = not self._translation_started and self._last_stage in {"", "paused"}
+        else:
+            can_go_back = self.step > 0 and not self._translation_started
+        self.back_button.setVisible(can_go_back)
+        self.back_button.setEnabled(can_go_back)
         self.breadcrumb.setText(self._t("shell.breadcrumb", current=self.step + 1, total=len(self.STEPS)))
         self.footer_effect.setText(self._footer_effect())
         if self.step == 4 and self._translation_started:
@@ -1460,6 +1468,8 @@ class QtRenWeaveWindow(QMainWindow):
             elif self._last_stage == "complete":
                 self._open_output_folder()
             else:
+                if self._last_stage == "paused":
+                    self.progress_runtime.setText(self._t("progress.resuming"))
                 self._start_translation()
 
     def _can_continue(self) -> bool:
@@ -1975,6 +1985,8 @@ class QtRenWeaveWindow(QMainWindow):
         self._restore_model_catalog((self._active_provider_id, endpoint))
         self._sync_endpoint_preset_selection()
         self._save_settings()
+        self._refresh_review_preview()
+        self._refresh_shell()
 
     def _set_key_storage(self, storage: str) -> None:
         if storage not in {"secure", "memory"} or storage == self._key_storage:
@@ -2070,6 +2082,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = value.strip()
         self._save_settings()
         self._refresh_review_preview()
+        self._refresh_shell()
 
     def _model_identity(self) -> tuple[str, str]:
         return self._active_provider_id, self._active_endpoint
@@ -2097,6 +2110,7 @@ class QtRenWeaveWindow(QMainWindow):
     def _reasoning_changed(self, _index: int) -> None:
         self._save_settings()
         self._refresh_review_preview()
+        self._refresh_shell()
 
     def _model_route_changed(self, checked: bool) -> None:
         self._blank_translation_mode = not checked
@@ -2132,6 +2146,7 @@ class QtRenWeaveWindow(QMainWindow):
             button.setChecked(button_index == index)
         self._save_settings()
         self._refresh_review_preview()
+        self._refresh_shell()
 
     def _connect_models(self) -> None:
         try:
@@ -2620,8 +2635,10 @@ class QtRenWeaveWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(self, title, str(exc))
 
-    def _open_progress_path(self, payload_key: str) -> None:
+    def _open_progress_path(self, payload_key: str, *, containing_folder: bool = False) -> None:
         value = str(self._progress_payload.get(payload_key, "") or "")
+        if containing_folder and value:
+            value = str(Path(value).expanduser().parent)
         self._open_path(value, self._t("dialog.open_output"))
 
     def _open_output_folder(self) -> None:

@@ -432,6 +432,66 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_resuming_translation_shows_status_before_worker_progress(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "en"
+            window._retranslate_ui()
+            window.step = 4
+            window._scope_preview_status = "ready"
+            window._last_stage = "paused"
+            window._start_translation = lambda: setattr(window, "_translation_started", True)
+            window._refresh_shell()
+            window._continue()
+            self.assertEqual(window.progress_runtime.text(), "Resuming translation…")
+            self.assertTrue(window._translation_started)
+        finally:
+            window.close()
+
+    def test_progress_back_is_visible_only_before_or_after_pause(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.show()
+            window.step = 4
+            window._last_stage = ""
+            window._translation_started = False
+            window._refresh_shell()
+            self.assertTrue(window.back_button.isVisible())
+
+            window._translation_started = True
+            window._refresh_shell()
+            self.assertFalse(window.back_button.isVisible())
+
+            window._translation_started = False
+            window._last_stage = "paused"
+            window._refresh_shell()
+            self.assertTrue(window.back_button.isVisible())
+
+            window._last_stage = "complete"
+            window._refresh_shell()
+            self.assertFalse(window.back_button.isVisible())
+        finally:
+            window.close()
+
+    def test_switching_to_unverified_provider_disables_continue_immediately(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.locale = "en"
+            window._retranslate_ui()
+            window.step = 2
+            window.api_key_edit.setText("test-key")
+            window.use_model_check.setChecked(True)
+            window.model_edit.setCurrentText("verified-model")
+            window._verified_model_by_identity[window._model_identity()] = "verified-model"
+            window._refresh_shell()
+            self.assertTrue(window.action_button.isEnabled())
+
+            next_index = 0 if window.provider_combo.currentIndex() != 0 else 1
+            window._select_provider(next_index)
+            self.assertFalse(window.action_button.isEnabled())
+        finally:
+            window.close()
+
     def test_navigation_is_disabled_while_translation_is_running(self):
         window = QtRenWeaveWindow()
         try:
@@ -470,6 +530,18 @@ class QtFrontendTests(unittest.TestCase):
                 self.assertTrue(window.progress_open_rpa_button.isVisible() or not window.isVisible())
                 self.assertTrue(window.progress_open_install_button.isVisible() or not window.isVisible())
                 self.assertIn(str(package), window.progress_output.text())
+        finally:
+            window.close()
+
+    def test_rpa_action_opens_containing_folder(self):
+        window = QtRenWeaveWindow()
+        try:
+            captured = []
+            window._open_path = lambda value, title: captured.append((value, title))
+            package = Path("C:/tmp/renweave/translation.rpa")
+            window._progress_payload = {"package_path": str(package)}
+            window._open_progress_path("package_path", containing_folder=True)
+            self.assertEqual(captured[0][0], str(package.parent))
         finally:
             window.close()
 
