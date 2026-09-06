@@ -271,12 +271,17 @@ UI_COPY = {
         "review.no_pending": "No pending units",
         "review.show_details": "Show details",
         "review.hide_pending": "Hide details",
+        "review.detail_project": "Project: {value}",
+        "review.detail_workspace": "Workspace: {value}",
+        "review.detail_sdk": "SDK: {value}",
+        "review.not_selected": "not selected",
         "progress.ready": "Ready",
         "progress.idle": "Idle",
         "progress.open": "Open output folder",
         "progress.open_rpy": "Open RPY output",
         "progress.open_rpa": "Open RPA package",
         "progress.open_install": "Open installed files",
+        "progress.show_error": "Show error details",
         "progress.current": "Current operation",
         "progress.files": "File progress",
         "progress.eta": "Estimated remaining",
@@ -331,6 +336,9 @@ UI_COPY = {
         "progress.pausing": "Pausing safely…",
         "progress.paused": "Translation paused safely",
         "progress.paused_body": "Completed checkpoints are preserved. Resume with the same project and workspace.",
+        "error.title": "Operation failed",
+        "error.copy": "Copy details",
+        "error.close": "Close",
         "progress.resume": "Resume translation",
         "progress.retry": "Retry translation",
         "progress.output": "Open output",
@@ -356,6 +364,20 @@ UI_COPY = {
         "settings.update_failed": "Update check failed: {error}",
         "settings.key_forgotten": "The current API key was forgotten.",
         "settings.close": "Close",
+        "tip.project": "Ren'Py project folder or executable to inspect.",
+        "tip.workspace": "Separate workspace for caches, checkpoints, logs and outputs.",
+        "tip.sdk": "Optional Ren'Py SDK used for engine validation.",
+        "tip.provider": "Provider presets isolate API keys and model selections.",
+        "tip.endpoint": "Editable API base URL. Use a preset or enter a documented custom endpoint.",
+        "tip.api_key": "Stored securely or only in memory according to Settings.",
+        "tip.model": "Select a model returned by the provider, or enter a compatible model ID.",
+        "tip.reasoning": "Provider-specific thinking or reasoning control.",
+        "tip.load_models": "Load available models from the provider /models endpoint.",
+        "tip.browse_models": "Open a searchable list of loaded models.",
+        "tip.use_model": "When disabled, create blank translation files without model calls.",
+        "tip.rpa": "Generate an archive package after the RPY output is validated.",
+        "tip.install": "Install validated output into the selected game directory.",
+        "tip.log": "Show the workspace log, including events from earlier runs.",
     },
     "zh": {
         "nav.game": "游戏",
@@ -439,12 +461,17 @@ UI_COPY = {
         "review.no_pending": "没有待处理单元",
         "review.show_details": "显示详情",
         "review.hide_pending": "隐藏详情",
+        "review.detail_project": "项目：{value}",
+        "review.detail_workspace": "工作区：{value}",
+        "review.detail_sdk": "SDK：{value}",
+        "review.not_selected": "未选择",
         "progress.ready": "准备就绪",
         "progress.idle": "空闲",
         "progress.open": "打开输出目录",
         "progress.open_rpy": "打开 RPY 输出",
         "progress.open_rpa": "打开 RPA 语言包",
         "progress.open_install": "打开已安装文件",
+        "progress.show_error": "显示错误详情",
         "progress.current": "当前操作",
         "progress.files": "文件进度",
         "progress.eta": "预计剩余",
@@ -499,6 +526,9 @@ UI_COPY = {
         "progress.pausing": "正在安全暂停……",
         "progress.paused": "翻译已安全暂停",
         "progress.paused_body": "已完成的检查点已经保留，可以使用相同项目和工作区继续。",
+        "error.title": "操作失败",
+        "error.copy": "复制详情",
+        "error.close": "关闭",
         "progress.resume": "继续翻译",
         "progress.retry": "重试翻译",
         "progress.output": "打开输出",
@@ -524,6 +554,20 @@ UI_COPY = {
         "settings.update_failed": "检查更新失败：{error}",
         "settings.key_forgotten": "当前 API 密钥已删除。",
         "settings.close": "关闭",
+        "tip.project": "用于检查的 Ren'Py 项目目录或可执行文件。",
+        "tip.workspace": "独立保存缓存、检查点、日志和输出文件的工作区。",
+        "tip.sdk": "可选的 Ren'Py SDK，用于引擎校验。",
+        "tip.provider": "供应商预设会隔离 API 密钥和模型选择。",
+        "tip.endpoint": "可编辑的 API 基础地址；可使用预设或输入供应商文档指定的地址。",
+        "tip.api_key": "根据设置选择系统加密存储或仅保存在内存中。",
+        "tip.model": "选择供应商返回的模型，也可以输入兼容的模型 ID。",
+        "tip.reasoning": "供应商对应的思考或推理控制。",
+        "tip.load_models": "从供应商的 /models 接口获取可用模型。",
+        "tip.browse_models": "打开已加载模型的可搜索列表。",
+        "tip.use_model": "关闭后只生成空白翻译文件，不调用模型。",
+        "tip.rpa": "在 RPY 输出校验后生成归档语言包。",
+        "tip.install": "将校验后的输出安装到所选游戏目录。",
+        "tip.log": "显示工作区日志，也包括之前运行留下的事件。",
     },
 }
 
@@ -588,6 +632,33 @@ class ModelPickerDialog(QDialog):
             return
         self.selected_model = item.text()
         self.accept()
+
+
+class ErrorDetailsDialog(QDialog):
+    """Non-destructive failure details dialog with a copy action."""
+
+    def __init__(self, app: "QtRenWeaveWindow", error: object) -> None:
+        super().__init__(app)
+        self.setWindowTitle(app._t("error.title"))
+        self.setModal(True)
+        self.resize(760, 460)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(10)
+        root.addWidget(QLabel(app._t("error.title"), objectName="PageTitle"))
+        details = QTextEdit()
+        details.setReadOnly(True)
+        details.setPlainText(str(error))
+        root.addWidget(details, 1)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        copy_button = QPushButton(app._t("error.copy"), objectName="Secondary")
+        copy_button.clicked.connect(lambda: QApplication.clipboard().setText(details.toPlainText()))
+        close_button = QPushButton(app._t("error.close"), objectName="Primary")
+        close_button.clicked.connect(self.accept)
+        actions.addWidget(copy_button)
+        actions.addWidget(close_button)
+        root.addLayout(actions)
 
 
 def _application_icon() -> QIcon:
@@ -660,6 +731,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._logs: list[str] = []
         self._progress_payload: dict[str, object] = {}
         self._last_stage = ""
+        self._last_error_details = ""
         self._resume_candidate: dict[str, object] | None = None
         self._translation_started = False
         self._blank_translation_mode = False
@@ -706,6 +778,8 @@ class QtRenWeaveWindow(QMainWindow):
             QLabel#PageBody { color: #667085; font-size: 13px; }
             QLabel#SectionTitle { color: #101828; font-size: 16px; font-weight: 700; }
             QLabel#Hint { color: #667085; }
+            QLabel#Hint[phase_state="active"] { color: #5b5ce2; font-weight: 700; }
+            QLabel#Hint[phase_state="done"] { color: #087443; font-weight: 700; }
             QLabel#Status { color: #303176; font-weight: 600; }
             QPushButton { min-height: 36px; max-height: 36px; padding: 0 14px; border-radius: 7px; color: #344054; }
             QPushButton#Primary { background: #5b5ce2; color: white; font-weight: 700; }
@@ -1222,6 +1296,10 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_output = QLabel("", objectName="Hint")
         self.progress_output.setWordWrap(True)
         card_layout.addWidget(self.progress_output)
+        self.progress_error_button = QPushButton(objectName="Secondary")
+        self.progress_error_button.clicked.connect(self._show_error_details)
+        self.progress_error_button.setVisible(False)
+        card_layout.addWidget(self.progress_error_button)
         self.progress_open_button = QPushButton(objectName="Secondary")
         self.progress_open_button.clicked.connect(lambda: self._open_progress_path("output_dir"))
         self.progress_open_button.setVisible(False)
@@ -1432,6 +1510,12 @@ class QtRenWeaveWindow(QMainWindow):
         ):
             button.setText(self._t("game.open_path"))
         self.require_engine_check.setText(self._t("game.require_engine"))
+        self.project_edit.setToolTip(self._t("tip.project"))
+        self.workspace_edit.setToolTip(self._t("tip.workspace"))
+        self.renpy_sdk_edit.setToolTip(self._t("tip.sdk"))
+        self.project_edit.setToolTip(self._t("tip.project"))
+        self.workspace_edit.setToolTip(self._t("tip.workspace"))
+        self.renpy_sdk_edit.setToolTip(self._t("tip.sdk"))
         self.game_safety_title.setText(self._t("game.safety_title"))
         self.game_safety_body.setText(self._t("game.safety_body"))
         self.source_label.setText(self._t("languages.source"))
@@ -1447,6 +1531,18 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_label.setText(self._t("model.model"))
         self.endpoint_label.setText(self._t("model.endpoint"))
         self.reasoning_label.setText(self._t("model.reasoning"))
+        self.provider_combo.setToolTip(self._t("tip.provider"))
+        self.endpoint_edit.setToolTip(self._t("tip.endpoint"))
+        self.endpoint_preset_combo.setToolTip(self._t("tip.endpoint"))
+        self.api_key_edit.setToolTip(self._t("tip.api_key"))
+        self.model_edit.setToolTip(self._t("tip.model"))
+        self.reasoning_combo.setToolTip(self._t("tip.reasoning"))
+        self.provider_combo.setToolTip(self._t("tip.provider"))
+        self.endpoint_edit.setToolTip(self._t("tip.endpoint"))
+        self.endpoint_preset_combo.setToolTip(self._t("tip.endpoint"))
+        self.api_key_edit.setToolTip(self._t("tip.api_key"))
+        self.model_edit.setToolTip(self._t("tip.model"))
+        self.reasoning_combo.setToolTip(self._t("tip.reasoning"))
         self.reasoning_combo.setItemText(0, self._t("reasoning.auto"))
         self.reasoning_combo.setItemText(1, self._t("reasoning.low"))
         self.reasoning_combo.setItemText(2, self._t("reasoning.high"))
@@ -1454,13 +1550,24 @@ class QtRenWeaveWindow(QMainWindow):
         self._refresh_reasoning_hint()
         for preset, button in zip(PROVIDER_PRESETS, self.provider_buttons):
             button.setText(preset.display_name(self.locale))
+            button.setToolTip(self._t("tip.provider"))
         self.use_model_check.setText(self._t("model.use"))
         self.use_model_hint.setText(self._t("model.use_hint"))
         self.connect_model_button.setText(self._t("model.load"))
         self.verify_model_button.setText(self._t("model.verify"))
         self.browse_model_button.setText(self._t("model.browse", count=len(self._model_catalog_models)))
+        self.connect_model_button.setToolTip(self._t("tip.load_models"))
+        self.browse_model_button.setToolTip(self._t("tip.browse_models"))
+        self.use_model_check.setToolTip(self._t("tip.use_model"))
+        self.connect_model_button.setToolTip(self._t("tip.load_models"))
+        self.browse_model_button.setToolTip(self._t("tip.browse_models"))
+        self.use_model_check.setToolTip(self._t("tip.use_model"))
         self.generate_rpa_check.setText(self._t("review.rpa"))
         self.install_check.setText(self._t("review.install"))
+        self.generate_rpa_check.setToolTip(self._t("tip.rpa"))
+        self.install_check.setToolTip(self._t("tip.install"))
+        self.generate_rpa_check.setToolTip(self._t("tip.rpa"))
+        self.install_check.setToolTip(self._t("tip.install"))
         self.budget_title.setText("AI usage estimate" if self.locale == "en" else "AI 用量预估")
         if self._scope_preview_inventory is None:
             self.budget_label.setText(self._t("review.estimate_unavailable"))
@@ -1481,12 +1588,17 @@ class QtRenWeaveWindow(QMainWindow):
         self.progress_open_button.setText(self._t("progress.open_rpy"))
         self.progress_open_rpa_button.setText(self._t("progress.open_rpa"))
         self.progress_open_install_button.setText(self._t("progress.open_install"))
+        self.progress_error_button.setText(self._t("progress.show_error"))
+        self.log_toggle.setToolTip(self._t("tip.log"))
+        self.progress_error_button.setText(self._t("progress.show_error"))
+        self.log_toggle.setToolTip(self._t("tip.log"))
         self.log_toggle.setText(self._t("progress.hide_log" if self.log_edit.isVisible() else "progress.show_log"))
         for key, label in self.progress_stat_titles:
             label.setText(self._t(key))
         for label in self.progress_phase_labels:
             phase = label.property("phase_key")
             label.setText(f"○  {self._t(f'progress.phase.{phase}')}")
+        self._set_progress_phase(str(self._progress_payload.get("stage", "")))
         if self._project_validation_state == "idle":
             self.project_status.setText(self._t("game.waiting"))
         elif self._project_validation_state == "pending":
@@ -2137,13 +2249,22 @@ class QtRenWeaveWindow(QMainWindow):
         )
         if visible:
             self.review_details_label.setText(
-                f"Project: {self.project_edit.text()}\n"
-                f"Workspace: {self.workspace_edit.text()}\n"
-                f"SDK: {self.renpy_sdk_edit.text() or 'not selected'}"
+                "\n".join(
+                    (
+                        self._t("review.detail_project", value=self.project_edit.text()),
+                        self._t("review.detail_workspace", value=self.workspace_edit.text()),
+                        self._t(
+                            "review.detail_sdk",
+                            value=self.renpy_sdk_edit.text() or self._t("review.not_selected"),
+                        ),
+                    )
+                )
             )
 
     def _start_translation(self) -> None:
         self._load_workspace_log()
+        self._last_error_details = ""
+        self.progress_error_button.setVisible(False)
         if self._blank_translation_mode:
             self._start_blank_translation()
             return
@@ -2186,6 +2307,8 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _start_blank_translation(self) -> None:
         self._load_workspace_log()
+        self._last_error_details = ""
+        self.progress_error_button.setVisible(False)
         project = self.project_edit.text().strip()
         workspace = self.workspace_edit.text().strip()
         source = self.source_combo.currentText().strip() or "auto"
@@ -2223,12 +2346,15 @@ class QtRenWeaveWindow(QMainWindow):
             self.progress_heading.setText(self._t("progress.paused"))
             self.progress_runtime.setText(self._t("progress.paused_body"))
             self.progress_output.clear()
+            self.progress_error_button.setVisible(False)
             self.progress_open_button.setVisible(False)
             self.progress_open_rpa_button.setVisible(False)
             self.progress_open_install_button.setVisible(False)
             self._refresh_shell()
             return
         self._last_stage = "complete"
+        self._last_error_details = ""
+        self.progress_error_button.setVisible(False)
         self.progress_heading.setText(self._t("translation.ready"))
         self.progress_runtime.setText(self._t("translation.completed"))
         output_dir = str(self._progress_payload.get("output_dir", "") or "")
@@ -2247,8 +2373,44 @@ class QtRenWeaveWindow(QMainWindow):
     def _translation_failed(self, error: BaseException) -> None:
         self._last_stage = "failed"
         self._translation_started = False
+        self._last_error_details = str(error)
+        self.progress_error_button.setVisible(True)
         self.progress_runtime.setText(self._t("translation.failed", error=error))
         self._refresh_shell()
+
+    def _set_progress_phase(self, stage: str) -> None:
+        phase_by_stage = {
+            "created": 0,
+            "discovered": 0,
+            "acquired": 0,
+            "decompiled": 0,
+            "indexed": 0,
+            "knowledge_ready": 1,
+            "synthesizing": 1,
+            "narrative_ready": 1,
+            "translating": 2,
+            "validated": 3,
+            "refining": 3,
+            "refined": 3,
+            "building": 4,
+            "validating_build": 4,
+            "complete": 5,
+        }
+        current = phase_by_stage.get(stage.casefold())
+        if current is None:
+            return
+        for index, label in enumerate(self.progress_phase_labels):
+            state = "done" if index < current or current == 5 else "active" if index == current else "idle"
+            label.setProperty("phase_state", state)
+            prefix = "✓" if state == "done" else "●" if state == "active" else "○"
+            phase = label.property("phase_key")
+            label.setText(f"{prefix}  {self._t(f'progress.phase.{phase}')}")
+            label.style().unpolish(label)
+            label.style().polish(label)
+
+    def _show_error_details(self) -> None:
+        if self._last_error_details:
+            ErrorDetailsDialog(self, self._last_error_details).exec()
 
     def _copy_path(self, value: str) -> None:
         value = value.strip()
@@ -2296,6 +2458,7 @@ class QtRenWeaveWindow(QMainWindow):
 
     def _progress_received(self, payload) -> None:
         self._progress_payload = payload.to_dict() if hasattr(payload, "to_dict") else dict(payload)
+        self._set_progress_phase(str(self._progress_payload.get("stage", "")))
         percent = float(self._progress_payload.get("progress_percent", 0) or 0)
         self.progress_bar.setValue(max(0, min(100, round(percent))))
         self.progress_percent.setText(f"{percent:.0f}%")

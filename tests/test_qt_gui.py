@@ -393,6 +393,27 @@ class QtFrontendTests(unittest.TestCase):
         finally:
             window.close()
 
+    def test_progress_phases_follow_pipeline_stage_and_errors_keep_details(self):
+        window = QtRenWeaveWindow()
+        try:
+            window._progress_received({"stage": "translating", "progress_percent": 45})
+            states = [label.property("phase_state") for label in window.progress_phase_labels]
+            self.assertEqual(states, ["done", "done", "active", "idle", "idle"])
+            window._translation_failed(RuntimeError("provider timeout with request id 42"))
+            self.assertTrue(window.progress_error_button.isVisible() or not window.isVisible())
+            self.assertIn("request id 42", window._last_error_details)
+            window.locale = "zh"
+            window._retranslate_ui()
+            window.step = 3
+            window.review_details_label.setVisible(True)
+            window._toggle_review_details()
+            window._toggle_review_details()
+            self.assertIn("项目：", window.review_details_label.text())
+            self.assertNotIn("Project:", window.review_details_label.text())
+            self.assertTrue(window.project_edit.toolTip())
+        finally:
+            window.close()
+
 
 if __name__ == "__main__":
     unittest.main()
