@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QFileDialog,
@@ -244,6 +246,12 @@ UI_COPY = {
         "model.use": "Use model translation",
         "model.use_hint": "When disabled, only blank translation files are generated for manual editing.",
         "model.load": "Load models",
+        "model.browse": "Browse {count} models",
+        "model_picker.title": "Select a model",
+        "model_picker.search": "Filter by model ID",
+        "model_picker.count": "{count} matching models",
+        "model_picker.select": "Use selected model",
+        "model_picker.empty": "No models match this filter.",
         "model.verify": "Verify model",
         "model.not_connected": "Not connected",
         "review.model_translation": "Model translation",
@@ -406,6 +414,12 @@ UI_COPY = {
         "model.use": "使用模型翻译",
         "model.use_hint": "不勾选时只生成空白翻译文件，之后可以手动填写译文。",
         "model.load": "获取模型",
+        "model.browse": "浏览 {count} 个模型",
+        "model_picker.title": "选择模型",
+        "model_picker.search": "按模型 ID 筛选",
+        "model_picker.count": "匹配 {count} 个模型",
+        "model_picker.select": "使用所选模型",
+        "model_picker.empty": "没有匹配的模型。",
         "model.verify": "验证模型",
         "model.not_connected": "尚未连接",
         "review.model_translation": "模型翻译",
@@ -513,6 +527,69 @@ UI_COPY = {
     },
 }
 
+class ModelPickerDialog(QDialog):
+    """Searchable model chooser restored from the legacy desktop UI."""
+
+    def __init__(self, app: "QtRenWeaveWindow", models: tuple[str, ...]) -> None:
+        super().__init__(app)
+        self.app = app
+        self.models = tuple(models)
+        self.filtered_models = self.models
+        self.setWindowTitle(app._t("model_picker.title"))
+        self.setModal(True)
+        self.resize(640, 520)
+        self.setMinimumSize(520, 420)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(10)
+        title = QLabel(app._t("model_picker.title"), objectName="PageTitle")
+        root.addWidget(title)
+        search_label = QLabel(app._t("model_picker.search"), objectName="Hint")
+        root.addWidget(search_label)
+        self.search_edit = QLineEdit()
+        self.search_edit.textChanged.connect(self._filter)
+        root.addWidget(self.search_edit)
+        self.count_label = QLabel(objectName="Hint")
+        root.addWidget(self.count_label)
+        self.list_widget = QListWidget()
+        self.list_widget.itemDoubleClicked.connect(lambda _item: self._select())
+        root.addWidget(self.list_widget, 1)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        cancel = QPushButton(app._t("settings.close"), objectName="Secondary")
+        cancel.clicked.connect(self.reject)
+        self.select_button = QPushButton(app._t("model_picker.select"), objectName="Primary")
+        self.select_button.clicked.connect(self._select)
+        actions.addWidget(cancel)
+        actions.addWidget(self.select_button)
+        root.addLayout(actions)
+        self._populate()
+
+    def _filter(self, query: str) -> None:
+        needle = query.strip().casefold()
+        self.filtered_models = tuple(model for model in self.models if needle in model.casefold())
+        self._populate()
+
+    def _populate(self) -> None:
+        self.list_widget.clear()
+        self.list_widget.addItems(self.filtered_models)
+        self.count_label.setText(self.app._t("model_picker.count", count=len(self.filtered_models)))
+        has_models = bool(self.filtered_models)
+        self.select_button.setEnabled(has_models)
+        if has_models:
+            current = self.app.model_edit.currentText().strip()
+            index = self.filtered_models.index(current) if current in self.filtered_models else 0
+            self.list_widget.setCurrentRow(index)
+
+    def _select(self) -> None:
+        item = self.list_widget.currentItem()
+        if item is None:
+            return
+        self.selected_model = item.text()
+        self.accept()
+
+
 def _application_icon() -> QIcon:
     """Recreate the original Tk geometric RenWeave mark."""
     pixmap = QPixmap(32, 32)
@@ -592,6 +669,7 @@ class QtRenWeaveWindow(QMainWindow):
         self._credential_store = SecureCredentialStore()
         self._api_key_cache: dict[tuple[str, str], str] = {}
         self._model_by_identity: dict[tuple[str, str], str] = {}
+        self._model_catalog_models: tuple[str, ...] = ()
         self._key_storage = str(self._settings.get("key_storage", "secure"))
         if self._key_storage not in {"secure", "memory"}:
             self._key_storage = "secure"
@@ -931,6 +1009,9 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_edit.setEditable(True)
         self.endpoint_edit = QLineEdit()
         self.endpoint_edit.setText(PROVIDER_PRESETS[0].base_url)
+        self.endpoint_preset_combo = QComboBox()
+        self.endpoint_preset_combo.setToolTip("Select a provider endpoint preset")
+        self.endpoint_preset_combo.currentTextChanged.connect(self._endpoint_preset_changed)
         self.reasoning_combo = QComboBox()
         self.reasoning_combo.setObjectName("ReasoningCombo")
         self.reasoning_combo.addItem(self._t("reasoning.auto"), "auto")
@@ -945,10 +1026,14 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_actions.setContentsMargins(0, 0, 0, 0)
         self.connect_model_button = QPushButton(objectName="Secondary")
         self.verify_model_button = QPushButton(objectName="Secondary")
+        self.browse_model_button = QPushButton(objectName="Secondary")
+        self.browse_model_button.setVisible(False)
         self.connect_model_button.clicked.connect(self._connect_models)
         self.verify_model_button.clicked.connect(self._verify_model)
+        self.browse_model_button.clicked.connect(self._browse_models)
         self.model_actions.addWidget(self.connect_model_button)
         self.model_actions.addWidget(self.verify_model_button)
+        self.model_actions.addWidget(self.browse_model_button)
         self.model_actions.addStretch()
         api_key_row = QHBoxLayout()
         api_key_row.setContentsMargins(0, 0, 0, 0)
@@ -958,7 +1043,12 @@ class QtRenWeaveWindow(QMainWindow):
         fields.addWidget(self.api_key_label, 0, 0, 1, 2)
         fields.addLayout(api_key_row, 1, 0, 1, 2)
         fields.addWidget(self.endpoint_label, 2, 0, 1, 2)
-        fields.addWidget(self.endpoint_edit, 3, 0)
+        endpoint_row = QHBoxLayout()
+        endpoint_row.setContentsMargins(0, 0, 0, 0)
+        endpoint_row.setSpacing(8)
+        endpoint_row.addWidget(self.endpoint_preset_combo)
+        endpoint_row.addWidget(self.endpoint_edit, 1)
+        fields.addLayout(endpoint_row, 3, 0)
         fields.addLayout(self.model_actions, 3, 1)
         fields.addWidget(self.model_label, 4, 0)
         fields.addWidget(self.reasoning_label, 4, 1)
@@ -967,6 +1057,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.model_edit.currentTextChanged.connect(self._model_changed)
         self.endpoint_edit.editingFinished.connect(self._endpoint_edited)
         self.reasoning_combo.currentIndexChanged.connect(self._reasoning_changed)
+        self._set_endpoint_presets(PROVIDER_PRESETS[0])
         card_layout.addLayout(fields)
         self.reasoning_hint_label = QLabel(objectName="Hint")
         self.reasoning_hint_label.setWordWrap(True)
@@ -1367,6 +1458,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.use_model_hint.setText(self._t("model.use_hint"))
         self.connect_model_button.setText(self._t("model.load"))
         self.verify_model_button.setText(self._t("model.verify"))
+        self.browse_model_button.setText(self._t("model.browse", count=len(self._model_catalog_models)))
         self.generate_rpa_check.setText(self._t("review.rpa"))
         self.install_check.setText(self._t("review.install"))
         self.budget_title.setText("AI usage estimate" if self.locale == "en" else "AI 用量预估")
@@ -1686,6 +1778,28 @@ class QtRenWeaveWindow(QMainWindow):
         self._api_key_cache[identity] = secret or ""
         return secret or ""
 
+    def _set_endpoint_presets(self, preset) -> None:
+        current = self.endpoint_edit.text().strip()
+        self.endpoint_preset_combo.blockSignals(True)
+        self.endpoint_preset_combo.clear()
+        self.endpoint_preset_combo.addItems(preset.base_urls)
+        selected = self.endpoint_preset_combo.findText(current)
+        self.endpoint_preset_combo.setCurrentIndex(selected if selected >= 0 else -1)
+        self.endpoint_preset_combo.blockSignals(False)
+
+    def _endpoint_preset_changed(self, endpoint: str) -> None:
+        endpoint = endpoint.strip()
+        if not endpoint or endpoint == self.endpoint_edit.text().strip():
+            return
+        self.endpoint_edit.setText(endpoint)
+        self._endpoint_edited()
+
+    def _sync_endpoint_preset_selection(self) -> None:
+        index = self.endpoint_preset_combo.findText(self.endpoint_edit.text().strip())
+        self.endpoint_preset_combo.blockSignals(True)
+        self.endpoint_preset_combo.setCurrentIndex(index)
+        self.endpoint_preset_combo.blockSignals(False)
+
     def _endpoint_edited(self) -> None:
         endpoint = self.endpoint_edit.text().strip()
         if not endpoint or endpoint == self._active_endpoint:
@@ -1699,6 +1813,7 @@ class QtRenWeaveWindow(QMainWindow):
         remembered_model = self._model_by_identity.get((self._active_provider_id, endpoint), "")
         if remembered_model:
             self.model_edit.setCurrentText(remembered_model)
+        self._sync_endpoint_preset_selection()
         self._save_settings()
 
     def _set_key_storage(self, storage: str) -> None:
@@ -1819,6 +1934,7 @@ class QtRenWeaveWindow(QMainWindow):
         self.endpoint_edit.blockSignals(True)
         self.endpoint_edit.setText(preset.base_url)
         self.endpoint_edit.blockSignals(False)
+        self._set_endpoint_presets(preset)
         self.api_key_edit.setText(self._read_api_key(provider_id, preset.base_url))
         self.model_edit.blockSignals(True)
         self.model_edit.clear()
@@ -1826,6 +1942,8 @@ class QtRenWeaveWindow(QMainWindow):
         if remembered_model:
             self.model_edit.setCurrentText(remembered_model)
         self.model_edit.blockSignals(False)
+        self._model_catalog_models = ()
+        self.browse_model_button.setVisible(False)
         self.reasoning_combo.setEnabled(preset.reasoning_control != "none")
         self._refresh_reasoning_hint()
         for button_index, button in enumerate(getattr(self, "provider_buttons", [])):
@@ -1842,6 +1960,7 @@ class QtRenWeaveWindow(QMainWindow):
         )
 
     def _models_loaded(self, catalog) -> None:
+        self._model_catalog_models = tuple(catalog.models)
         self.model_status.setText(self._t("model.loaded", count=len(catalog.models), latency=catalog.latency_ms))
         current = self.model_edit.currentText().strip()
         self.model_edit.clear()
@@ -1854,6 +1973,14 @@ class QtRenWeaveWindow(QMainWindow):
             self.model_edit.setCurrentIndex(selected_index)
             self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = catalog.models[selected_index]
             self._save_settings()
+        self.browse_model_button.setVisible(bool(self._model_catalog_models))
+
+    def _browse_models(self) -> None:
+        if not self._model_catalog_models:
+            return
+        dialog = ModelPickerDialog(self, self._model_catalog_models)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.model_edit.setCurrentText(dialog.selected_model)
 
     def _verify_model(self) -> None:
         profile = self._profile(require_model=True)
@@ -2220,6 +2347,9 @@ class QtRenWeaveWindow(QMainWindow):
         if saved_endpoint and saved_endpoint != self.endpoint_edit.text().strip():
             self.endpoint_edit.setText(saved_endpoint)
             self._active_endpoint = saved_endpoint
+            self.api_key_edit.setText(self._read_api_key(self._active_provider_id, saved_endpoint))
+            self.model_edit.setCurrentText(self._model_by_identity.get((self._active_provider_id, saved_endpoint), ""))
+        self._sync_endpoint_preset_selection()
         saved_model = str(self._settings.get("model", "")).strip()
         if saved_model:
             self._model_by_identity[(self._active_provider_id, self._active_endpoint)] = saved_model

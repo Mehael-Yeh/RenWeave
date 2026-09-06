@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from renweave.decompiler import run_unrpyc_in_process
 from renweave.pipeline import PipelineStage
-from renweave.qt_gui import QtRenWeaveWindow
+from renweave.qt_gui import ModelPickerDialog, QtRenWeaveWindow
 
 
 class QtFrontendTests(unittest.TestCase):
@@ -366,6 +366,30 @@ class QtFrontendTests(unittest.TestCase):
                 window.workspace_edit.setText(str(workspace))
                 window._load_workspace_log()
                 self.assertIn("restored event", window.log_edit.toPlainText())
+        finally:
+            window.close()
+
+    def test_provider_endpoint_presets_and_searchable_model_picker(self):
+        window = QtRenWeaveWindow()
+        try:
+            deepseek_index = window.provider_ids.index("deepseek")
+            window._select_provider(deepseek_index)
+            self.assertEqual(window.endpoint_preset_combo.count(), 2)
+            window.endpoint_preset_combo.setCurrentIndex(1)
+            self.assertEqual(window.endpoint_edit.text(), "https://api.deepseek.com/v1")
+
+            window._models_loaded(SimpleNamespace(models=("alpha", "beta-vision", "gamma"), latency_ms=4))
+            self.assertTrue(window.browse_model_button.isVisible() or not window.isVisible())
+            dialog = ModelPickerDialog(window, window._model_catalog_models)
+            try:
+                dialog.search_edit.setText("vision")
+                self.assertEqual(dialog.list_widget.count(), 1)
+                self.assertEqual(dialog.list_widget.item(0).text(), "beta-vision")
+                dialog.list_widget.setCurrentRow(0)
+                dialog._select()
+                self.assertEqual(dialog.selected_model, "beta-vision")
+            finally:
+                dialog.close()
         finally:
             window.close()
 
