@@ -321,6 +321,70 @@ class CorePipelineTests(unittest.TestCase):
         self.assertEqual(len(second.scenes), len(first.scenes) + 1)
         self.assertIn("added_later", {scene.label for scene in second.scenes})
 
+    def test_workspace_checkpoints_survive_source_changes_without_installed_files(self) -> None:
+        class RecordingGateway:
+            def __init__(self) -> None:
+                self.requests: list[set[str]] = []
+                self.model_calls = 0
+                self.prompt_tokens = 0
+                self.completion_tokens = 0
+                self.requests_attempted = 0
+
+            def chat(self, messages, *, temperature=0.2):
+                request = json.loads(messages[-1]["content"])
+                requested = set(request["requested_ids"])
+                self.requests.append(requested)
+                self.model_calls += 1
+                self.requests_attempted += 1
+                rows = [
+                    {"id": line["id"], "text": f"FR: {line['source']}"}
+                    for line in request["scene"]["lines"]
+                    if line["id"] in requested
+                ]
+                return {
+                    "choices": [{"message": {"content": json.dumps({"translations": rows})}}]
+                }
+
+        workspace = Path(self.temp.name) / "workspace-only-incremental"
+        profile = ModelProfile(name="test", model="fake", base_url="https://example.invalid")
+        first_gateway = RecordingGateway()
+        first = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=first_gateway,
+            generate_rpa=False,
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(first_gateway.model_calls, 3)
+        self.assertEqual(first.stage, PipelineStage.COMPLETE)
+
+        updated = SAMPLE_SCRIPT.replace(
+            '    eve "We made it."\n',
+            '    eve "We made it."\n    eve "A new line was added."\n',
+        )
+        (self.game / "script.rpy").write_text(updated, encoding="utf-8", newline="\n")
+
+        second_gateway = RecordingGateway()
+        second = RenWeavePipeline(workspace).translate(
+            self.root,
+            "en",
+            "fr",
+            profile,
+            gateway=second_gateway,
+            generate_rpa=False,
+            synthesize_knowledge=False,
+            refine_translations=False,
+        )
+        self.assertEqual(second.stage, PipelineStage.COMPLETE)
+        self.assertEqual(second_gateway.model_calls, 1)
+        self.assertEqual(second.incremental_units_to_translate, 1)
+        self.assertEqual(second.total_text_units, 2)
+        self.assertEqual(len(second_gateway.requests[0]), 1)
+        self.assertIn("workspace_checkpoints_migrated", (workspace / "logs" / "events.jsonl").read_text(encoding="utf-8"))
+
     def test_analysis_schema_upgrade_preserves_scene_checkpoints(self) -> None:
         workspace = Path(self.temp.name) / "analysis-upgrade-workspace"
         pipeline = RenWeavePipeline(workspace)

@@ -188,6 +188,8 @@ class RenWeavePipeline:
         project = ProjectDiscovery().discover(target)
         project_fingerprint = self._project_fingerprint(project)
         reusable_state: PipelineState | None = None
+        previous_state: PipelineState | None = None
+        previous_index: ProjectIndex | None = None
         if self.state_path.is_file() and self.index_path.is_file() and self.knowledge_path.is_file():
             try:
                 existing = self._load_state()
@@ -201,6 +203,8 @@ class RenWeavePipeline:
                     state_path=str(self.state_path),
                 )
             else:
+                previous_state = existing
+                previous_index = cached_index
                 same_inputs = (
                     existing.schema_version >= 4
                     and existing.project_target == resolved_target
@@ -281,6 +285,15 @@ class RenWeavePipeline:
             self._raise_if_cancelled(state, cancel_token, "Cancellation requested after scene indexing")
             knowledge = DeterministicKnowledgeBuilder().build(index)
             atomic_write_json(self.knowledge_path, knowledge.to_dict())
+            if (
+                previous_state is not None
+                and previous_index is not None
+                and previous_state.project_target == resolved_target
+                and previous_state.source_language == source_language
+                and previous_state.target_language == target_language
+                and previous_index.schema_version >= 1
+            ):
+                self._migrate_workspace_checkpoints(previous_index, index, state)
             state.stage = PipelineStage.KNOWLEDGE_READY
             state.current_operation = "Deterministic game knowledge is ready"
             self._save_state(state)
@@ -310,6 +323,114 @@ class RenWeavePipeline:
             [Path(project.game_dir), *acquisition.source_roots],
             unrpyc_path=unrpyc_path,
             allow_tool_download=allow_tool_download,
+        )
+
+    def _migrate_workspace_checkpoints(
+        self,
+        previous_index: ProjectIndex,
+        current_index: ProjectIndex,
+        state: PipelineState,
+    ) -> None:
+        """Carry unchanged workspace translations across a source re-index.
+
+        Text IDs include source line numbers, so inserting a line can change
+        every following ID even when those lines are unchanged.  Match old and
+        new units by scene identity and translation-relevant content instead;
+        changed source text is deliberately left pending for the model.
+        """
+        if not self.translations_dir.is_dir():
+            return
+
+        old_scenes = {
+            self._checkpoint_scene_key(scene): scene
+            for scene in previous_index.scenes
+            if scene.text_units
+        }
+        validator = TranslationValidator()
+        migrated_units = 0
+        completed_scenes = 0
+        partial_scenes = 0
+
+        for scene in current_index.scenes:
+            if not scene.text_units:
+                continue
+            previous_scene = old_scenes.get(self._checkpoint_scene_key(scene))
+            if previous_scene is None:
+                continue
+            previous_path = self.translations_dir / f"{previous_scene.id}.json"
+            try:
+                payload = read_json(previous_path)
+                raw_translations = payload.get("translations", {})
+            except (OSError, ValueError, TypeError, KeyError):
+                continue
+            if not isinstance(raw_translations, dict):
+                continue
+            previous_translations = {
+                str(text_id): str(translated)
+                for text_id, translated in raw_translations.items()
+            }
+
+            candidates: dict[tuple[object, ...], list[tuple[str, str]]] = {}
+            for unit in previous_scene.text_units:
+                translated = previous_translations.get(unit.id)
+                if translated is None:
+                    continue
+                candidates.setdefault(self._checkpoint_unit_key(unit), []).append(
+                    (unit.id, translated)
+                )
+
+            occurrence: dict[tuple[object, ...], int] = {}
+            migrated: dict[str, str] = {}
+            for unit in scene.text_units:
+                key = self._checkpoint_unit_key(unit)
+                position = occurrence.get(key, 0)
+                occurrence[key] = position + 1
+                matches = candidates.get(key, [])
+                if position >= len(matches):
+                    continue
+                _previous_id, translated = matches[position]
+                migrated[unit.id] = translated
+
+            if not migrated:
+                continue
+            atomic_write_json(
+                self.translations_dir / f"{scene.id}.json",
+                {"scene_id": scene.id, "translations": migrated},
+            )
+            report = validator.validate_scene(current_index, scene.id, migrated)
+            atomic_write_json(self.reports_dir / f"{scene.id}.json", report.to_dict())
+            migrated_units += len(migrated)
+            if report.passed:
+                if scene.id not in state.completed_scene_ids:
+                    state.completed_scene_ids.append(scene.id)
+                completed_scenes += 1
+            else:
+                partial_scenes += 1
+
+        if migrated_units:
+            self.logger.event(
+                "INFO",
+                "workspace_checkpoints_migrated",
+                "Reused unchanged workspace translations after the project source changed",
+                migrated_units=migrated_units,
+                completed_scenes=completed_scenes,
+                partial_scenes=partial_scenes,
+            )
+
+    @staticmethod
+    def _checkpoint_scene_key(scene) -> tuple[str, str]:
+        return scene.relative_path, scene.label
+
+    @staticmethod
+    def _checkpoint_unit_key(unit) -> tuple[object, ...]:
+        channel = getattr(unit.channel, "value", str(unit.channel))
+        return (
+            channel,
+            unit.source,
+            unit.speaker,
+            tuple(unit.attributes),
+            unit.condition,
+            unit.literal_ordinal,
         )
 
     def preview_translation_scope(
@@ -686,7 +807,11 @@ class RenWeavePipeline:
             for translations in existing_inventory.translations_by_scene.values()
             for text_id in translations
         }
-        budget_ids = candidate_ids - reused_ids if existing_inventory.has_existing_language else candidate_ids
+        has_reusable_output = (
+            existing_inventory.has_existing_language
+            or existing_inventory.workspace_reused_units > 0
+        )
+        budget_ids = candidate_ids - reused_ids if has_reusable_output else candidate_ids
         budget = estimate_index_tokens(index, budget_ids)
         state.estimated_input_tokens_low = budget.estimated_input_low
         state.estimated_input_tokens_high = budget.estimated_input_high
@@ -697,7 +822,7 @@ class RenWeavePipeline:
         state.source_token_equivalent = budget.source_token_equivalent
         state.token_estimate_confidence = budget.confidence
         self._reconcile_completed_scenes(index, candidates, state, validator)
-        state.workflow_mode = "incremental" if existing_inventory.has_existing_language else "full"
+        state.workflow_mode = "incremental" if has_reusable_output else "full"
         state.knowledge_strategy = "reuse-existing" if state.workflow_mode == "incremental" else "lightweight-route-map"
         state.knowledge_consent = knowledge_consent if knowledge_consent in {"auto", "approved", "declined"} else "auto"
         # Imported translations are checkpoints. The model should only see scenes
@@ -1387,6 +1512,16 @@ class RenWeavePipeline:
                 state.completed_scene_ids.append(scene_id)
             if report.passed and scene_id in state.failed_scene_ids:
                 state.failed_scene_ids.remove(scene_id)
+        self._include_workspace_checkpoints_in_preview(index, inventory)
+        atomic_write_json(self.existing_translations_path, inventory.to_dict())
+        state.existing_reused_units = inventory.reusable_units
+        state.existing_missing_units = inventory.missing_units
+        state.existing_invalid_units = inventory.invalid_units
+        for scene_id, translations in inventory.translations_by_scene.items():
+            report = validator.validate_scene(index, scene_id, translations)
+            atomic_write_json(self.reports_dir / f"{scene_id}.json", report.to_dict())
+            if report.passed and scene_id not in state.completed_scene_ids:
+                state.completed_scene_ids.append(scene_id)
         if inventory.has_existing_language:
             self.logger.event(
                 "INFO",
