@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from renweave.decompiler import run_unrpyc_in_process
 from renweave.pipeline import PipelineStage
-from renweave.qt_gui import ModelPickerDialog, QtRenWeaveWindow
+from renweave.qt_gui import ErrorDetailsDialog, ModelPickerDialog, QtRenWeaveWindow, SettingsDialog, UI_COPY
 from renweave.runtime import CancellationToken
 
 
@@ -87,6 +87,53 @@ class QtFrontendTests(unittest.TestCase):
             self.assertIn("translated script.rpy", window.log_edit.toPlainText())
         finally:
             window.close()
+
+    def test_sidebar_keeps_legacy_step_numbers_and_responsive_width(self):
+        window = QtRenWeaveWindow()
+        try:
+            window.show()
+            window.resize(900, 640)
+            window._refresh_shell()
+            self.assertEqual(
+                [button.text().split()[0] for button in window.nav_buttons],
+                ["01", "02", "03", "04", "05"],
+            )
+            narrow_width = window.sidebar.width()
+            window.resize(1240, 840)
+            wide_width = window.sidebar.width()
+            self.assertGreaterEqual(narrow_width, 188)
+            self.assertLessEqual(wide_width, 232)
+            self.assertGreaterEqual(wide_width, narrow_width)
+        finally:
+            window.close()
+
+    def test_auxiliary_dialogs_use_the_application_surface_background(self):
+        window = QtRenWeaveWindow()
+        try:
+            settings = SettingsDialog(window)
+            picker = ModelPickerDialog(window, ("model-a",))
+            error = ErrorDetailsDialog(window, "details")
+            try:
+                self.assertEqual(settings.objectName(), "SettingsDialog")
+                self.assertEqual(picker.objectName(), "ModelPickerDialog")
+                self.assertEqual(error.objectName(), "ErrorDetailsDialog")
+                stylesheet = window.styleSheet()
+                self.assertIn("QDialog#SettingsDialog", stylesheet)
+                self.assertIn("#f3f6fb", stylesheet)
+            finally:
+                settings.close()
+                picker.close()
+                error.close()
+        finally:
+            window.close()
+
+    def test_all_localized_popup_copy_keys_exist_in_both_locales(self):
+        self.assertEqual(set(UI_COPY["en"]), set(UI_COPY["zh"]))
+        popup_keys = {key for key in UI_COPY["en"] if key.startswith("dialog.")}
+        self.assertTrue(popup_keys)
+        for key in popup_keys:
+            self.assertTrue(UI_COPY["en"][key])
+            self.assertTrue(UI_COPY["zh"][key])
 
     def test_locale_switch_retranslates_mounted_widgets(self):
         window = QtRenWeaveWindow()

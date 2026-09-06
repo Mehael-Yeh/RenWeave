@@ -103,6 +103,7 @@ class SettingsDialog(QDialog):
     def __init__(self, app: "QtRenWeaveWindow") -> None:
         super().__init__(app)
         self.app = app
+        self.setObjectName("SettingsDialog")
         self.setWindowTitle(app._t("settings.title"))
         self.setModal(True)
         self.resize(760, 430)
@@ -605,6 +606,7 @@ class ModelPickerDialog(QDialog):
     def __init__(self, app: "QtRenWeaveWindow", models: tuple[str, ...]) -> None:
         super().__init__(app)
         self.app = app
+        self.setObjectName("ModelPickerDialog")
         self.models = tuple(models)
         self.filtered_models = self.models
         self.setWindowTitle(app._t("model_picker.title"))
@@ -667,6 +669,7 @@ class ErrorDetailsDialog(QDialog):
 
     def __init__(self, app: "QtRenWeaveWindow", error: object) -> None:
         super().__init__(app)
+        self.setObjectName("ErrorDetailsDialog")
         self.setWindowTitle(app._t("error.title"))
         self.setModal(True)
         self.resize(760, 460)
@@ -801,7 +804,7 @@ class QtRenWeaveWindow(QMainWindow):
         arrow_path = (Path(__file__).resolve().parent / "assets" / "chevron-down.svg").as_posix()
         self.setStyleSheet(
             """
-            QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f6fb; color: #101828; font-family: "Microsoft YaHei UI"; }
+            QMainWindow, QWidget#Root, QScrollArea, QScrollArea > QWidget > QWidget, QDialog#SettingsDialog, QDialog#ModelPickerDialog, QDialog#ErrorDetailsDialog { background: #f3f6fb; color: #101828; font-family: "Microsoft YaHei UI"; }
             QFrame#Sidebar { background: #0b1020; }
             QFrame#Card, QFrame#Footer { background: #ffffff; border: 1px solid #e0e6ef; border-radius: 12px; }
             QFrame#Card QLabel, QFrame#TintCard QLabel, QFrame#SuccessCard QLabel { background: transparent; }
@@ -859,7 +862,9 @@ class QtRenWeaveWindow(QMainWindow):
         root_layout.setSpacing(0)
 
         self.sidebar = QFrame(objectName="Sidebar")
-        self.sidebar.setFixedWidth(232)
+        self.sidebar.setMinimumWidth(188)
+        self.sidebar.setMaximumWidth(232)
+        self.sidebar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(18, 24, 18, 18)
         brand_row = QHBoxLayout()
@@ -1360,7 +1365,7 @@ class QtRenWeaveWindow(QMainWindow):
             self._t("review.blank_translation" if self._blank_translation_mode else "review.model_translation")
         )
         for index, button in enumerate(self.nav_buttons):
-            button.setText(f"{'✓' if index < self.step else f'{index + 1:02d}'}    {self._t(f'nav.{self.STEPS[index]}')}")
+            button.setText(f"{index + 1:02d}    {self._t(f'nav.{self.STEPS[index]}')}")
             button.setProperty("current", "true" if index == self.step else "false")
             button.style().unpolish(button)
             button.style().polish(button)
@@ -1402,6 +1407,12 @@ class QtRenWeaveWindow(QMainWindow):
         else:
             self.action_button.setText(self._t("shell.continue"))
             self.action_button.setEnabled(self._can_continue())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "sidebar"):
+            width = max(188, min(232, round(self.width() * 0.18)))
+            self.sidebar.setFixedWidth(width)
 
     def _footer_effect(self) -> str:
         return (
