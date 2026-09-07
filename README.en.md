@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Mehael-Yeh/RenWeave?label=Release)](https://github.com/Mehael-Yeh/RenWeave/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Mehael-Yeh/RenWeave/total?label=Downloads)](https://github.com/Mehael-Yeh/RenWeave/releases)
 
-**English** · [简体中文 README](README.md)
+[**简体中文**](README.md)
 
 RenWeave is a context-aware Ren'Py localization tool. It understands scripts as scenes and story flow, preserves existing translation work, validates generated RPY files, and can optionally package the result as an RPA archive.
 
