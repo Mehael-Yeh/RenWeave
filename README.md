@@ -5,7 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/Mehael-Yeh/RenWeave?label=Release)](https://github.com/Mehael-Yeh/RenWeave/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Mehael-Yeh/RenWeave/total?label=Downloads)](https://github.com/Mehael-Yeh/RenWeave/releases)
 
-**简体中文** · [English README](README.en.md)
+[**English**](README.en.md)
 
 织译是面向 Ren'Py 游戏的上下文感知本地化工具。它把脚本按场景和剧情流理解，保留已有翻译，校验生成的 RPY 文件，并可按需将最终语言包打包为 RPA 归档。
 
